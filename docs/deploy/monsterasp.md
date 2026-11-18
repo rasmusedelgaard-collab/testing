@@ -14,7 +14,7 @@ package at deploy time. `crm.env` is never in git, never in a downloadable artif
 1. **Find the Web Deploy details in MonsterASP.** *Not verified: I could not reach help.monsterasp.net. From memory it is in the panel under your website > "Web Deploy" / "Publish profile" (download the profile file).* Open the profile in a text editor and note four values:
    `publishUrl` (looks like `siteXXXX.siteasp.net:8172`), `msdeploySite` (the site name), `userName`, `userPWD`. If the panel has a Web Deploy on/off switch, turn it on. If you cannot find it, ask MonsterASP support: "Web Deploy (msdeploy) server, site name, user and password for crmtest.runasp.net".
 2. **Node version.** In the MonsterASP panel set the site's Node.js version to the newest LTS offered (20 or newer).
-3. **Create the GitHub Environment.** GitHub repo > Settings > Environments > New environment > name it exactly `test`.
+3. **Create the GitHub Environment.** GitHub repo > Settings > Environments > New environment > name it exactly `test`. Then in that environment set "Deployment branches and tags" to **Selected branches** and add `claude/tender-darwin-4quuzo` (later `main`), so only that branch can read the secrets.
 4. **Add the secrets.** In Settings > Environments > test > Environment secrets > Add secret, one by one (names exactly as shown):
 
    | Secret | Value |

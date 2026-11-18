@@ -61,23 +61,33 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: test
-    env:
-      DB_AUTH_MODE: sql-password
-      DB_SERVER: ${{ vars.DB_SERVER || 'db81053.databaseasp.net' }}
-      DB_NAME: ${{ vars.DB_NAME || 'db81053' }}
-      DB_USER: ${{ vars.DB_USER || 'db81053' }}
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-      DB_TRUST_SERVER_CERT: ${{ vars.DB_TRUST_SERVER_CERT || 'false' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       # GitHub runner IPs are dynamic: if the host's DB firewall rejects them this fails; run from your own PC instead.
-      - run: npm run db:migrate
-      - run: npm run db:seed:test
+      # DB_* env is set per step so the password is only visible to the two db: commands.
+      - name: Migrate
+        run: npm run db:migrate
+        env:
+          DB_AUTH_MODE: sql-password
+          DB_SERVER: ${{ vars.DB_SERVER || 'db81053.databaseasp.net' }}
+          DB_NAME: ${{ vars.DB_NAME || 'db81053' }}
+          DB_USER: ${{ vars.DB_USER || 'db81053' }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_TRUST_SERVER_CERT: ${{ vars.DB_TRUST_SERVER_CERT || 'false' }}
+      - name: Seed test users
+        run: npm run db:seed:test
+        env:
+          DB_AUTH_MODE: sql-password
+          DB_SERVER: ${{ vars.DB_SERVER || 'db81053.databaseasp.net' }}
+          DB_NAME: ${{ vars.DB_NAME || 'db81053' }}
+          DB_USER: ${{ vars.DB_USER || 'db81053' }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_TRUST_SERVER_CERT: ${{ vars.DB_TRUST_SERVER_CERT || 'false' }}
 
   deploy:
     # Run after a successful build; migrate may be skipped, but if it ran it must have succeeded.
@@ -94,6 +104,30 @@ jobs:
         with:
           name: package
           path: package
+
+      - name: Validate secrets (format only, values never printed)
+        env:
+          MONSTERASP_WEBDEPLOY_SERVER: ${{ secrets.MONSTERASP_WEBDEPLOY_SERVER }}
+          MONSTERASP_WEBDEPLOY_SITE: ${{ secrets.MONSTERASP_WEBDEPLOY_SITE }}
+          MONSTERASP_WEBDEPLOY_USER: ${{ secrets.MONSTERASP_WEBDEPLOY_USER }}
+          MONSTERASP_WEBDEPLOY_PASSWORD: ${{ secrets.MONSTERASP_WEBDEPLOY_PASSWORD }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          TEST_ACCESS_CODE: ${{ secrets.TEST_ACCESS_CODE }}
+        run: |
+          $bad = @()
+          foreach ($n in 'MONSTERASP_WEBDEPLOY_SERVER','MONSTERASP_WEBDEPLOY_SITE','MONSTERASP_WEBDEPLOY_USER','MONSTERASP_WEBDEPLOY_PASSWORD','DB_PASSWORD','SESSION_SECRET','TEST_ACCESS_CODE') {
+            $v = [Environment]::GetEnvironmentVariable($n)
+            if ([string]::IsNullOrEmpty($v)) { $bad += "${n}: not set"; continue }
+            if ($v -match ',') { $bad += "${n}: contains a comma" }
+            if ($v -match '[\r\n]') { $bad += "${n}: contains a line break" }
+            if ($v -ne $v.Trim()) { $bad += "${n}: has leading or trailing whitespace" }
+          }
+          if ($bad.Count -gt 0) {
+            $bad | ForEach-Object { Write-Host "::error::$_" }
+            throw 'Secret validation failed (see errors above; values are not shown). Fix in Settings > Environments > test.'
+          }
+          Write-Host 'Secret format OK'
 
       - name: Write crm.env from secrets
         env:
@@ -139,7 +173,7 @@ jobs:
           )
           $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
           if (-not $exe) {
-            choco install webdeploy -y --no-progress | Out-Host
+            choco install webdeploy --version 3.6.0 -y --no-progress | Out-Host
             $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
           }
           if (-not $exe) { throw 'msdeploy.exe not found after install' }
