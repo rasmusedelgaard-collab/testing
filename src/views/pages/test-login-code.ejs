@@ -1,0 +1,18 @@
+<%- include('../partials/head') %>
+<div class="center-card">
+  <h1>Test sign-in</h1>
+  <% if (locked) { %>
+  <p role="alert" class="error">Too many incorrect attempts. Wait 15 minutes and try again.</p>
+  <% } else { %>
+  <% if (error) { %><p role="alert" class="error"><%= error %></p><% } %>
+  <p>Enter the shared test access code.</p>
+  <form method="post" action="/auth/test-login">
+    <%- csrfField() %>
+    <input type="hidden" name="returnTo" value="<%= returnTo %>">
+    <label for="code">Access code (required)</label>
+    <input id="code" name="code" type="password" autocomplete="off" required>
+    <button type="submit" class="button primary">Continue</button>
+  </form>
+  <% } %>
+</div>
+<%- include('../partials/foot') %>

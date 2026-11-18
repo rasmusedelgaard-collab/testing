@@ -1,0 +1,20 @@
+<%- include('../partials/head') %>
+<div class="center-card">
+  <h1>Choose a test user</h1>
+  <% if (users.length === 0) { %>
+  <p role="alert" class="error">No test users found. Run <code>npm run db:seed:test</code> first.</p>
+  <% } else { %>
+  <form method="post" action="/auth/test-login/user">
+    <%- csrfField() %>
+    <input type="hidden" name="returnTo" value="<%= returnTo %>">
+    <fieldset>
+      <legend>Sign in as</legend>
+      <% users.forEach((u, i) => { %>
+      <label><input type="radio" name="oid" value="<%= u.oid %>"<%- i === 0 ? ' checked' : '' %>> <%= u.name %> (<%= u.role %>, <%= u.teamName || 'no team' %>)</label>
+      <% }) %>
+    </fieldset>
+    <button type="submit" class="button primary">Sign in</button>
+  </form>
+  <% } %>
+</div>
+<%- include('../partials/foot') %>

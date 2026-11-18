@@ -1,6 +1,6 @@
 import type { ISqlType } from 'mssql';
 import { withDbRetry } from './retry';
-import { getSystemPool } from './pool';
+import { closePools, getSystemPool } from './pool';
 
 export interface SqlParam {
   name: string;
@@ -24,3 +24,6 @@ export async function systemQuery<T = Record<string, unknown>>(text: string, par
   return rows ?? [];
 }
 
+
+/** Closes both pools (graceful shutdown). */
+export const closeDatabase = closePools;

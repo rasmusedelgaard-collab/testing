@@ -17,11 +17,14 @@ export interface ResettableConnection {
  * SESSION_CONTEXT keys would leak into the next request. We reset explicitly (ADR-0002).
  * If the reset fails the connection is closed; tarn then fails validation and destroys it.
  */
+const baseRelease = (): ((c: unknown) => void) => (sql.ConnectionPool.prototype as unknown as { release(c: unknown): void }).release;
+
 export class ResettingConnectionPool extends sql.ConnectionPool {
-  override release(connection: unknown): this {
+  // mssql's typings omit release(), but the runtime class has it and tedious transactions call it.
+  release(connection: unknown): this {
     const conn = connection as ResettableConnection;
     const give = () => {
-      super.release(connection as never);
+      baseRelease().call(this, connection);
     };
     try {
       conn.reset((err) => {

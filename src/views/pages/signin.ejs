@@ -1,0 +1,23 @@
+<%- include('../partials/head') %>
+<div class="center-card">
+  <h1>Sign in</h1>
+  <% if (reason === 'expired') { %><p class="flash" role="status">Your session has ended. Sign in again to continue.</p><% } %>
+  <% if (demo) { %>
+  <p>Demo mode: choose a role. No password and no database.</p>
+  <form method="post" action="/demo/login">
+    <%- csrfField() %>
+    <input type="hidden" name="returnTo" value="<%= returnTo %>">
+    <fieldset>
+      <legend>Role</legend>
+      <label><input type="radio" name="role" value="Admin" checked> Admin</label>
+      <label><input type="radio" name="role" value="Manager"> Manager</label>
+      <label><input type="radio" name="role" value="User"> User</label>
+    </fieldset>
+    <button type="submit" class="button primary">Sign in as demo user</button>
+  </form>
+  <% } else { %>
+  <p>Sign in with your work account.</p>
+  <a class="button primary" href="<%= loginPath %>?returnTo=<%= encodeURIComponent(returnTo) %>">Sign in with Microsoft</a>
+  <% } %>
+</div>
+<%- include('../partials/foot') %>
