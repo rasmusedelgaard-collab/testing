@@ -28,11 +28,35 @@ EXEC sp_set_session_context @key = N'Role',   @value = @Role,   @read_only = 1;
 EXEC sp_set_session_context @key = N'TeamId', @value = @TeamId, @read_only = 1;
 `;
 
+interface TxInternals { _acquiredConnection?: { close(): void } | null; _activeRequest?: unknown }
+
+/**
+ * Rolls back. If the rollback itself fails while the transaction still holds its connection (for example because a
+ * request was still in flight), the connection is in an unknown state: close it and hand it back to the pool, which then
+ * destroys it. The connection is therefore ALWAYS released, never leaked.
+ */
 async function rollbackQuietly(tx: sql.Transaction): Promise<void> {
   try {
     await tx.rollback();
+    return;
   } catch {
-    /* transaction already finished or connection gone: nothing left to undo */
+    /* fall through: either already finished (nothing to release) or stuck (discard below) */
+  }
+  const internals = tx as unknown as TxInternals;
+  const conn = internals._acquiredConnection;
+  if (!conn) return;
+  internals._acquiredConnection = null;
+  internals._activeRequest = null;
+  try {
+    conn.close();
+  } catch {
+    /* already closed */
+  }
+  try {
+    const pool = await getRlsPool();
+    (pool as unknown as { release(c: unknown): void }).release(conn);
+  } catch (err) {
+    logger.error({ err: (err as Error).message }, 'could not release a discarded connection');
   }
 }
 

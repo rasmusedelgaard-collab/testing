@@ -72,10 +72,13 @@ function mount(router: Router, store: CrmStore, def: EntityDef): void {
       const lk = await repo.lookups();
       const today = todayIn(lk.settings.timezone);
       const q = parseListQuery(def, req.query as Record<string, unknown>, today);
-      const [result, owners] = await Promise.all([repo.list(key, q), repo.owners()]);
+      // Sequential on purpose: one transaction = one connection = one request at a time.
+      const result = await repo.list(key, q);
+      const owners = await repo.owners();
       if (key === 'accounts' && result.rows.length > 0) {
         // Open pipeline per account in the base currency, at the current month's rate (ADR-0005); unconvertible deals are called out.
-        const [aggs, rates] = await Promise.all([repo.oppAggregates({ types: ['open'], accountIds: result.rows.map((r) => Number(r.Id)), groupBy: ['account'] }), repo.fxRates(lk.settings.baseCurrency)]);
+        const aggs = await repo.oppAggregates({ types: ['open'], accountIds: result.rows.map((r) => Number(r.Id)), groupBy: ['account'] });
+        const rates = await repo.fxRates(lk.settings.baseCurrency);
         const conv = makeConverter(lk.settings.baseCurrency, rates);
         const fmt = makeFormatter(lk.settings);
         for (const r of result.rows) {

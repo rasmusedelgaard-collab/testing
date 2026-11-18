@@ -33,14 +33,13 @@ export function createDashboardRouter(store: CrmStore): Router {
       const today = todayIn(s.timezone);
       const quarter = quarterRange(today, s.fiscalStartMonth);
       const win = winRateRange(today);
-      const [rates, openRows, quarterWonRows, winRateRows, counts, mine] = await Promise.all([
-        repo.fxRates(s.baseCurrency),
-        repo.oppAggregates({ types: ['open'], groupBy: ['stage'] }),
-        repo.oppAggregates({ types: ['won'], from: quarter.from, to: quarter.to, groupBy: ['month'] }),
-        repo.oppAggregates({ types: ['won', 'lost'], from: win.from, to: win.to, groupBy: [] }),
-        repo.activityCounts(today),
-        repo.list('opportunities', listQuery(today, { status: 'open', owner: String(ctx.userId) }, 'close')),
-      ]);
+      // Sequential on purpose: one transaction = one connection = one request at a time (no Promise.all here).
+      const rates = await repo.fxRates(s.baseCurrency);
+      const openRows = await repo.oppAggregates({ types: ['open'], groupBy: ['stage'] });
+      const quarterWonRows = await repo.oppAggregates({ types: ['won'], from: quarter.from, to: quarter.to, groupBy: ['month'] });
+      const winRateRows = await repo.oppAggregates({ types: ['won', 'lost'], from: win.from, to: win.to, groupBy: [] });
+      const counts = await repo.activityCounts(today);
+      const mine = await repo.list('opportunities', listQuery(today, { status: 'open', owner: String(ctx.userId) }, 'close'));
       const actFilters = { owner: String(ctx.userId), status: 'open', type: 'actionable' };
       const upcoming = {
         overdue: await repo.list('activities', listQuery(today, { ...actFilters, due: 'overdue' })),
@@ -87,14 +86,12 @@ export function createDashboardRouter(store: CrmStore): Router {
       const today = todayIn(s.timezone);
       const period = resolvePeriod({ period: str(q.period), from: str(q.from), to: str(q.to) }, today, s.fiscalStartMonth);
       const r = period.range;
-      const [rates, openRows, closedRows, allRows, acts, owners] = await Promise.all([
-        repo.fxRates(s.baseCurrency),
-        repo.oppAggregates({ types: ['open'], from: r.from, to: r.to, ownerId, groupBy: ['stage'] }),
-        repo.oppAggregates({ types: ['won', 'lost'], from: r.from, to: r.to, ownerId, groupBy: ['owner', 'month'] }),
-        repo.oppAggregates({ types: ['open', 'won', 'lost'], from: r.from, to: r.to, ownerId, groupBy: ['leadSource'] }),
-        repo.activitiesByType(r, ownerId),
-        repo.owners(),
-      ]);
+      const rates = await repo.fxRates(s.baseCurrency);
+      const openRows = await repo.oppAggregates({ types: ['open'], from: r.from, to: r.to, ownerId, groupBy: ['stage'] });
+      const closedRows = await repo.oppAggregates({ types: ['won', 'lost'], from: r.from, to: r.to, ownerId, groupBy: ['owner', 'month'] });
+      const allRows = await repo.oppAggregates({ types: ['open', 'won', 'lost'], from: r.from, to: r.to, ownerId, groupBy: ['leadSource'] });
+      const acts = await repo.activitiesByType(r, ownerId);
+      const owners = await repo.owners();
       return { lk, today, period, rates, openRows, closedRows, allRows, acts, owners };
     });
     const s = out.lk.settings;

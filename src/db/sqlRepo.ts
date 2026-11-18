@@ -4,6 +4,7 @@ import type { AggRow, CrmStore, EntityKey, FxRateRow, HistoryRow, OppAggFilter, 
 import { createRow, deleteRow, updateRows, type AuditRow } from '../services/audit';
 import { COMMON_COLS, COMMON_JOINS, filterClause, SQL } from './crmSql';
 import { SqlAdminRepo } from './sqlAdmin';
+import { serial } from './txQueue';
 import { withRlsContext, type RlsContext } from './withRlsContext';
 
 type Param = [name: string, type: unknown, value: unknown];
@@ -26,9 +27,12 @@ export class SqlRepo implements Repo {
   constructor(private readonly tx: sql.Transaction, private readonly ctx: RlsContext) {}
 
   private async q(text: string, params: Param[] = []) {
-    const r = new sql.Request(this.tx);
-    for (const [n, t, v] of params) r.input(n, t as sql.ISqlType, v);
-    return r.query(text);
+    // Serialised per transaction: never two requests in flight on one connection.
+    return serial(this.tx, () => {
+      const r = new sql.Request(this.tx);
+      for (const [n, t, v] of params) r.input(n, t as sql.ISqlType, v);
+      return r.query(text);
+    });
   }
   private rows(res: Awaited<ReturnType<SqlRepo['q']>>, i = 0): Row[] {
     const sets = res.recordsets as unknown as Row[][];

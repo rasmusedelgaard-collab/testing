@@ -2,6 +2,7 @@ import sql from 'mssql';
 import type { AdminRepo, FxRate, LogoInfo, Outcome, StageInput, StageUsage, TeamRow, UserRow } from '../domain/adminTypes';
 import type { Lookups, Meta, PicklistValue, Row } from '../domain/types';
 import { SqlRepo } from './sqlRepo';
+import { serial } from './txQueue';
 import type { RlsContext } from './withRlsContext';
 
 type Param = [name: string, type: unknown, value: unknown];
@@ -13,9 +14,12 @@ export class SqlAdminRepo implements AdminRepo {
   constructor(private readonly tx: sql.Transaction, private readonly ctx: RlsContext) { this.base = new SqlRepo(tx, ctx); }
 
   private async q(text: string, params: Param[] = []) {
-    const r = new sql.Request(this.tx);
-    for (const [n, t, v] of params) r.input(n, t as sql.ISqlType, v);
-    return r.query(text);
+    // Serialised per transaction: never two requests in flight on one connection.
+    return serial(this.tx, () => {
+      const r = new sql.Request(this.tx);
+      for (const [n, t, v] of params) r.input(n, t as sql.ISqlType, v);
+      return r.query(text);
+    });
   }
   private rows(res: Awaited<ReturnType<SqlAdminRepo['q']>>, i = 0): Row[] {
     const sets = res.recordsets as unknown as Row[][];
