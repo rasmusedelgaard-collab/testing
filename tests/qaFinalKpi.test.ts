@@ -398,3 +398,23 @@ describe('analytics periods, validation, tables and scoping', () => {
     expect(strip(html)).not.toContain('100,000');
   });
 });
+
+describe('dashboard "Next 7 days" section', () => {
+  // OPEN DEFECT QA-F3 (Low): the section count comes from activityCounts (days +1..+7) but the rows and the "view all" link use due=week
+  // (today..+6), so a task due today is listed twice (Today and Next 7 days), a task due in exactly 7 days is counted but not listed.
+  // it.fails: remove marker once the count, the rows and the link use the same window.
+  it.fails('lists each activity once and its count matches the rows shown (QA-F3)', async () => {
+    const { store, state } = build();
+    const tpl = state.data.activities[0]!;
+    state.data.activities = [0, 1, 6, 7, 8].map((n, i) => ({ ...tpl, Id: i + 1, Subject: `Act+${n}`, ActivityType: 'task', DueDate: shift(TODAY, n), IsDone: false, OwnerId: 1, TeamId: 1, AccountId: 1 })) as never;
+    const { app } = makeApp({ config: demoConfig(), store });
+    const agent = request.agent(app);
+    await agent.get('/__test/login?role=Admin');
+    const html = (await agent.get('/')).text;
+    const shown = html.replace(/<[^>]+>/g, ' ').match(/Act\+\d/g) ?? [];
+    expect(new Set(shown).size, 'each activity once').toBe(shown.length);
+    const count = Number(/Next 7 days \((\d+)\)/.exec(html.replace(/<[^>]+>/g, ' '))![1]);
+    const section = html.split('Next 7 days')[1]!.match(/Act\+\d/g) ?? [];
+    expect(count).toBe(section.length);
+  });
+});
