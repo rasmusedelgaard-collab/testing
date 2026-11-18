@@ -14,7 +14,8 @@ const intInRange = (min: number, max: number) =>
 // PORT is deliberately NOT coerced to a number: iisnode passes a named pipe such as \\.\pipe\<guid>.
 const portOrPipe = z
   .string()
-  .regex(/^(\d{1,5}|\\\\[.?]\\pipe\\.+)$/, 'must be a port number or a Windows named pipe');
+  .regex(/^(\d{1,5}|\\\\[.?]\\pipe\\.+)$/, 'must be a port number or a Windows named pipe')
+  .refine((v) => !/^\d+$/.test(v) || (Number(v) >= 1 && Number(v) <= 65535), 'port must be between 1 and 65535');
 
 export const DB_AUTH_MODES = ['managed-identity', 'default-azure', 'sql-password'] as const;
 export type DbAuthMode = (typeof DB_AUTH_MODES)[number];
@@ -60,6 +61,8 @@ export interface AppConfig {
   /** 'entra' (normal) or 'test-access-code' (interim hosted test site: shared code + seeded DB users). */
   authMode: AuthMode;
   testAccessCode: string | null;
+  /** Number of reverse proxies in front of the app (express 'trust proxy'). 0 = none. */
+  trustProxy: number;
   port: string;
   logLevel: string;
   redirectUri: string;
@@ -81,6 +84,8 @@ const baseSchema = z.object({
   DEMO_MODE: bool.default(false),
   AUTH_MODE: z.enum(AUTH_MODES).default('entra'),
   TEST_ACCESS_CODE: z.string().optional(),
+  TRUST_PROXY: intInRange(0, 5).optional(),
+  LIVE: bool.default(false),
   REDIRECT_URI: z.url().optional(),
   ENTRA_TENANT_ID: guid.optional(),
   ENTRA_CLIENT_ID: guid.optional(),
@@ -126,17 +131,36 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const isProduction = v.NODE_ENV === 'production';
   const demoMode = v.NODE_ENV === 'test' || v.DEMO_MODE;
 
-  // The bypass must never be reachable in production or on Azure App Service.
-  if (v.DEMO_MODE && (isProduction || env.WEBSITE_SITE_NAME)) {
-    throw new ConfigError(['DEMO_MODE=true is refused when NODE_ENV=production or on Azure App Service']);
+  // "Live" = explicitly flagged (LIVE=true) or running on Azure App Service. We deliberately rely on
+  // WEBSITE_INSTANCE_ID (always set by App Service) and not WEBSITE_SITE_NAME alone: it is unconfirmed whether the
+  // interim MonsterASP IIS/iisnode host sets WEBSITE_SITE_NAME, and that host must keep working in test mode.
+  const live = v.LIVE || Boolean(env.WEBSITE_INSTANCE_ID);
+  const onAzure = Boolean(env.WEBSITE_INSTANCE_ID || env.WEBSITE_SITE_NAME);
+
+  // The bypasses must never be reachable in production, live, on Azure, or next to a real database.
+  const hasDbVars = Object.keys(env).some((k) => k.startsWith('DB_') && env[k]);
+  if (demoMode && v.DEMO_MODE) {
+    const why: string[] = [];
+    if (isProduction) why.push('NODE_ENV=production');
+    if (v.LIVE || onAzure) why.push('live/Azure environment');
+    if (v.AUTH_MODE === 'test-access-code') why.push('AUTH_MODE=test-access-code');
+    if (hasDbVars) why.push('DB_* variables are set');
+    if (why.length > 0) throw new ConfigError([`DEMO_MODE=true is refused: ${why.join(', ')}`]);
   }
-  if (v.NODE_ENV === 'test' && env.WEBSITE_SITE_NAME) {
-    throw new ConfigError(['NODE_ENV=test (auth bypass) is refused on Azure App Service']);
+  if (v.NODE_ENV === 'test' && (v.LIVE || onAzure)) {
+    throw new ConfigError(['NODE_ENV=test (auth bypass) is refused in a live/Azure environment']);
   }
 
   const testAccess = !demoMode && v.AUTH_MODE === 'test-access-code';
+  if (testAccess) {
+    if (live) throw new ConfigError(['AUTH_MODE=test-access-code is refused when LIVE=true or on Azure App Service']);
+    if (v.ENTRA_CLIENT_SECRET) throw new ConfigError(['AUTH_MODE=test-access-code is refused when ENTRA_CLIENT_SECRET is set (this looks like a real environment)']);
+  }
+  if (!demoMode && live && env.DB_AUTH_MODE === 'sql-password') {
+    throw new ConfigError(['DB_AUTH_MODE=sql-password is refused when LIVE=true or on Azure App Service: use managed-identity']);
+  }
   const redirectUri = v.REDIRECT_URI ?? (demoMode ? `http://localhost:${/^\d+$/.test(v.PORT) ? v.PORT : '3000'}/auth/redirect` : undefined);
-  if (!redirectUri && !demoMode && !testAccess) issues.push('REDIRECT_URI: required');
+  if (!redirectUri && !demoMode && (!testAccess || isProduction)) issues.push('REDIRECT_URI: required (an https URL in production; its origin is also used for cookies and HSTS)');
   let baseUrl = '';
   let secureCookies = isProduction;
   if (redirectUri) {
@@ -159,8 +183,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     issues.push('SESSION_SECRET: required');
   }
 
-  if (testAccess && (v.TEST_ACCESS_CODE ?? '').length < 16) {
-    issues.push('TEST_ACCESS_CODE: required (at least 16 characters) when AUTH_MODE=test-access-code');
+  if (testAccess) {
+    const code = v.TEST_ACCESS_CODE ?? '';
+    if (code.length < 24) issues.push('TEST_ACCESS_CODE: required (at least 24 characters) when AUTH_MODE=test-access-code');
+    else if (new Set(code).size < 10) issues.push('TEST_ACCESS_CODE: too repetitive (use at least 10 different characters)');
   }
 
   let db: DbConfig | null = null;
@@ -182,6 +208,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     isProduction,
     demoMode,
     authMode: v.AUTH_MODE,
+    trustProxy: v.TRUST_PROXY ?? (secureCookies ? 1 : 0),
     testAccessCode: testAccess ? (v.TEST_ACCESS_CODE ?? null) : null,
     port: v.PORT,
     logLevel: v.LOG_LEVEL,

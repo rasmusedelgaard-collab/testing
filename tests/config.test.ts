@@ -85,7 +85,8 @@ describe('config: test-access-code mode', () => {
   const base = {
     NODE_ENV: 'production',
     AUTH_MODE: 'test-access-code',
-    TEST_ACCESS_CODE: 'a-long-shared-code-1234',
+    REDIRECT_URI: 'https://crmtest.example.com/auth/redirect',
+    TEST_ACCESS_CODE: 'a-long-shared-code-1234-xyz',
     SESSION_SECRET: secret,
     DB_SERVER: 'db.example.com',
     DB_NAME: 'db1',
@@ -93,10 +94,10 @@ describe('config: test-access-code mode', () => {
     DB_USER: 'owner',
     DB_PASSWORD: 'pw',
   };
-  it('does not need Entra variables or REDIRECT_URI', () => {
+  it('does not need Entra variables', () => {
     const c = loadConfig(base);
     expect(c.authMode).toBe('test-access-code');
-    expect(c.testAccessCode).toBe('a-long-shared-code-1234');
+    expect(c.testAccessCode).toBe('a-long-shared-code-1234-xyz');
     expect(c.secureCookies).toBe(true);
   });
   it('requires a TEST_ACCESS_CODE of at least 16 characters and SESSION_SECRET', () => {
@@ -114,7 +115,7 @@ describe('config: test-access-code mode', () => {
     expect(issues(env)).toContain('DB_SERVER');
   });
   it('is never active outside this mode: entra mode ignores TEST_ACCESS_CODE', () => {
-    expect(loadConfig({ ...entraEnv, TEST_ACCESS_CODE: 'a-long-shared-code-1234' }).testAccessCode).toBeNull();
+    expect(loadConfig({ ...entraEnv, TEST_ACCESS_CODE: 'a-long-shared-code-1234-xyz' }).testAccessCode).toBeNull();
   });
 });
 
@@ -134,5 +135,58 @@ describe('config: demo mode', () => {
   it('refuses DEMO_MODE and NODE_ENV=test on Azure App Service', () => {
     expect(issues({ NODE_ENV: 'development', DEMO_MODE: 'true', WEBSITE_SITE_NAME: 'x' })).toContain('refused');
     expect(issues({ NODE_ENV: 'test', WEBSITE_SITE_NAME: 'x' })).toContain('refused');
+  });
+});
+
+describe('config: live-environment refusals and hardening', () => {
+  const testMode = {
+    NODE_ENV: 'production', AUTH_MODE: 'test-access-code', REDIRECT_URI: 'https://crmtest.example.com/auth/redirect',
+    TEST_ACCESS_CODE: 'a-long-shared-code-1234-xyz', SESSION_SECRET: secret, DB_SERVER: 'db', DB_NAME: 'd',
+    DB_AUTH_MODE: 'sql-password', DB_USER: 'u', DB_PASSWORD: 'p',
+  };
+  it('test-access-code starts normally on a non-Azure host (e.g. MonsterASP), even if WEBSITE_SITE_NAME is present', () => {
+    expect(loadConfig(testMode).authMode).toBe('test-access-code');
+    expect(loadConfig({ ...testMode, WEBSITE_SITE_NAME: 'x' }).authMode).toBe('test-access-code');
+  });
+  it.each([{ LIVE: 'true' }, { WEBSITE_INSTANCE_ID: 'abc' }])('refuses test-access-code when live: %j', (extra) => {
+    expect(() => loadConfig({ ...testMode, ...extra })).toThrow(/test-access-code is refused/);
+  });
+  it('refuses test-access-code when an Entra client secret is present', () => {
+    expect(() => loadConfig({ ...testMode, ENTRA_CLIENT_SECRET: 's' })).toThrow(/ENTRA_CLIENT_SECRET/);
+  });
+  it.each([{ LIVE: 'true' }, { WEBSITE_INSTANCE_ID: 'abc' }])('refuses DB_AUTH_MODE=sql-password when live: %j', (extra) => {
+    expect(() => loadConfig({ ...entraEnv, DB_AUTH_MODE: 'sql-password', DB_USER: 'u', DB_PASSWORD: 'p', ...extra })).toThrow(/sql-password is refused/);
+  });
+  it('allows sql-password when not live, and managed-identity when live', () => {
+    expect(loadConfig({ ...entraEnv, DB_AUTH_MODE: 'sql-password', DB_USER: 'u', DB_PASSWORD: 'p' }).db?.authMode).toBe('sql-password');
+    expect(loadConfig({ ...entraEnv, LIVE: 'true' }).db?.authMode).toBe('managed-identity');
+  });
+  it('production test-access-code needs an https REDIRECT_URI, which turns on secure cookies', () => {
+    const noUri: NodeJS.ProcessEnv = { ...testMode };
+    delete noUri.REDIRECT_URI;
+    expect(() => loadConfig(noUri)).toThrow(/REDIRECT_URI/);
+    expect(() => loadConfig({ ...testMode, REDIRECT_URI: 'http://x.example.com/auth/redirect' })).toThrow(/https/);
+    expect(loadConfig(testMode).secureCookies).toBe(true);
+  });
+  it.each([
+    [{ DEMO_MODE: 'true', AUTH_MODE: 'test-access-code' }],
+    [{ DEMO_MODE: 'true', LIVE: 'true' }],
+    [{ DEMO_MODE: 'true', DB_SERVER: 'x' }],
+    [{ DEMO_MODE: 'true', WEBSITE_SITE_NAME: 'x' }],
+  ])('demo mode is refused next to real-environment settings: %j', (extra) => {
+    expect(() => loadConfig({ NODE_ENV: 'development', ...extra })).toThrow(/DEMO_MODE=true is refused/);
+  });
+  it('rejects repetitive or short access codes', () => {
+    expect(() => loadConfig({ ...testMode, TEST_ACCESS_CODE: 'abababababababababababab' })).toThrow(/repetitive/);
+    expect(() => loadConfig({ ...testMode, TEST_ACCESS_CODE: 'short-but-varied-123' })).toThrow(/24/);
+  });
+  it('PORT must be 1-65535 (named pipes still allowed)', () => {
+    for (const bad of ['0', '65536', '99999']) expect(() => loadConfig({ ...entraEnv, PORT: bad })).toThrow(/PORT/);
+    expect(loadConfig({ ...entraEnv, PORT: '65535' }).port).toBe('65535');
+  });
+  it('TRUST_PROXY defaults to 1 behind https and 0 otherwise, and is configurable', () => {
+    expect(loadConfig(entraEnv).trustProxy).toBe(1);
+    expect(loadConfig({ ...entraEnv, TRUST_PROXY: '0' }).trustProxy).toBe(0);
+    expect(loadConfig({ NODE_ENV: 'test' }).trustProxy).toBe(0);
   });
 });

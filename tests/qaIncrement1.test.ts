@@ -87,13 +87,15 @@ describe('database error mapping (acceptance 5)', () => {
 
 describe('config boundaries (acceptance 6, 7, 8)', () => {
   const base = { NODE_ENV: 'development', AUTH_MODE: 'test-access-code', SESSION_SECRET: 'z'.repeat(32), DB_SERVER: 's', DB_NAME: 'd', DB_AUTH_MODE: 'sql-password', DB_USER: 'u', DB_PASSWORD: 'p' };
-  it('TEST_ACCESS_CODE: 15 chars rejected, 16 accepted, whitespace-only rejected', () => {
-    expect(() => loadConfig({ ...base, TEST_ACCESS_CODE: 'a'.repeat(15) })).toThrow(/TEST_ACCESS_CODE/);
-    expect(loadConfig({ ...base, TEST_ACCESS_CODE: 'a'.repeat(16) }).testAccessCode).toBe('a'.repeat(16));
+  it('TEST_ACCESS_CODE: 23 chars rejected, 24 varied chars accepted, repetitive rejected', () => {
+    const ok = 'ab12cd34ef56gh78ij90kl12';
+    expect(() => loadConfig({ ...base, TEST_ACCESS_CODE: ok.slice(0, 23) })).toThrow(/TEST_ACCESS_CODE/);
+    expect(() => loadConfig({ ...base, TEST_ACCESS_CODE: 'a'.repeat(30) })).toThrow(/repetitive/);
+    expect(loadConfig({ ...base, TEST_ACCESS_CODE: ok }).testAccessCode).toBe(ok);
     expect(() => loadConfig({ ...base })).toThrow(/TEST_ACCESS_CODE/);
   });
   it('SESSION_SECRET: 31 chars rejected, 32 accepted', () => {
-    expect(() => loadConfig({ ...base, TEST_ACCESS_CODE: 'a'.repeat(16), SESSION_SECRET: 'z'.repeat(31) })).toThrow(/SESSION_SECRET/);
+    expect(() => loadConfig({ ...base, TEST_ACCESS_CODE: 'ab12cd34ef56gh78ij90kl12', SESSION_SECRET: 'z'.repeat(31) })).toThrow(/SESSION_SECRET/);
   });
   it('NODE_ENV=production with DEMO_MODE=true is refused, even with otherwise complete config', () => {
     expect(() => loadConfig({ ...base, NODE_ENV: 'production', AUTH_MODE: 'entra', DEMO_MODE: 'true', TEST_ACCESS_CODE: 'a'.repeat(16) })).toThrow(/DEMO_MODE/);
@@ -112,8 +114,8 @@ describe('config boundaries (acceptance 6, 7, 8)', () => {
     expect(demoConfig({ PORT: '\\\\?\\pipe\\abc' }).port).toBe('\\\\?\\pipe\\abc');
     for (const bad of ['abc', '-1', '80 80', '/tmp/sock', '\\\\.\\pipe\\', '3000;rm']) expect(() => demoConfig({ PORT: bad }), bad).toThrow(/PORT/);
   });
-  // DEFECT QA-3 (Low): PORT regex accepts any 1-5 digit number, e.g. 99999 / 00000, which net.listen rejects at runtime.
-  it.fails('PORT above 65535 is rejected at config time (QA-3)', () => {
+  // QA-3 fixed: PORT range is checked.
+  it('PORT above 65535 is rejected at config time (QA-3)', () => {
     expect(() => demoConfig({ PORT: '99999' })).toThrow(/PORT/);
   });
 });
@@ -176,10 +178,10 @@ describe('test-access-code mode: banner, rate limit, error paths (acceptance 6)'
     expect(bad.status).toBe(403);
   });
 
-  // DEFECT QA-1 (Medium): the limiter keys on req.ip with `trust proxy` = 1. Where no proxy overwrites
+  // QA-1 fixed: trust proxy defaults to 0 outside https deployments, and a global failed-attempt cap exists.
   // X-Forwarded-For (e.g. IIS/iisnode on the interim host) a client can rotate the header per request and
   // never reach the 5-attempt lockout.
-  it.fails('rate limit cannot be evaded by rotating X-Forwarded-For (QA-1)', async () => {
+  it('rate limit cannot be evaded by rotating X-Forwarded-For (QA-1)', async () => {
     const app = mk();
     const agent = request.agent(app);
     const csrf = await getCsrf(agent, '/auth/test-login');

@@ -125,6 +125,19 @@ describe('test-access-code login', () => {
   });
 });
 
+describe('global failed-attempt cap', () => {
+  it('locks sign-in for everyone after 50 failures across different clients, even with the right code', async () => {
+    const repo = fakeRepo();
+    const { app } = makeApp({ config: testAccessConfig({ TRUST_PROXY: '1' }), testUserRepo: repo });
+    const agent = request.agent(app);
+    const csrf = await getCsrf(agent, '/auth/test-login');
+    for (let i = 0; i < 50; i++) await agent.post('/auth/test-login').set('X-Forwarded-For', `10.1.${Math.floor(i / 250)}.${(i % 250) + 1}`).type('form').send({ _csrf: csrf, code: `wrong-${i}` });
+    const res = await agent.post('/auth/test-login').set('X-Forwarded-For', '203.0.113.9').type('form').send({ _csrf: csrf, code: CODE });
+    expect(res.status).toBe(429);
+    expect(repo.list).not.toHaveBeenCalled();
+  });
+});
+
 describe('codeMatches', () => {
   it('compares in constant time on equal-length digests', () => {
     expect(codeMatches(CODE, CODE)).toBe(true);

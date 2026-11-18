@@ -38,18 +38,25 @@ export interface TestLoginDeps {
   accessCode: string;
   repo: TestUserRepo;
   limiter?: AttemptLimiter;
+  /** Defence in depth: failed attempts across ALL clients. */
+  globalLimiter?: AttemptLimiter;
   now?: () => number;
 }
 
 export function createTestLoginRouter(deps: TestLoginDeps): Router {
   const limiter = deps.limiter ?? new AttemptLimiter();
+  const globalLimiter = deps.globalLimiter ?? new AttemptLimiter(50);
+  const GLOBAL = 'all';
+  // Never one shared 'unknown' bucket: without an address, key on the session so one anonymous client cannot lock everyone out.
+  const keyOf = (req: Request) => req.ip ?? `session:${req.sessionID}`;
+  const lockedFor = (req: Request) => limiter.isLocked(keyOf(req)) || globalLimiter.isLocked(GLOBAL);
   const now = deps.now ?? Date.now;
   const router = Router();
 
   router.get('/auth/test-login', (req, res) => {
     const verified = Boolean(req.session.testAccess && now() - req.session.testAccess.verifiedAt < CODE_VALID_FOR_MS);
     if (!verified) {
-      return res.render('pages/test-login-code', { title: 'Test sign-in', error: null, returnTo: safeReturnTo(req.query.returnTo), locked: limiter.isLocked(req.ip ?? 'unknown') });
+      return res.render('pages/test-login-code', { title: 'Test sign-in', error: null, returnTo: safeReturnTo(req.query.returnTo), locked: lockedFor(req) });
     }
     return renderPicker(req, res);
   });
@@ -60,24 +67,27 @@ export function createTestLoginRouter(deps: TestLoginDeps): Router {
   };
 
   router.post('/auth/test-login', async (req, res) => {
-    const ip = req.ip ?? 'unknown';
+    const ip = keyOf(req);
     const returnTo = safeReturnTo(req.body?.returnTo);
-    if (limiter.isLocked(ip)) {
+    if (lockedFor(req)) {
       logger.warn({ ip }, 'test access code attempt while locked out');
       return res.status(429).render('pages/test-login-code', { title: 'Test sign-in', error: null, returnTo, locked: true });
     }
     const code = typeof req.body?.code === 'string' ? req.body.code : '';
     if (!codeMatches(code, deps.accessCode)) {
       limiter.recordFailure(ip);
+      globalLimiter.recordFailure(GLOBAL);
       logger.warn({ ip }, 'wrong test access code');
-      return res.status(limiter.isLocked(ip) ? 429 : 401).render('pages/test-login-code', {
+      if (globalLimiter.isLocked(GLOBAL)) logger.warn('test access code: global failed-attempt cap reached; sign-in locked for everyone');
+      const locked = lockedFor(req);
+      return res.status(locked ? 429 : 401).render('pages/test-login-code', {
         title: 'Test sign-in',
-        error: limiter.isLocked(ip) ? null : 'That access code is not correct.',
+        error: locked ? null : 'That access code is not correct.',
         returnTo,
-        locked: limiter.isLocked(ip),
+        locked,
       });
     }
-    limiter.reset(ip);
+    limiter.reset(ip); // the global counter is deliberately not reset by a success
     req.session.testAccess = { verifiedAt: now() };
     await new Promise<void>((resolve, reject) => req.session.save((e) => (e ? reject(e as Error) : resolve())));
     return renderPicker(req, res);
