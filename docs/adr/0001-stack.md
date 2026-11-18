@@ -1,0 +1,50 @@
+# ADR-0001: Application stack: Node.js 22 / TypeScript, Express 5 + EJS, Azure App Service + Azure SQL
+
+- **Status:** Accepted. The product owner chose the language, hosting and database in the approved plan. Library choices are architect recommendations within that decision.
+- **Date:** 2026-11-18
+- **One-way door:** **Yes, partly.**
+  - Azure SQL is the system of record, and RLS is built on SQL Server features. Moving to another database means rewriting the security layer. Product owner sign-off was given via the plan.
+  - Express versus another Node framework is reversible at moderate cost.
+
+## Context
+- The CRM is internal, for about 10 to 200 users, and is used during business hours.
+- It runs on Azure: App Service and Azure SQL. Sign-in is Entra ID.
+- The database must enforce row-level security (RLS), not just the app.
+- The team works in TypeScript.
+- The UI spec asks for server-rendered pages that work with JavaScript turned off, with charts as the only exception (progressive enhancement).
+- Dependencies must use permissive licences and be widely used (CLAUDE.md §3).
+
+## Options considered
+| Option | Pros | Cons |
+|---|---|---|
+| **A. Express 5 + EJS (SSR), `mssql` driver** | Boring and proven. Express 5 handles async errors natively. Server rendering matches the progressive-enhancement UI spec. Small attack surface: no SPA, no public API, no token handling in the browser. | Hand-written SQL and repositories. Fewer built-in conventions. |
+| B. Next.js / React SSR | Rich UI ecosystem | Heavier. Splits the server and client trust boundary. Its auth patterns don't fit the server-held MSAL session as cleanly. Overkill for forms and lists. |
+| C. NestJS | Structure and dependency injection | More framework than this size needs. Steeper learning curve. |
+| D. An ORM (Prisma/TypeORM) instead of `mssql` | Less SQL to write | Awkward with per-connection `SESSION_CONTEXT`, transaction-scoped connections and RLS. Hides the exact SQL that security review must see. |
+
+## Decision
+Option A, with these libraries (all MIT or Apache-2.0; latest majors checked on 2026-11-18):
+- **Runtime:** Node.js 22 LTS, TypeScript (strict).
+- **Web:** `express@5`, `ejs`, `helmet`, `express-session`, `zod` for validation, `@azure/msal-node` for auth, `mssql@12` (with `tedious`) for SQL.
+- **Observability:** `pino` for logging. `@azure/monitor-opentelemetry` sends telemetry to App Insights.
+- **Charts:** `chart.js@4`, vendored into `src/public/vendor/` with no CDN.
+- **Tests and lint:** `vitest` for unit tests, `@playwright/test` for e2e, ESLint with typescript-eslint.
+- **Database migrations:** a small in-repo runner. It applies `db/migrations/NNN_*.sql` in order, splits on `GO`, and records each version and SHA-256 checksum in `dbo.SchemaVersions`. It runs as the deployer identity, never as `crm_app`.
+- **Hosting:** Azure App Service Linux (Node 22) and Azure SQL Database (serverless), in an EU region. See overview §12.
+
+## Consequences
+- **Easier:**
+  - Security review, because all SQL is explicit and parameterised.
+  - RLS context handling, because we control connections.
+  - Accessibility, because HTML comes from the server.
+- **Harder:**
+  - Rich client interactions (accepted, as the UI spec avoids them).
+  - SQL must be written and reviewed by hand. Mitigation: repository pattern, plus a lint rule that keeps SQL inside `src/db/`.
+- **Risk: the `mssql` pool does not reset connections.** This is handled in ADR-0002.
+- **Cost (estimate):**
+  - App Service B1/P0v3: about 13–60 EUR/month.
+  - SQL serverless at 1 vCore with auto-pause off in prod: about 150–200 EUR/month. In dev, auto-pause brings this close to zero.
+  - Key Vault and Application Insights: small.
+- **Reversibility:**
+  - The framework is moderate to reverse: routes and views would be rewritten, but repositories and SQL survive.
+  - The database is a one-way door: see the note at the top.
