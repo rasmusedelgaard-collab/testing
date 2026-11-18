@@ -49,6 +49,7 @@ async function step(name, fn) {
     return { ctx, page };
   };
   const save = (page) => Promise.all([page.waitForLoadState('load'), page.getByRole('button', { name: 'Save' }).click()]);
+  const main = async (page) => (await page.locator('main').textContent()).replace(/\s+/g, ' ');
   const flash = async (page) => (await page.locator('main').textContent()).replace(/\s+/g, ' ');
 
   try {
@@ -244,6 +245,21 @@ async function step(name, fn) {
       assert.doesNotMatch(await A.locator('table').textContent(), /Tool rollout/);
       await A.goto(base + '/opportunities?status=won');
       assert.match(await A.locator('table').textContent(), /Tool rollout/);
+    });
+    await step('Opportunity: Mark as lost shows a confirmation naming the reason; Cancel leaves it open, confirming closes it as lost', async () => {
+      await A.goto(base + '/opportunities/3');
+      await A.getByLabel('Lost reason').selectOption({ label: 'Price' });
+      await A.getByRole('button', { name: 'Mark as lost' }).click();
+      assert.match(await main(A), /Mark Southern deal as lost\? The stage changes to Closed lost \(reason: Price\)/);
+      await A.getByRole('link', { name: 'Cancel' }).click();
+      await A.waitForURL(/\/opportunities\/3$/);
+      assert.match(await A.textContent('main'), /Mark as won/);
+      await A.getByLabel('Lost reason').selectOption({ label: 'Price' });
+      await A.getByRole('button', { name: 'Mark as lost' }).click();
+      await A.getByRole('button', { name: 'Mark as lost' }).click();
+      assert.match(await flash(A), /marked as lost/i);
+      await A.goto(base + '/opportunities?status=lost');
+      assert.match(await A.locator('table').textContent(), /Southern deal/);
     });
     await step('Activity: done checkbox form removes it from the Open list', async () => {
       await A.goto(base + '/activities');
