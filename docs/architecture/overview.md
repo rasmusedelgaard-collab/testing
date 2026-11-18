@@ -989,6 +989,8 @@ User decision (2026-11-18): production Azure SQL is **serverless with auto-pause
 
 User decision (2026-11-18): until the Azure environment is live, the **test** environment runs on MonsterASP.NET. **Test data only**: no customer or personal production data, ever.
 
+Sign-in on this host uses `AUTH_MODE=test-access-code` (shared access code + seeded test users), a user-approved exception to "never build our own login": see [ADR-0006](../adr/0006-test-access-code-login.md).
+
 | Aspect | Interim host | Design consequence |
 |---|---|---|
 | Web server | Windows / IIS with **iisnode** | `web.config` routes to the built `dist/server.js`. The app listens on `process.env.PORT` exactly as given, which under iisnode is a named pipe (§11). `trust proxy` stays at 1 (IIS is the proxy). HTTPS is enforced at the host; the `__Host-` cookie still needs `Secure`, so the test site must be served over HTTPS. |
