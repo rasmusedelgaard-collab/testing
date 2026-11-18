@@ -29,3 +29,13 @@
   if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
   target.focus();
 })();
+
+// Typing a date in a range filter switches the linked period select to "Custom" (the server treats typed dates as custom anyway).
+(function () {
+  document.querySelectorAll('input[data-custom-for]').forEach(function (input) {
+    input.addEventListener('change', function () {
+      var select = document.getElementById(input.getAttribute('data-custom-for'));
+      if (select) select.value = 'custom';
+    });
+  });
+})();

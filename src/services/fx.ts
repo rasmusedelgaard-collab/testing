@@ -65,11 +65,11 @@ export function convertRows<R extends MoneyRow>(rows: R[], conv: Converter, mont
   };
 }
 
-/** "3 deals excluded (no FX rate for SEK)" or '' when nothing was excluded. */
+/** "3 opportunities in SEK not included: no FX rate" (UI spec 6), or '' when nothing was excluded. */
 export function exclusionNote(c: Converted): string {
-  const n = c.excluded.reduce((s, e) => s + e.count, 0);
-  if (n === 0) return '';
-  return `${n} ${n === 1 ? 'deal' : 'deals'} excluded (no FX rate for ${c.excluded.map((e) => e.currency).join(', ')})`;
+  if (c.excluded.length === 0) return '';
+  const parts = c.excluded.map((e) => `${e.count} ${e.count === 1 ? 'opportunity' : 'opportunities'} in ${e.currency}`);
+  return `${parts.join(', ')} not included: no FX rate`;
 }
 export function fallbackNote(c: Converted): string {
   const n = c.fallbackCurrencies.length;

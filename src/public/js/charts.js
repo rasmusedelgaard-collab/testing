@@ -23,6 +23,8 @@
     var horizontal = cfg.kind === 'hbar';
     var fmt = formatter(cfg);
     var valueAxis = { beginAtZero: true, ticks: { callback: function (v) { return fmt(v); } } };
+    if (cfg.valueKind === 'count') valueAxis.ticks.precision = 0; // whole numbers only: no 0.1 steps that round to repeated labels
+    if (cfg.valueKind === 'percent') valueAxis.max = 100;
     var scales = horizontal ? { x: valueAxis, y: { ticks: { autoSkip: false } } } : { y: valueAxis, x: { ticks: { autoSkip: true } } };
     new window.Chart(canvas, {
       type: cfg.kind === 'line' ? 'line' : 'bar',

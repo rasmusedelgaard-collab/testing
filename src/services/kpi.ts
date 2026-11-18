@@ -11,6 +11,8 @@ export interface Tile {
   kind: 'money' | 'percent';
   context: string;
   notes: string[];
+  /** Currencies whose deals are left out of the value (no FX rate). */
+  excludedCurrencies: string[];
   href: string;
 }
 
@@ -32,6 +34,7 @@ export function winRate(rows: AggRow[]): { won: number; lost: number; rate: numb
 }
 
 const notesOf = (c: Converted) => [exclusionNote(c), fallbackNote(c)].filter(Boolean);
+const missingOf = (c: Converted) => c.excluded.map((e) => e.currency);
 const dealWord = (n: number) => `${n} ${n === 1 ? 'deal' : 'deals'}`;
 
 export interface DashboardInput {
@@ -59,10 +62,10 @@ export function computeTiles(i: DashboardInput): Tile[] {
   const wr = winRate(i.winRateRows);
   const win = winRateRange(i.today);
   return [
-    { key: 'open', label: 'Open pipeline', value: pipe.total.total, kind: 'money', context: dealWord(pipe.count).replace('deal', 'opp'), notes: notesOf(pipe.total), href: '/opportunities?status=open' },
-    { key: 'weighted', label: 'Weighted pipeline', value: pipe.weighted.total, kind: 'money', context: 'amount × stage probability', notes: notesOf(pipe.weighted), href: '/opportunities?status=open' },
-    { key: 'won-month', label: 'Won this month', value: wonMonth.total, kind: 'money', context: dealWord(wonMonthRows.reduce((n, r) => n + r.count, 0)), notes: notesOf(wonMonth), href: `/opportunities?status=won&from=${month.from}&to=${month.to}` },
-    { key: 'won-quarter', label: 'Won this quarter', value: wonQuarter.total, kind: 'money', context: dealWord(wonQuarterRows.reduce((n, r) => n + r.count, 0)), notes: notesOf(wonQuarter), href: `/opportunities?status=won&from=${quarter.from}&to=${quarter.to}` },
-    { key: 'win-rate', label: 'Win rate (last 90 d)', value: wr.rate === null ? null : wr.rate * 100, kind: 'percent', context: wr.rate === null ? 'No closed deals yet' : `${wr.won} of ${wr.won + wr.lost}`, notes: [], href: `/opportunities?status=closed&from=${win.from}&to=${win.to}` },
+    { key: 'open', label: 'Open pipeline', value: pipe.total.total, kind: 'money', context: dealWord(pipe.count).replace('deal', 'opp'), notes: notesOf(pipe.total), excludedCurrencies: missingOf(pipe.total), href: '/opportunities?status=open' },
+    { key: 'weighted', label: 'Weighted pipeline', value: pipe.weighted.total, kind: 'money', context: 'amount × stage probability', notes: notesOf(pipe.weighted), excludedCurrencies: missingOf(pipe.weighted), href: '/opportunities?status=open' },
+    { key: 'won-month', label: 'Won this month', value: wonMonth.total, kind: 'money', context: dealWord(wonMonthRows.reduce((n, r) => n + r.count, 0)), notes: notesOf(wonMonth), excludedCurrencies: missingOf(wonMonth), href: `/opportunities?status=won&from=${month.from}&to=${month.to}` },
+    { key: 'won-quarter', label: 'Won this quarter', value: wonQuarter.total, kind: 'money', context: dealWord(wonQuarterRows.reduce((n, r) => n + r.count, 0)), notes: notesOf(wonQuarter), excludedCurrencies: missingOf(wonQuarter), href: `/opportunities?status=won&from=${quarter.from}&to=${quarter.to}` },
+    { key: 'win-rate', label: 'Win rate (last 90 d)', value: wr.rate === null ? null : wr.rate * 100, kind: 'percent', context: wr.rate === null ? 'No closed deals yet' : `${wr.won} of ${wr.won + wr.lost}`, notes: [], excludedCurrencies: [], href: `/opportunities?status=closed&from=${win.from}&to=${win.to}` },
   ];
 }

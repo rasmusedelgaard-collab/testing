@@ -154,6 +154,7 @@ export class SqlRepo implements Repo {
     if (f.from) { where.push('e.CloseDate >= @from'); params.push(['from', sql.VarChar(10), f.from]); }
     if (f.to) { where.push('e.CloseDate <= @to'); params.push(['to', sql.VarChar(10), f.to]); }
     if (f.ownerId) { where.push('e.OwnerId = @owner'); params.push(['owner', sql.Int, f.ownerId]); }
+    if (f.teamId) { where.push('e.TeamId = @team'); params.push(['team', sql.Int, f.teamId]); }
     if (f.accountIds) {
       if (f.accountIds.length === 0) return [];
       where.push('e.AccountId IN (SELECT CAST([value] AS int) FROM OPENJSON(@acc))');
@@ -182,10 +183,15 @@ export class SqlRepo implements Repo {
     return { overdue: Number(r?.Overdue ?? 0), today: Number(r?.Today ?? 0), next7: Number(r?.Next7 ?? 0) };
   }
 
-  async activitiesByType(range: { from: string; to: string }, ownerId?: number): Promise<Array<{ type: string; count: number }>> {
+  async teams(): Promise<Array<{ id: number; name: string }>> {
+    const res = await this.q('SELECT TeamId, Name FROM crm.Teams WHERE IsActive = 1 ORDER BY Name');
+    return this.rows(res).map((r) => ({ id: Number(r.TeamId), name: String(r.Name) }));
+  }
+
+  async activitiesByType(range: { from: string; to: string }, scope: { ownerId?: number; teamId?: number } = {}): Promise<Array<{ type: string; count: number }>> {
     const res = await this.q(`SELECT ActivityType, COUNT(*) AS Cnt FROM crm.Activities
-      WHERE COALESCE(DueDate, CAST(CreatedAt AS date)) BETWEEN @from AND @to ${ownerId ? 'AND OwnerId = @o' : ''} GROUP BY ActivityType`,
-    [['from', sql.VarChar(10), range.from], ['to', sql.VarChar(10), range.to], ...(ownerId ? ([['o', sql.Int, ownerId]] as Param[]) : [])]);
+      WHERE COALESCE(DueDate, CAST(CreatedAt AS date)) BETWEEN @from AND @to ${scope.ownerId ? 'AND OwnerId = @o' : ''} ${scope.teamId ? 'AND TeamId = @t' : ''} GROUP BY ActivityType`,
+    [['from', sql.VarChar(10), range.from], ['to', sql.VarChar(10), range.to], ...(scope.ownerId ? ([['o', sql.Int, scope.ownerId]] as Param[]) : []), ...(scope.teamId ? ([['t', sql.Int, scope.teamId]] as Param[]) : [])]);
     return this.rows(res).map((r) => ({ type: String(r.ActivityType), count: Number(r.Cnt) }));
   }
 

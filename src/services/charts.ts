@@ -25,6 +25,7 @@ const pct = (c: FormatCtx, v: number, digits = 0) => new Intl.NumberFormat(c.loc
 const monthLabel = (ym: string, locale: string) => new Intl.DateTimeFormat(locale, { timeZone: 'UTC', month: 'short', year: 'numeric' }).format(new Date(`${ym}-01T00:00:00Z`));
 export const EMPTY_TEXT = 'No data for this period. Try a longer date range.';
 
+const amount = (conv: { total: number; excluded: unknown[] }, c: FormatCtx): string => (conv.excluded.length > 0 && conv.total === 0 ? '–' : c.f.money(conv.total, c.base));
 const flagOf = (c: { excluded: unknown[]; fallbackCurrencies: unknown[] }): string | undefined =>
   [c.excluded.length ? 'Not included: no FX rate' : '', c.fallbackCurrencies.length ? 'Latest rate used' : ''].filter(Boolean).join('; ') || undefined;
 
@@ -41,7 +42,7 @@ export function pipelineByStage(rows: AggRow[], stages: Stage[], conv: Converter
   vm.notes = [exclusionNote(all), fallbackNote(all)].filter(Boolean);
   vm.labels = per.map((p) => p.s.name);
   vm.data = per.map((p) => p.conv.total);
-  vm.table = { columns: ['Stage', 'Opportunities', `Amount (${c.base})`], rows: per.map((p) => ({ cells: [p.s.name, String(p.n), c.f.money(p.conv.total, c.base)], flag: flagOf(p.conv) })) };
+  vm.table = { columns: ['Stage', 'Opportunities', `Amount (${c.base})`], rows: per.map((p) => ({ cells: [p.s.name, String(p.n), amount(p.conv, c)], flag: flagOf(p.conv) })) };
   if (rows.length === 0) return vm;
   const top = [...per].sort((a, b) => b.conv.total - a.conv.total)[0]!;
   vm.empty = false;
@@ -62,7 +63,7 @@ export function wonRevenueByMonth(rows: AggRow[], range: Range, conv: Converter,
   vm.notes = [exclusionNote(all), fallbackNote(all)].filter(Boolean);
   vm.labels = months.map((m) => monthLabel(m, c.locale));
   vm.data = per.map((p) => p.conv.total);
-  vm.table = { columns: ['Month', 'Deals', `Revenue (${c.base})`], rows: per.map((p) => ({ cells: [monthLabel(p.m, c.locale), String(p.n), c.f.money(p.conv.total, c.base)], flag: flagOf(p.conv) })) };
+  vm.table = { columns: ['Month', 'Deals', `Revenue (${c.base})`], rows: per.map((p) => ({ cells: [monthLabel(p.m, c.locale), String(p.n), amount(p.conv, c)], flag: flagOf(p.conv) })) };
   if (rows.length === 0) return vm;
   const best = [...per].sort((a, b) => b.conv.total - a.conv.total)[0]!;
   vm.empty = false;

@@ -51,14 +51,14 @@ describe('dashboard', () => {
     const html = (await s.agent.get('/')).text;
     expect(tile(html, 'Open pipeline')).toContain('DKK 120k');
     expect(tile(html, 'Open pipeline')).toContain('(DKK 120,000.00)');
-    expect(tile(html, 'Open pipeline')).toContain('1 deal excluded (no FX rate for EUR)');
+    expect(tile(html, 'Open pipeline')).toContain('1 opportunity in EUR not included: no FX rate');
     expect(tile(html, 'Open pipeline')).toContain('Ask an administrator.');
     expect(tile(html, 'Weighted pipeline')).toContain('(DKK 60,000.00)');
   });
   it('Admin sees the link to FX settings instead', async () => {
     const s = await session('Admin');
     const t = tile((await s.agent.get('/')).text, 'Open pipeline');
-    expect(t).toContain('2 deals excluded (no FX rate for EUR, SEK)');
+    expect(t).toContain('1 opportunity in EUR, 1 opportunity in SEK not included: no FX rate');
     expect(t).toContain('Add FX rates');
     expect((await s.agent.get('/')).text).toContain('href="/settings/fx"');
   });
@@ -68,7 +68,7 @@ describe('dashboard', () => {
     const t = tile((await s.agent.get('/')).text, 'Open pipeline');
     expect(t).toContain('(DKK 457,500.00)'); // 120.000 + 45.000 x 7,5
     expect(t).toContain('Uses latest rate for 1 currency');
-    expect(t).not.toContain('excluded');
+    expect(t).not.toContain('not included');
     s.state.fx.push({ id: 2, base: 'DKK', currency: 'EUR', month: s.month, rate: 8, modifiedByName: 'x', modifiedAt: '' });
     const t2 = tile((await s.agent.get('/')).text, 'Open pipeline');
     expect(t2).toContain('(DKK 480,000.00)');
@@ -77,7 +77,7 @@ describe('dashboard', () => {
   it('rates stored for another base currency are ignored', async () => {
     const s = await session('Manager');
     s.state.fx.push({ id: 1, base: 'EUR', currency: 'EUR', month: s.month, rate: 7.5, modifiedByName: 'x', modifiedAt: '' });
-    expect(tile((await s.agent.get('/')).text, 'Open pipeline')).toContain('excluded');
+    expect(tile((await s.agent.get('/')).text, 'Open pipeline')).toContain('not included');
   });
   it('won this month / quarter and win rate over the last 90 days', async () => {
     const s = await session('Admin');
@@ -225,7 +225,7 @@ describe('analytics', () => {
     const html = (await s.agent.get('/analytics?period=this-year')).text;
     expect(html).toContain('Latest rate used');
     expect(html).toContain('Not included: no FX rate; Latest rate used');
-    expect(html).toContain('deal excluded (no FX rate for SEK');
+    expect(html).toContain('opportunity in SEK not included: no FX rate');
     expect(html).toContain('Add FX rates');
     const user = await session('Manager');
     user.state.data.opportunities.push({ ...user.state.data.opportunities[0]!, Id: 83, StageId: 5, CloseDate: `${user.month}-01`, Amount: 1, CurrencyCode: 'SEK' } as never);
@@ -259,7 +259,7 @@ describe('accounts: Open pipeline column', () => {
     const html = flat((await s.agent.get('/accounts')).text);
     expect(html).toContain('<th scope="col">Open pipeline</th>');
     expect(html).toContain('data-label="Open pipeline" class="num"> DKK 120,000.00');
-    expect(html).toContain('1 deal not converted (no rate: EUR)');
+    expect(html).toContain('1 opportunity not converted (no rate: EUR)');
     s.state.fx.push({ id: 1, base: 'DKK', currency: 'EUR', month: s.month, rate: 8, modifiedByName: 'x', modifiedAt: '' });
     expect(flat((await s.agent.get('/accounts')).text)).toContain('DKK 360,000.00');
   });
@@ -286,5 +286,81 @@ describe('QA-F3: Overdue / Today / Next 7 days are disjoint windows used by coun
     const today = (await s.agent.get('/activities?status=open&type=actionable&due=today')).text;
     expect(today).toContain('Day 0<');
     expect(today).not.toContain('Day 1<');
+  });
+});
+
+describe('UX review fixes (increment 4)', () => {
+  it('M2: a tile with excluded deals describes itself with its notes, and the FX link names the currencies', async () => {
+    const s = await session('Admin');
+    const html = (await s.agent.get('/')).text;
+    expect(html).toMatch(/class="tile-link"[^>]*aria-describedby="tn-0-0"/);
+    expect(html).toContain('id="tn-0-0"');
+    expect(html).toContain('Add FX rates<span class="visually-hidden"> for EUR, SEK</span>');
+    const m = await session('Manager');
+    expect((await m.agent.get('/')).text).toContain('Ask an administrator.');
+  });
+  it('overdue work leads on the Activities tile, otherwise today', async () => {
+    const s = await session('Admin');
+    const base = s.state.data.activities[0]!;
+    s.state.data.activities.length = 0;
+    s.state.data.activities.push({ ...base, Id: 90, ActivityType: 'task', DueDate: addDays(s.today, -1), OwnerId: 1, TeamId: 1, IsDone: false } as never, { ...base, Id: 91, ActivityType: 'task', DueDate: s.today, OwnerId: 1, TeamId: 1, IsDone: false } as never);
+    const t = tile((await s.agent.get('/')).text, 'Activities due');
+    expect(t).toMatch(/1 overdue.*1 due today/);
+    s.state.data.activities.shift();
+    expect(tile((await s.agent.get('/')).text, 'Activities due')).toMatch(/1 due today.*Nothing overdue/);
+  });
+  it('"My" dashboard tables have no Owner column', async () => {
+    const s = await session('Manager');
+    opp(s, 95, { OwnerId: 2, TeamId: 1, StageId: 1 });
+    const html = (await s.agent.get('/')).text;
+    const mine = html.slice(html.indexOf('My open opportunities'), html.indexOf('Upcoming activities'));
+    expect(mine).not.toContain('>Owner<');
+    expect(mine).toContain('>Close date<');
+  });
+  it('excluded rows show a dash, not 0', async () => {
+    const s = await session('Admin');
+    opp(s, 96, { StageId: 5, CloseDate: `${s.month}-02`, Amount: 100, CurrencyCode: 'SEK' });
+    const html = (await s.agent.get('/analytics?period=this-year')).text.replace(/\s+/g, ' ');
+    expect(html).toMatch(/<td data-label="Revenue \(DKK\)" class="num">– <span class="badge warn">Not included: no FX rate/);
+  });
+  it('M3: count charts use whole-number ticks and percent charts max out at 100', async () => {
+    const s = await session('Admin');
+    const js = (await s.agent.get('/js/charts.js')).text;
+    expect(js).toContain("valueAxis.ticks.precision = 0");
+    expect(js).toContain('valueAxis.max = 100');
+  });
+  it('M4: editing dates under an unchanged preset means Custom; changing the preset ignores the stale pre-filled dates', async () => {
+    const s = await session('Admin');
+    const preset = (await s.agent.get('/analytics?period=this-month')).text;
+    expect(preset).toContain('name="shown" value="this-month"');
+    const from = /id="f-from"[^>]*value="([^"]*)"/.exec(preset)![1]!;
+    const edited = (await s.agent.get(`/analytics?period=this-month&shown=this-month&from=${from}&to=2099-01-01`)).text;
+    expect(edited).toContain('<option value="custom" selected>');
+    const switched = (await s.agent.get(`/analytics?period=last-month&shown=this-month&from=${from}&to=${from}`)).text;
+    expect(switched).toContain('<option value="last-month" selected>');
+    const same = (await s.agent.get(`/analytics?period=this-month&shown=this-month&from=${from}&to=${/id="f-to"[^>]*value="([^"]*)"/.exec(preset)![1]}`)).text;
+    expect(same).toContain('<option value="this-month" selected>');
+    expect((await s.agent.get('/js/app.js')).text).toContain('input[data-custom-for]');
+  });
+  it('M5: analytics tables carry data-label for the card layout', async () => {
+    const s = await session('Admin');
+    expect((await s.agent.get('/analytics?period=this-year')).text).toContain('data-label="Stage"');
+  });
+  it('owner filter: Admin gets every team, a Manager only their own team, a User none; the team filter narrows the data', async () => {
+    const a = await session('Admin');
+    const ah = (await a.agent.get('/analytics')).text;
+    expect(ah).toContain('<option value="team:1">Team: Sales North</option>');
+    expect(ah).toContain('<option value="team:2">Team: Sales South</option>');
+    const m = await session('Manager');
+    const mh = (await m.agent.get('/analytics')).text;
+    expect(mh).toContain('Team: Sales North');
+    expect(mh).not.toContain('Team: Sales South');
+    expect((await (await session('User')).agent.get('/analytics')).text).not.toContain('Team: ');
+    const all = (await a.agent.get('/analytics?period=custom&from=2026-01-01&to=2027-12-31')).text;
+    const t2 = (await a.agent.get('/analytics?period=custom&from=2026-01-01&to=2027-12-31&owner=team:2')).text;
+    expect(t2).toContain('<option value="team:2" selected>');
+    expect(all).toContain('Website brings the most opportunities: 3');
+    expect(t2).toContain('Website brings the most opportunities: 1');
+    expect((await a.agent.get('/analytics?owner=team:99999999999')).status).toBe(200);
   });
 });

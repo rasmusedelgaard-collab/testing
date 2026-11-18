@@ -67,7 +67,7 @@ async function step(name, fn) {
       await A.goto(base + '/');
       assert.equal(await A.locator('.tile').count(), 6);
       assert.match(await main(A), /Good (morning|afternoon|evening), Demo/);
-      assert.match(await main(A), /deals? excluded \(no FX rate for/);
+      assert.match(await main(A), /not included: no FX rate/);
       assert.ok(await A.getByRole('link', { name: 'Add FX rates' }).first().isVisible());
       await Promise.all([A.waitForURL(/\/opportunities\?status=open/), A.getByRole('link', { name: /Open pipeline/ }).click()]);
       assert.match(await A.locator('h1').textContent(), /Opportunities/);
@@ -117,6 +117,16 @@ async function step(name, fn) {
         const extra = await overflow(A, path, width);
         assert.ok(extra <= 0, `${path} at ${width}px overflows by ${extra}px`);
       }
+    });
+    await step('Dashboard as a User with rows: no horizontal scroll at 1024 and 1280 px, tile numbers stay whole', async () => {
+      const U = (await login('User')).page;
+      for (const width of [1024, 1280, 1440]) {
+        const extra = await overflow(U, '/', width);
+        assert.ok(extra <= 0, `dashboard at ${width}px overflows by ${extra}px`);
+      }
+      await U.setViewportSize({ width: 1280, height: 900 });
+      await U.goto(base + '/');
+      assert.ok(await U.evaluate(() => [...document.querySelectorAll('.tile-value')].every((e) => e.scrollWidth <= e.parentElement.clientWidth + 1)));
     });
     await step('no console errors, CSP violations or page errors across all steps', async () => {
       assert.deepEqual(problems, []);

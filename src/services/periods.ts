@@ -53,8 +53,15 @@ export const PERIOD_LABEL: Record<PeriodKey, string> = {
 export type PeriodResult = { ok: true; key: PeriodKey; range: Range } | { ok: false; key: PeriodKey; range: Range; error: string };
 
 /** Resolves the Analytics period. Invalid custom ranges fall back to this quarter and report the exact UI copy. */
-export function resolvePeriod(input: { period?: string; from?: string; to?: string }, today: string, fiscalStartMonth: number): PeriodResult {
-  const key = (PERIODS as readonly string[]).includes(input.period ?? '') ? (input.period as PeriodKey) : 'this-quarter';
+export function resolvePeriod(input: { period?: string; from?: string; to?: string; shown?: string }, today: string, fiscalStartMonth: number): PeriodResult {
+  let key = (PERIODS as readonly string[]).includes(input.period ?? '') ? (input.period as PeriodKey) : 'this-quarter';
+  // The page pre-fills From/To with the preset's range and remembers which preset it filled them from (`shown`). If the
+  // preset is unchanged but the dates were edited, the user means a custom range. If the preset itself was changed, the
+  // old pre-filled dates are stale and ignored.
+  if (key !== 'custom' && input.shown === key && (input.from || input.to)) {
+    const preset = resolvePeriod({ period: key }, today, fiscalStartMonth).range;
+    if (input.from !== preset.from || input.to !== preset.to) key = 'custom';
+  }
   switch (key) {
     case 'this-month': return { ok: true, key, range: monthRange(today) };
     case 'last-month': return { ok: true, key, range: monthRange(monthStartPlus(today, -1)) };

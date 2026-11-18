@@ -54,6 +54,7 @@ export interface OppAggFilter {
   from?: string;
   to?: string;
   ownerId?: number;
+  teamId?: number;
   accountIds?: number[];
   groupBy: Array<'stage' | 'owner' | 'leadSource' | 'month' | 'account'>;
 }
@@ -77,7 +78,9 @@ export interface Repo {
   /** Open Call/Meeting/Task activities that are overdue, due today, or due in the next 7 days (visible rows only). */
   activityCounts(today: string): Promise<{ overdue: number; today: number; next7: number }>;
   /** Activities per type with COALESCE(DueDate, created date) in the range. */
-  activitiesByType(range: { from: string; to: string }, ownerId?: number): Promise<Array<{ type: string; count: number }>>;
+  activitiesByType(range: { from: string; to: string }, scope?: { ownerId?: number; teamId?: number }): Promise<Array<{ type: string; count: number }>>;
+  /** Teams for the Analytics filter (team names are not sensitive; crm.Teams has no FILTER). */
+  teams(): Promise<Array<{ id: number; name: string }>>;
   create(entity: EntityKey, values: Values, meta: Meta): Promise<number>;
   update(entity: EntityKey, id: number, values: Values, rowVer: string, meta: Meta): Promise<UpdateResult>;
   remove(entity: EntityKey, id: number, meta: Meta): Promise<boolean>;

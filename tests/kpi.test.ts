@@ -42,12 +42,12 @@ describe('FX conversion (ADR-0005)', () => {
     expect(c.total).toBe(174);
     expect(c.excluded).toEqual([{ currency: 'SEK', count: 5 }]);
     expect(c.fallbackCurrencies).toEqual(['EUR']);
-    expect(exclusionNote(c)).toBe('5 deals excluded (no FX rate for SEK)');
+    expect(exclusionNote(c)).toBe('5 opportunities in SEK not included: no FX rate');
     expect(fallbackNote(c)).toBe('Uses latest rate for 1 currency');
     expect(exclusionNote(convertRows([], conv, () => '2026-11'))).toBe('');
   });
   it('singular wording and rounding to cents', () => {
-    expect(exclusionNote({ total: 0, excluded: [{ currency: 'SEK', count: 1 }], fallbackCurrencies: [] })).toBe('1 deal excluded (no FX rate for SEK)');
+    expect(exclusionNote({ total: 0, excluded: [{ currency: 'SEK', count: 1 }], fallbackCurrencies: [] })).toBe('1 opportunity in SEK not included: no FX rate');
     const c = convertRows([row({ currency: 'EUR', amount: 0.333, month: '2026-11' })], conv, (r) => r.month!);
     expect(c.total).toBe(2.5);
   });
@@ -134,7 +134,7 @@ describe('KPI maths', () => {
     });
     const by = Object.fromEntries(tiles.map((t) => [t.key, t]));
     expect(by.open).toMatchObject({ value: 1000, href: '/opportunities?status=open' });
-    expect(by.open!.notes).toEqual(['2 deals excluded (no FX rate for SEK)']);
+    expect(by.open!.notes).toEqual(['2 opportunities in SEK not included: no FX rate']);
     expect(by.weighted!.value).toBe(500);
     expect(by['won-month']).toMatchObject({ value: 275, context: '2 deals', href: '/opportunities?status=won&from=2026-11-01&to=2026-11-30' });
     expect(by['won-quarter']).toMatchObject({ value: 775, context: '4 deals', href: '/opportunities?status=won&from=2026-10-01&to=2026-12-31' });
@@ -163,7 +163,7 @@ describe('chart view-models', () => {
     expect(vm.labels).toEqual(['Qual', 'Prop']);
     expect(vm.data).toEqual([100, 900]);
     expect(vm.takeaway.replace(/\s/g, ' ')).toBe('Prop holds the most value: DKK 900');
-    expect(vm.notes).toEqual(['1 deal excluded (no FX rate for SEK)']);
+    expect(vm.notes).toEqual(['1 opportunity in SEK not included: no FX rate']);
     expect(vm.table.rows[1]).toMatchObject({ cells: ['Prop', '2', 'DKK 900.00'], flag: 'Not included: no FX rate' });
     expect(vm.empty).toBe(false);
   });

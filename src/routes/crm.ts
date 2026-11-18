@@ -5,7 +5,7 @@ import type { CrmStore, EntityKey, Lookups, OwnerOption, Repo, Row, Values } fro
 import { validateEntity, type Errors } from '../domain/validators';
 import { ConflictError, EditConflictError, ForbiddenError, NotFoundError } from '../errors';
 import { makeFormatter, todayIn } from '../services/format';
-import { convertRows, exclusionNote, makeConverter } from '../services/fx';
+import { convertRows, makeConverter } from '../services/fx';
 import { canDelete, cellsFor, describeHistory, columnsFor, detailRows, errorList, filterFields, formFields, formValuesFromRow, pageHref, recordName, relatedTo, TYPE_LABEL, type FormEnv } from './crmViews';
 
 const REF_FIELDS: Array<[string, EntityKey, string]> = [
@@ -85,8 +85,9 @@ function mount(router: Router, store: CrmStore, def: EntityDef): void {
           const mine = aggs.filter((a) => a.accountId === Number(r.Id));
           if (mine.length === 0) continue;
           const c = convertRows(mine, conv, () => today.slice(0, 7));
-          const note = exclusionNote(c);
-          r.OpenPipeline = `${c.total > 0 || !note ? fmt.money(c.total, lk.settings.baseCurrency) : ''}${note ? `${c.total > 0 ? ' + ' : ''}${note.replace(' excluded (no FX rate for', ' not converted (no rate:').replace(/\)$/, ')')}` : ''}`;
+          const n = c.excluded.reduce((x, e) => x + e.count, 0);
+          const note = n ? `${n} ${n === 1 ? 'opportunity' : 'opportunities'} not converted (no rate: ${c.excluded.map((e) => e.currency).join(', ')})` : '';
+          r.OpenPipeline = `${c.total > 0 || !note ? fmt.money(c.total, lk.settings.baseCurrency) : ''}${note ? `${c.total > 0 ? ' + ' : ''}${note}` : ''}`;
         }
       }
       return { lk, q, ...result, owners, today };

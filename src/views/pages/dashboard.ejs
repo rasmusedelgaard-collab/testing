@@ -5,14 +5,14 @@
 </div>
 <section aria-label="Key figures">
 <ul class="tiles">
-  <% tiles.forEach((t) => { %>
+  <% tiles.forEach((t, ti) => { %>
   <li class="tile">
-    <a href="<%= t.href %>" class="tile-link" title="<%= t.full ? t.label + ': ' + t.full : t.label %>">
+    <a href="<%= t.href %>" class="tile-link" title="<%= t.full ? t.label + ': ' + t.full : t.label %>"<%- t.notes.length ? ` aria-describedby="${t.notes.map((_, ni) => 'tn-' + ti + '-' + ni).join(' ')}"` : '' %>>
       <span class="tile-label"><%= t.label %></span>
-      <span class="tile-value"><%= t.short %><% if (t.full) { %><span class="visually-hidden"> (<%= t.full %>)</span><% } %></span>
+      <span class="tile-value<%= t.wrap ? ' wrap' : '' %>"><%= t.short %><% if (t.full) { %><span class="visually-hidden"> (<%= t.full %>)</span><% } %></span>
       <span class="tile-context<%= t.danger ? ' danger' : '' %>"><%= t.context %></span>
     </a>
-    <% t.notes.forEach((n) => { %><p class="tile-note"><span aria-hidden="true">⚠ </span><%= n %><% if (n.includes('excluded')) { %> <% if (isAdmin) { %><a href="/settings/fx">Add FX rates</a><% } else { %>Ask an administrator.<% } %><% } %></p><% }) %>
+    <% t.notes.forEach((n, ni) => { %><p class="tile-note"><span id="tn-<%= ti %>-<%= ni %>"><span aria-hidden="true">⚠ </span><%= n %></span><% if (t.excluded && n.includes('not included')) { %> <% if (isAdmin) { %><a href="/settings/fx">Add FX rates<span class="visually-hidden"> for <%= t.fxCurrencies %></span></a><% } else { %>Ask an administrator.<% } %><% } %></p><% }) %>
   </li>
   <% }) %>
 </ul>

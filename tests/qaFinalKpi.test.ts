@@ -137,10 +137,10 @@ describe('hand-calculated KPI values (fiscal year starts in April)', () => {
     if (e.winRate === null) expect(wr).toContain('No closed deals yet');
     else { expect(wr).toContain(`${e.winRate}%`); expect(wr).toContain(`${e.wonWin} of ${e.wonWin + e.lostWin}`); }
     // exclusion and fallback notes
-    if (e.open.excluded) expect(open).toContain(`${e.open.excluded} ${e.open.excluded === 1 ? 'deal' : 'deals'} excluded (no FX rate for ${e.open.missing.join(', ')})`);
-    else expect(open).not.toContain('excluded');
+    if (e.open.excluded) { expect(open).toContain('not included: no FX rate'); for (const m of e.open.missing) expect(open).toContain(` in ${m}`); }
+    else expect(open).not.toContain('not included');
     if (e.open.fallback.length) expect(open).toContain(`Uses latest rate for ${e.open.fallback.length} ${e.open.fallback.length === 1 ? 'currency' : 'currencies'}`);
-    if (e.wonQuarter.excluded) expect(wq).toContain('excluded');
+    if (e.wonQuarter.excluded) expect(wq).toContain('not included: no FX rate');
   });
 
   it('known absolute numbers for the Admin view, calculated by hand', async () => {
@@ -151,7 +151,7 @@ describe('hand-calculated KPI values (fiscal year starts in April)', () => {
     expect(full(tile(html, 'Weighted pipeline'))).toBe('DKK 81,624.25');
     // won this month: 10000 + 100 EUR x 7,5 (Nov rate, close month) + 50 DKK = 10800; SEK 800 excluded
     expect(full(tile(html, 'Won this month'))).toBe('DKK 10,800.00');
-    expect(tile(html, 'Won this month')).toContain('1 deal excluded (no FX rate for SEK)');
+    expect(tile(html, 'Won this month')).toContain('1 opportunity in SEK not included: no FX rate');
   });
 
   it('close-month rule: a won EUR deal uses the rate of its own close month, never the current month and never a later one', async () => {
@@ -382,7 +382,7 @@ describe('analytics periods, validation, tables and scoping', () => {
     const json = JSON.parse(/<script type="application\/json" id="chart-[^"]*won[^"]*-data">([\s\S]*?)<\/script>/i.exec(fig)![1]!);
     expect(json.data).toEqual(perMonth);
     expect(perMonth.reduce((a, b) => a + b, 0)).toBe(e.wonQuarter.total);
-    expect(text).toMatch(/excluded \(no FX rate for SEK\)/);
+    expect(text).toMatch(/in SEK not included: no FX rate/);
     expect(text).toContain('Uses latest rate for 1 currency');
   });
   it('a User (private) sees only own data in every chart table; the owner filter cannot reveal other people\'s deals', async () => {

@@ -200,7 +200,7 @@ export class MemoryRepo implements Repo {
       const o = this.decorate('opportunities', raw);
       const type = o.StageType as AggRow['stageType'];
       const close = String(o.CloseDate);
-      if (!f.types.includes(type) || (f.from && close < f.from) || (f.to && close > f.to) || (f.ownerId && o.OwnerId !== f.ownerId) || (f.accountIds && !f.accountIds.includes(Number(o.AccountId)))) continue;
+      if (!f.types.includes(type) || (f.from && close < f.from) || (f.to && close > f.to) || (f.ownerId && o.OwnerId !== f.ownerId) || (f.teamId && o.TeamId !== f.teamId) || (f.accountIds && !f.accountIds.includes(Number(o.AccountId)))) continue;
       const g = f.groupBy;
       const row: AggRow = {
         stageType: type, stageId: g.includes('stage') ? Number(o.StageId) : null, ownerId: g.includes('owner') ? Number(o.OwnerId) : null, ownerName: g.includes('owner') ? String(o.OwnerName) : null,
@@ -226,10 +226,13 @@ export class MemoryRepo implements Repo {
     const due = (a: Raw) => String(a.DueDate);
     return { overdue: rows.filter((a) => due(a) < today).length, today: rows.filter((a) => due(a) === today).length, next7: rows.filter((a) => due(a) > today && due(a) <= endStr).length };
   }
-  async activitiesByType(range: { from: string; to: string }, ownerId?: number) {
+  async teams() {
+    return this.s.teams.filter((t) => t.active).map((t) => ({ id: t.id, name: t.name })).sort((a, b) => a.name.localeCompare(b.name));
+  }
+  async activitiesByType(range: { from: string; to: string }, scope: { ownerId?: number; teamId?: number } = {}) {
     const counts = new Map<string, number>();
     for (const a of this.s.data.activities) {
-      if (!this.canSee(a) || (ownerId && a.OwnerId !== ownerId)) continue;
+      if (!this.canSee(a) || (scope.ownerId && a.OwnerId !== scope.ownerId) || (scope.teamId && a.TeamId !== scope.teamId)) continue;
       const d = (a.DueDate as string | null) ?? String(a.CreatedAt).slice(0, 10);
       if (d < range.from || d > range.to) continue;
       counts.set(String(a.ActivityType), (counts.get(String(a.ActivityType)) ?? 0) + 1);

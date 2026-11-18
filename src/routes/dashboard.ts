@@ -53,20 +53,24 @@ export function createDashboardRouter(store: CrmStore): Router {
     const compact = new Intl.NumberFormat(s.localeCode, { style: 'currency', currency: s.baseCurrency, notation: 'compact', minimumFractionDigits: 0, maximumFractionDigits: 1 });
     const percent = new Intl.NumberFormat(s.localeCode, { style: 'percent', maximumFractionDigits: 0 });
     const tile = (t: Tile) => ({
-      label: t.label, href: t.href, context: t.context, notes: t.notes, excluded: t.notes.some((n) => n.includes('excluded')),
+      label: t.label, href: t.href, context: t.context, notes: t.notes, excluded: t.excludedCurrencies.length > 0, fxCurrencies: t.excludedCurrencies.join(', '),
       short: t.value === null ? '–' : t.kind === 'money' ? compact.format(t.value) : percent.format(t.value / 100),
       full: t.value === null ? 'No closed deals yet' : t.kind === 'money' ? f.money(t.value, s.baseCurrency) : '',
-      danger: false,
+      danger: false, wrap: false,
     });
     const tiles = out.tiles.map(tile);
-    tiles.push({ label: 'Activities due', href: '/activities?status=open&type=actionable&due=due', short: `${out.counts.today} due today`, full: '', context: out.counts.overdue > 0 ? `${out.counts.overdue} overdue` : 'Nothing overdue', notes: [], excluded: false, danger: out.counts.overdue > 0 });
-    const rows = (rs: Row[], entity: 'opportunities' | 'activities') => rs.map((r) => ({ cells: cellsFor(entity, r, f, out.today, '/') }));
+    // Overdue work leads when there is any; otherwise the tile shows what is due today.
+    const overdue = out.counts.overdue > 0;
+    tiles.push({ label: 'Activities due', href: '/activities?status=open&type=actionable&due=due', short: overdue ? `${out.counts.overdue} overdue` : `${out.counts.today} due today`, full: '', context: overdue ? `${out.counts.today} due today` : 'Nothing overdue', notes: [], excluded: false, fxCurrencies: '', danger: overdue, wrap: true });
+    // The dashboard lists are "mine", so the Owner column would only repeat the user's own name.
+    const ownerIdx = (entity: 'opportunities' | 'activities') => columnsFor(entity).findIndex((c) => c.label === 'Owner');
+    const rows = (rs: Row[], entity: 'opportunities' | 'activities') => rs.map((r) => ({ cells: cellsFor(entity, r, f, out.today, '/').filter((_, i) => i !== ownerIdx(entity)) }));
     res.render('pages/dashboard', {
       title: 'Dashboard', activeNav: 'dashboard',
       greeting: `${greeting(s.timezone)}, ${(req.session.user?.name ?? '').split(' ')[0] || 'there'}`, asOf: f.dateTime(new Date().toISOString()),
       tiles, isAdmin: ctx.role === 'Admin',
-      oppColumns: columnsFor('opportunities').map((c) => c.label), opps: rows(out.mine.rows, 'opportunities'), oppTotal: out.mine.total,
-      actColumns: columnsFor('activities').map((c) => c.label),
+      oppColumns: columnsFor('opportunities').map((c) => c.label).filter((l) => l !== 'Owner'), opps: rows(out.mine.rows, 'opportunities'), oppTotal: out.mine.total,
+      actColumns: columnsFor('activities').map((c) => c.label).filter((l) => l !== 'Owner'),
       upcoming: [
         { title: 'Overdue', total: out.upcoming.overdue.total, rows: rows(out.upcoming.overdue.rows, 'activities'), viewAll: '/activities?status=open&type=actionable&due=overdue' },
         { title: 'Today', total: out.upcoming.today.total, rows: rows(out.upcoming.today.rows, 'activities'), viewAll: '/activities?status=open&type=actionable&due=today' },
@@ -79,20 +83,24 @@ export function createDashboardRouter(store: CrmStore): Router {
     const ctx = ctxOf(req);
     const q = req.query as Record<string, unknown>;
     const ownerRaw = str(q.owner);
-    const ownerId = /^[1-9]\d{0,9}$/.test(ownerRaw) && Number(ownerRaw) <= 2_147_483_647 ? Number(ownerRaw) : undefined;
+    const teamRaw = /^team:([1-9]\d{0,9})$/.exec(ownerRaw)?.[1];
+    const inRange = (v: string | undefined) => (v && Number(v) <= 2_147_483_647 ? Number(v) : undefined);
+    const ownerId = teamRaw ? undefined : /^[1-9]\d{0,9}$/.test(ownerRaw) ? inRange(ownerRaw) : undefined;
+    const teamId = inRange(teamRaw);
     const out = await store.run(ctx, async (repo) => {
       const lk = await repo.lookups();
       const s = lk.settings;
       const today = todayIn(s.timezone);
-      const period = resolvePeriod({ period: str(q.period), from: str(q.from), to: str(q.to) }, today, s.fiscalStartMonth);
+      const period = resolvePeriod({ period: str(q.period), from: str(q.from), to: str(q.to), shown: str(q.shown) }, today, s.fiscalStartMonth);
       const r = period.range;
       const rates = await repo.fxRates(s.baseCurrency);
-      const openRows = await repo.oppAggregates({ types: ['open'], from: r.from, to: r.to, ownerId, groupBy: ['stage'] });
-      const closedRows = await repo.oppAggregates({ types: ['won', 'lost'], from: r.from, to: r.to, ownerId, groupBy: ['owner', 'month'] });
-      const allRows = await repo.oppAggregates({ types: ['open', 'won', 'lost'], from: r.from, to: r.to, ownerId, groupBy: ['leadSource'] });
-      const acts = await repo.activitiesByType(r, ownerId);
+      const openRows = await repo.oppAggregates({ types: ['open'], from: r.from, to: r.to, ownerId, teamId, groupBy: ['stage'] });
+      const closedRows = await repo.oppAggregates({ types: ['won', 'lost'], from: r.from, to: r.to, ownerId, teamId, groupBy: ['owner', 'month'] });
+      const allRows = await repo.oppAggregates({ types: ['open', 'won', 'lost'], from: r.from, to: r.to, ownerId, teamId, groupBy: ['leadSource'] });
+      const acts = await repo.activitiesByType(r, { ownerId, teamId });
       const owners = await repo.owners();
-      return { lk, today, period, rates, openRows, closedRows, allRows, acts, owners };
+      const teams = ctx.role === 'User' ? [] : (await repo.teams()).filter((t) => ctx.role === 'Admin' || t.id === ctx.teamId);
+      return { lk, today, period, rates, openRows, closedRows, allRows, acts, owners, teams };
     });
     const s = out.lk.settings;
     const f = makeFormatter(s);
@@ -106,13 +114,14 @@ export function createDashboardRouter(store: CrmStore): Router {
       activitiesByType(out.acts, c),
       oppsByLeadSource(out.allRows, c),
     ];
-    const missing = charts.some((ch) => ch.notes.some((n) => n.includes('excluded')));
+    const missing = charts.some((ch) => ch.notes.some((n) => n.includes('not included')));
     res.render('pages/analytics', {
       title: 'Analytics', activeNav: 'analytics', scripts: ['/vendor/chart.umd.js', '/js/charts.js'],
-      period: out.period.key, error: out.period.ok ? '' : out.period.error, from: out.period.ok && out.period.key !== 'custom' ? out.period.range.from : str(q.from), to: out.period.ok && out.period.key !== 'custom' ? out.period.range.to : str(q.to),
+      period: out.period.key, error: out.period.ok ? '' : out.period.error, from: out.period.key === 'custom' ? str(q.from) : out.period.range.from, to: out.period.key === 'custom' ? str(q.to) : out.period.range.to,
       rangeText: `${f.date(out.period.range.from)} – ${f.date(out.period.range.to)}`,
-      periods: PERIODS.map((k) => ({ value: k, label: PERIOD_LABEL[k] })), ownerId: ownerId ?? 0,
-      owners: out.owners.map((o) => ({ id: o.id, label: ctx.role === 'Admin' && o.teamName ? `${o.name} (${o.teamName})` : o.name })),
+      periods: PERIODS.map((k) => ({ value: k, label: PERIOD_LABEL[k] })), ownerValue: teamId ? `team:${teamId}` : ownerId ? String(ownerId) : '',
+      teamOptions: out.teams.map((t) => ({ value: `team:${t.id}`, label: `Team: ${t.name}` })),
+      owners: out.owners.map((o) => ({ id: String(o.id), label: ctx.role === 'Admin' && o.teamName ? `${o.name} (${o.teamName})` : o.name })),
       charts: charts.map((ch) => ({ ...ch, json: JSON.stringify({ kind: ch.kind, labels: ch.labels, data: ch.data, valueKind: ch.valueKind, seriesLabel: ch.seriesLabel, locale: s.localeCode, currency: s.baseCurrency }).replace(/</g, '\\u003c') })),
       fxMissing: missing, isAdmin: ctx.role === 'Admin',
     });
