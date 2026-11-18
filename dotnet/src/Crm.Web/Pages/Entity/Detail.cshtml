@@ -1,0 +1,95 @@
+@page "/{entity:crmentity}/{id:int:min(1)}"
+@model DetailModel
+@if (Model.Form is not null)
+{
+    <partial name="_EntityForm" model="Model.Form" />
+}
+else if (Model.Confirm is not null)
+{
+<h1>@Model.Confirm.Title</h1>
+<p>@Model.Confirm.Message</p>
+<form method="post" action="@Model.Confirm.Action" asp-antiforgery="true">
+  @foreach (var f in Model.Confirm.Fields){<input type="hidden" name="@f.Name" value="@f.Value">}
+  <button type="submit" class="button primary">@Model.Confirm.Label</button>
+  <a href="@Model.Confirm.Cancel">Cancel</a>
+</form>
+}
+else
+{
+var def = Model.Def;
+var row = Model.Row!;
+<nav aria-label="Breadcrumb" class="breadcrumb"><a href="@def.Path">@def.Plural</a> / <span aria-current="page">@Model.RecordName</span></nav>
+<div class="page-header">
+  <h1>@Model.RecordName</h1>
+  <div class="actions">
+    @if (Model.DoneAction is not null)
+    {
+    <form method="post" action="@Model.DoneAction.Action" asp-antiforgery="true" class="inline-form"><input type="hidden" name="returnTo" value="@Model.DoneAction.ReturnTo"><button type="submit" class="button secondary">@Model.DoneAction.Label</button></form>
+    }
+    <a class="button secondary" href="@def.Path/@row.Int("Id")/edit">Edit</a>
+    @if (Model.CanDelete){<a class="button danger" href="@def.Path/@row.Int("Id")/delete">Delete @def.Singular</a>}
+  </div>
+</div>
+<p>Owner: <strong>@row.S("OwnerName")</strong></p>
+<section aria-labelledby="details-h">
+  <h2 id="details-h">Details</h2>
+  <dl class="details">
+    @foreach (var d in Model.Details)
+    {
+    <dt>@d.Label</dt>
+    <dd>@if (d.Text.Length == 0){<span aria-hidden="true">–</span><span class="visually-hidden">Not set</span>}else if (d.Href is not null){<a href="@d.Href">@d.Text</a>}else{@d.Text}</dd>
+    }
+  </dl>
+</section>
+@if (Model.StageActions is { } sa)
+{
+<section aria-labelledby="stage-h" class="stage-actions">
+  <h2 id="stage-h">Close this opportunity</h2>
+  <form method="post" action="@def.Path/@row.Int("Id")/won" asp-antiforgery="true" class="inline-form"><input type="hidden" name="rowVer" value="@sa.RowVer"><button type="submit" class="button secondary">Mark as won</button></form>
+  <form method="post" action="@def.Path/@row.Int("Id")/lost" asp-antiforgery="true" class="inline-form"><input type="hidden" name="rowVer" value="@sa.RowVer">
+    <label for="lostReason">Lost reason (required to mark as lost)</label>
+    @if (sa.LostError.Length > 0){<span class="field-error" id="e-lostReason"><span aria-hidden="true">⚠ </span>@sa.LostError</span>}
+    <select id="lostReason" name="lostReason" aria-invalid="@(sa.LostError.Length > 0 ? "true" : null)" aria-describedby="@(sa.LostError.Length > 0 ? "e-lostReason" : null)"><option value="">— choose —</option>@foreach (var p in sa.LostReasons){<option value="@p.Id">@p.Label</option>}</select>
+    <button type="submit" class="button secondary">Mark as lost</button></form>
+</section>
+}
+@if (Model.Tabs.Count > 0)
+{
+<section aria-labelledby="rel-h">
+  <h2 id="rel-h">Related records</h2>
+  <nav aria-label="Related records" class="tabs"><ul>
+    @foreach (var t in Model.Tabs){<li><a href="@t.Href" aria-current="@(t.Active ? "page" : null)">@t.Label (@t.Count)</a></li>}
+  </ul></nav>
+  @if (Model.TabTable is { } tt)
+  {
+  <p><a class="button secondary" href="@tt.NewHref">@tt.NewLabel</a></p>
+  @if (tt.Rows.Count == 0){<p class="muted">Nothing here yet.</p>}
+  else
+  {
+  <div class="table-wrap"><table class="data">
+    <caption class="visually-hidden">@tt.Title</caption>
+    <thead><tr>@foreach (var c in tt.Columns){<th scope="col">@c</th>}</tr></thead>
+    <tbody>@foreach (var cells in tt.Rows){<tr>@for (var ci = 0; ci < cells.Count; ci++){var c = cells[ci];<td data-label="@tt.Columns[ci]" class="@(c.Right ? "num" : null)">
+      @if (c.DoneForm is not null){<form method="post" action="@c.DoneForm.Action" asp-antiforgery="true" class="inline-form"><input type="hidden" name="returnTo" value="@c.DoneForm.ReturnTo"><button type="submit" class="button link">@(c.DoneForm.Checked ? "☑ Done" : "☐ Mark done")<span class="visually-hidden">: @c.DoneForm.Context</span></button></form>}
+      else if (c.Href is not null){<a href="@c.Href">@c.Text</a>}else{@c.Text}
+      @if (c.Note is not null){<br><span class="badge warn">@c.Note</span>}</td>}</tr>}</tbody>
+  </table></div>
+  }
+  }
+</section>
+}
+<section aria-labelledby="hist-h" class="history">
+  <h2 id="hist-h">History</h2>
+  @if (Model.History.Count == 0){<p class="muted">No changes recorded yet.</p>}
+  else
+  {
+  <ol class="timeline">
+    @foreach (var h in Model.History){<li><span class="muted">@h.At</span> · @h.By: @if (h.Owner){<strong>@h.Text</strong>}else{@h.Text}</li>}
+  </ol>
+  }
+</section>
+<footer class="record-footer muted">
+  Created @Model.CreatedAt by @Model.CreatedBy
+  @if (Model.Edited){<text> · Last modified by @Model.ModifiedBy, @Model.ModifiedAt</text>}
+</footer>
+}

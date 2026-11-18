@@ -1,0 +1,62 @@
+@model Crm.Web.Pages.Entity.FormPage
+<h1>@Model.Title</h1>
+<partial name="_ErrorSummary" model="Model.Errors" />
+<form method="post" action="@Model.Action" asp-antiforgery="true" class="form" novalidate>
+  @if (Model.RowVer.Length > 0){<input type="hidden" name="rowVer" value="@Model.RowVer">}
+  @{ string? group = null; }
+  @foreach (var f in Model.Fields)
+  {
+    @if (f.Group is not null && f.Group != group)
+    {
+      group = f.Group;
+      <p class="muted group-label">@group</p>
+    }
+    var describedBy = string.Join(' ', new[] { f.Error is not null ? $"e-{f.Name}" : "", f.Help is not null ? $"h-{f.Name}" : "" }.Where(x => x.Length > 0));
+    var describedAttr = describedBy.Length > 0 ? describedBy : null;
+    <div class="field@(f.Error is not null ? " has-error" : "")">
+    @if (f.Type == "radio")
+    {
+      <fieldset aria-describedby="@describedAttr"><legend>@f.Label</legend>
+        @for (var i = 0; i < f.Options!.Count; i++)
+        {
+          var o = f.Options[i];
+          <label class="inline"><input type="radio" id="@(i == 0 ? "f-" + f.Name : "f-" + f.Name + "-" + i)" name="@f.Name" value="@o.Value" checked="@o.Selected"> @o.Label</label>
+        }
+      </fieldset>
+    }
+    else if (f.Type == "checkbox")
+    {
+      <label class="inline"><input type="checkbox" id="f-@f.Name" name="@f.Name" checked="@(f.Value.Length > 0)"> @f.Label</label>
+    }
+    else
+    {
+      <label for="f-@f.Name">@f.Label</label>
+      @if (f.Help is not null){<span class="help" id="h-@f.Name">@f.Help</span>}
+      @if (f.Error is not null){<span class="field-error" id="e-@f.Name"><span aria-hidden="true">⚠ </span>@f.Error</span>}
+      @if (f.Type == "select")
+      {
+        <select id="f-@f.Name" name="@f.Name" required="@f.Required" aria-invalid="@(f.Error is not null ? "true" : null)" aria-describedby="@describedAttr">
+          @foreach (var o in f.Options!){<option value="@o.Value" selected="@o.Selected">@o.Label</option>}
+        </select>
+      }
+      else if (f.Type == "textarea")
+      {
+        <textarea id="f-@f.Name" name="@f.Name" rows="4" aria-invalid="@(f.Error is not null ? "true" : null)" aria-describedby="@describedAttr">@f.Value</textarea>
+      }
+      else
+      {
+        <input id="f-@f.Name" name="@f.Name" type="@f.Type" value="@f.Value" required="@f.Required" inputmode="@f.InputMode" autocomplete="@f.Autocomplete" aria-invalid="@(f.Error is not null ? "true" : null)" aria-describedby="@describedAttr">
+      }
+    }
+    @if (f.Type is "radio" or "checkbox")
+    {
+      @if (f.Help is not null){<span class="help" id="h-@f.Name">@f.Help</span>}
+      @if (f.Error is not null){<span class="field-error" id="e-@f.Name"><span aria-hidden="true">⚠ </span>@f.Error</span>}
+    }
+    </div>
+  }
+  <div class="actions">
+    <button type="submit" class="button primary">Save</button>
+    <a href="@Model.Cancel">Cancel</a>
+  </div>
+</form>

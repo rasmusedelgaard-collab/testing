@@ -40,6 +40,21 @@ public sealed class RlsTx
         }
     }
 
+    /// <summary>Rows as dictionaries (column names as in the SELECT), for the generic entity SQL.</summary>
+    public async Task<IReadOnlyList<Crm.Web.Domain.Row>> QueryRowsAsync(string sql, object? param = null)
+    {
+        await _one.WaitAsync(_ct).ConfigureAwait(false);
+        try
+        {
+            var rows = await _conn.QueryAsync(Cmd(sql, param)).ConfigureAwait(false);
+            return rows.Select(r => new Crm.Web.Domain.Row((IDictionary<string, object?>)r)).ToList();
+        }
+        finally
+        {
+            _one.Release();
+        }
+    }
+
     public async Task<T?> QuerySingleOrDefaultAsync<T>(string sql, object? param = null)
     {
         await _one.WaitAsync(_ct).ConfigureAwait(false);

@@ -96,6 +96,7 @@ builder.Services.Configure<CookieTempDataProviderOptions>(o =>
 });
 builder.Services.Configure<WebEncoderOptions>(o => o.TextEncoderSettings = new TextEncoderSettings(UnicodeRanges.All));
 builder.Services.AddRateLimiter(RateLimitSetup.Configure);
+builder.Services.Configure<RouteOptions>(o => o.ConstraintMap["crmentity"] = typeof(CrmEntityConstraint));
 builder.Services.AddHsts(o =>
 {
     o.MaxAge = TimeSpan.FromDays(365);
@@ -104,6 +105,10 @@ builder.Services.AddHsts(o =>
 builder.Services.AddRazorPages(o =>
 {
     o.Conventions.AuthorizeFolder("/Settings", AuthSetup.AdminPolicy);
+    // Extra routes for the generic entity pages (a Razor Page has one @page template).
+    o.Conventions.AddPageRoute("/Entity/Form", "{entity:crmentity}/{id:int:min(1)}/edit");
+    o.Conventions.AddPageRoute("/Entity/Detail", "opportunities/{id:int:min(1)}/{outcome:regex(^(won|lost)$)}");
+    o.Conventions.AddPageRoute("/Entity/Detail", "activities/{id:int:min(1)}/{verb:regex(^(done|undone)$)}");
 }).AddMvcOptions(o => o.Filters.Add<AntiforgeryFailureFilter>());
 
 var app = builder.Build();

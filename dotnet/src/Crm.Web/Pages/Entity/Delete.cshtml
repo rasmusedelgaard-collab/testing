@@ -1,0 +1,8 @@
+@page "/{entity:crmentity}/{id:int:min(1)}/delete"
+@model DeleteModel
+<h1>Delete @Model.RecordName?</h1>
+<p>Delete <strong>@Model.RecordName</strong>? @Model.Notice This cannot be undone. The deletion is recorded in the audit log.</p>
+<form method="post" action="@Model.Def.Path/@Model.Id/delete" asp-antiforgery="true">
+  <button type="submit" class="button danger">Delete @Model.Def.Singular</button>
+  <a href="@Model.Def.Path/@Model.Id">Cancel</a>
+</form>

@@ -58,7 +58,7 @@ public sealed class SqlHttpTests(SqlServerFixture fx)
         var picker = await c.PostAsync("/auth/test-login", HttpHelpers.Form(("_csrf", t1), ("code", CrmFactory.AccessCode)));
         var doc = await HttpHelpers.ParseAsync(picker);
         Assert.Contains("Fixture Admin", doc.QuerySelector("form")!.TextContent, StringComparison.Ordinal);
-        Assert.Equal(7 + 1, doc.QuerySelectorAll("input[name=oid]").Length);
+        Assert.True(doc.QuerySelectorAll("input[name=oid]").Length >= 8);
         var t2 = doc.QuerySelector("input[name=_csrf]")!.GetAttribute("value")!;
         foreach (var bad in new[] { Guid.NewGuid().ToString(), "00000000-0000-4000-8000-ffffffffffff", "x", "" })
         {

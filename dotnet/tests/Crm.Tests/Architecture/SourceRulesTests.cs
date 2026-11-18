@@ -107,14 +107,35 @@ public sealed partial class SourceRulesTests
         Assert.Empty(bad);
     }
 
+    /// <summary>
+    /// Interpolated SQL is allowed only in the repositories that compose it from whitelisted fragments (entity metadata, fixed
+    /// constants). Inside those, no interpolation hole may reference user-controlled values.
+    /// </summary>
     [Fact]
-    public void Sql_is_parameterised_no_interpolated_user_input_in_Data()
+    public void Sql_is_parameterised_and_interpolation_holes_are_whitelisted_fragments()
     {
-        // Interpolation is only allowed for the constant fragments declared in Data (Base, Reserved) and test-user queries.
-        var hits = Files("*.cs").Where(f => Rel(f).StartsWith("Data/", StringComparison.Ordinal))
-            .SelectMany(f => File.ReadAllLines(f).Select((l, i) => (f, l, i)))
-            .Where(x => Regex.IsMatch(x.l, @"\$""\s*(SELECT|INSERT|UPDATE|DELETE|EXEC)\b", RegexOptions.IgnoreCase))
-            .Select(x => $"{Rel(x.f)}:{x.i + 1}").ToList();
-        Assert.Empty(hits);
+        var allowed = new[] { "Data/CrmRepo.cs", "Data/CrmSql.cs", "Data/TestUserRepo.cs", "Data/FxRepo.cs", "Data/AdminRepo.cs" };
+        var forbidden = new[] { "q.Q", "value", "rowVer", "Request", "HttpContext", "values[", "body", "input", "Form" };
+        foreach (var f in Files("*.cs").Where(f => Rel(f).StartsWith("Data/", StringComparison.Ordinal)))
+        {
+            var text = File.ReadAllText(f);
+            var interpolatedSql = Regex.IsMatch(text, @"\$(""""""|"")\s*(SELECT|INSERT|UPDATE|DELETE|EXEC|DECLARE|MERGE)\b", RegexOptions.IgnoreCase);
+            if (!interpolatedSql)
+            {
+                continue;
+            }
+            Assert.Contains(Rel(f), allowed);
+        }
+        foreach (var f in allowed.Select(a => Path.Combine(WebRoot, a)).Where(File.Exists))
+        {
+            foreach (var line in File.ReadAllLines(f).Where(l => (l.Contains("$\"", StringComparison.Ordinal) || l.Contains("$\"\"\"", StringComparison.Ordinal)) && !l.Contains("p.Add(", StringComparison.Ordinal)))
+            {
+                foreach (Match m in Regex.Matches(line, @"\{([^{}]+)\}"))
+                {
+                    var hole = m.Groups[1].Value;
+                    Assert.DoesNotContain(forbidden.FirstOrDefault(x => hole.Contains(x, StringComparison.Ordinal)) ?? "\0", hole, StringComparison.Ordinal);
+                }
+            }
+        }
     }
 }

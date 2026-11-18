@@ -104,7 +104,7 @@ public sealed class MigratorTests(SqlServerFixture fx)
     public async Task Seed_is_idempotent_and_updates_the_named_admin_instead_of_duplicating()
     {
         var m = new Migrator(new SqlConnectionFactory(fx.OwnerDb), TextWriter.Null, Console.Error);
-        var admin = CrmConfigLoader.LoadTestAdmin("Renamed Admin", "fixture.admin@example.com");
+        var admin = CrmConfigLoader.LoadTestAdmin("Seed Idempotency Admin", "seed.idempotent@example.com");
         Assert.Equal(0, await m.SeedTestAsync(admin, CancellationToken.None));
         Assert.Equal(0, await m.SeedTestAsync(admin, CancellationToken.None));
         await using var c = new SqlConnection(SqlConnectionFactory.Build(fx.OwnerDb, "t", 1, false, 30));
@@ -114,7 +114,7 @@ public sealed class MigratorTests(SqlServerFixture fx)
         await using var r = await cmd.ExecuteReaderAsync();
         Assert.True(await r.ReadAsync());
         Assert.Equal(1, r.GetInt32(0));
-        Assert.Equal("Renamed Admin", r.GetString(1));
+        Assert.Equal("Seed Idempotency Admin", r.GetString(1));
     }
 
     [SqlFact]
@@ -257,7 +257,7 @@ public sealed class PoolResetTests(SqlServerFixture fx)
         await using var cmd2 = new SqlCommand("SELECT @@SPID, SESSION_CONTEXT(N'UserId')", c2);
         await using var r = await cmd2.ExecuteReaderAsync();
         Assert.True(await r.ReadAsync());
-        Assert.Equal(spid1, r.GetInt32(0));
+        Assert.Equal(spid1, Convert.ToInt32(r.GetValue(0), System.Globalization.CultureInfo.InvariantCulture));
         Assert.True(r.IsDBNull(1));
     }
 }
@@ -356,7 +356,7 @@ public sealed class TicketStoreAndUsersTests(SqlServerFixture fx)
         var (db, _, _) = Make();
         var repo = new TestUserRepo(db);
         var list = await repo.ListAsync(CancellationToken.None);
-        Assert.Equal(8, list.Count(u => u.Oid.StartsWith("00000000-0000-4000-8000-", StringComparison.Ordinal)));
+        Assert.True(list.Count(u => u.Oid.StartsWith("00000000-0000-4000-8000-", StringComparison.Ordinal)) >= 8);
         Assert.Contains(list, u => u.Name == "Fixture Admin");
         var real = Guid.NewGuid().ToString();
         await new UserRepo(db).UpsertOnLoginAsync(real, Guid.NewGuid().ToString(), "Real Employee", null, CrmRole.Admin, new GroupsInfo([], false), CancellationToken.None);

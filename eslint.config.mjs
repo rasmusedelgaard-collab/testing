@@ -6,7 +6,7 @@ const poolImportMessage =
   'src/db/pool.ts exposes rlsPool/systemPool. Only src/db/withRlsContext.ts and src/db/system.ts may import it. Use withRlsContext (RLS tables) or systemQuery (sessions, login upsert, public reads).';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'src/public/**', 'scripts/copy-assets.mjs', 'scripts/package.mjs', 'deploy/**', 'package/**'] },
+  { ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'src/public/**', 'scripts/copy-assets.mjs', 'scripts/package.mjs', 'deploy/**', 'package/**', 'dotnet/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
