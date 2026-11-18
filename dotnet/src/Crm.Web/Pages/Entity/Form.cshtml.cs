@@ -9,7 +9,7 @@ namespace Crm.Web.Pages.Entity;
 /// <summary>New (route /{entity}/new) and edit (route /{entity}/{id}/edit, added in Program.cs) share this page.</summary>
 public sealed class FormModel(IRlsDb rls, IRlsContextAccessor identity, TimeProvider time) : EntityPageModel(rls, identity, time)
 {
-    public async Task<IActionResult> OnGetAsync(string entity, int? id)
+    public async Task<IActionResult> OnGetAsync([FromRoute] string entity, [FromRoute] int? id)
     {
         SetEntity(entity);
         var def = Def;

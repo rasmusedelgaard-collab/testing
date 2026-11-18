@@ -34,7 +34,7 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
 
     public int To { get; private set; }
 
-    public async Task<IActionResult> OnGetAsync(string entity)
+    public async Task<IActionResult> OnGetAsync([FromRoute] string entity)
     {
         SetEntity(entity);
         var def = Def;
@@ -91,7 +91,7 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
     }
 
     /// <summary>Create. Validation failure re-renders the form (422); success is a 303 to the record (or the list on hand-off).</summary>
-    public async Task<IActionResult> OnPostAsync(string entity)
+    public async Task<IActionResult> OnPostAsync([FromRoute] string entity)
     {
         SetEntity(entity);
         var body = FormBody();

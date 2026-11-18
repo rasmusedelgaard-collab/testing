@@ -218,7 +218,7 @@ public sealed class RlsHttpTests(SqlServerFixture fx)
         var edit = await HttpHelpers.ParseAsync(await c.GetAsync($"/accounts/{id}/edit"));
         var r = await c.PostAsync($"/accounts/{id}", HttpHelpers.Form(("_csrf", edit.QuerySelector("input[name=_csrf]")!.GetAttribute("value")!),
             ("rowVer", edit.QuerySelector("input[name=rowVer]")!.GetAttribute("value")!), ("Name", Unique("Renamed")), ("OwnerId", I(me)),
-            ("TeamId", I(teamB.Team.Value)), ("CreatedBy", I(mgrB)), ("AccountId", "999999"), ("Id", "999999")));
+            ("TeamId", I(teamB.Team.Value)), ("CreatedBy", I(mgrB)), ("AccountId", "999999"), ("Id", "999999"), ("id", "999999"), ("outcome", "won"), ("verb", "done"), ("entity", "contacts")));
         await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, r);
         var after = await RowAsync(id);
         Assert.Equal(created, after);

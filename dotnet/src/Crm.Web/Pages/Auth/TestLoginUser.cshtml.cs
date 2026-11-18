@@ -21,7 +21,7 @@ public sealed class TestLoginUserModel(CrmConfig config, TestAccessCookie cookie
         {
             return NotFound();
         }
-        if (!cookie.TryConsume(HttpContext)) // single use: a replayed cookie goes back to the code page
+        if (!cookie.IsVerified(HttpContext))
         {
             return RedirectSeeOther("/auth/test-login");
         }
@@ -29,6 +29,11 @@ public sealed class TestLoginUserModel(CrmConfig config, TestAccessCookie cookie
         if (row is null)
         {
             throw new ForbiddenException("That test user is not available.");
+        }
+        // Single use (security review M3): only a successful sign-in spends the cookie, so a replayed copy goes back to the code page.
+        if (!cookie.TryConsume(HttpContext))
+        {
+            return RedirectSeeOther("/auth/test-login");
         }
         var user = new SessionUser(row.UserId, row.Oid, row.Name, row.Email, row.Role, row.TeamId, time.GetUtcNow().ToUnixTimeMilliseconds());
         // SignInAsync creates a NEW ticket-store row (fixation-safe), identical to the Entra path from here on.

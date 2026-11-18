@@ -304,7 +304,7 @@ public sealed class SettingsConfigTests(SqlServerFixture fx)
         var wonIdx = rows.FindIndex(r => r.Type == "won");
         var wonRefused = await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(rows, $"remove:{wonIdx}"));
         await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, wonRefused);
-        Assert.Contains("Can't remove the only Won stage. Make another stage Won first.", await TextAsync(wonRefused), StringComparison.Ordinal);
+        Assert.Contains("Can't remove the only Won stage. Make another stage Won first.", WebUtility.HtmlDecode(await TextAsync(wonRefused)), StringComparison.Ordinal);
 
         // a stage in use cannot be removed (immediately refused, the row stays); a stale/forged id list changes nothing
         var (f2, u) = await AsAsync(UserA1);
@@ -317,7 +317,7 @@ public sealed class SettingsConfigTests(SqlServerFixture fx)
         var inUse = await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(rows, "remove:0"));
         await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, inUse);
         var inUseText = await TextAsync(inUse);
-        Assert.Contains("Can&#x27;t remove &quot;Qualification&quot;:", inUseText.Replace("'", "&#x27;", StringComparison.Ordinal).Replace("\"", "&quot;", StringComparison.Ordinal), StringComparison.Ordinal);
+        Assert.Contains("Can't remove \"Qualification\":", WebUtility.HtmlDecode(inUseText), StringComparison.Ordinal);
         Assert.Contains("View these opportunities", inUseText, StringComparison.Ordinal);
         var forged = rows.Append(new StageRow("2147483647", "Ghost", "10", "open")).ToList();
         var forgedRes = await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(forged, "save"));
@@ -363,7 +363,7 @@ public sealed class SettingsConfigTests(SqlServerFixture fx)
         Assert.Contains("Name must be 80 characters or fewer.", await TextAsync(tooLong), StringComparison.Ordinal);
         var dupSeed = await PostAsync(c, path, path, ("action", "add"), ("label", "Website"));
         await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, dupSeed);
-        Assert.Contains("&quot;Website&quot; already exists in this list.", await TextAsync(dupSeed), StringComparison.Ordinal);
+        Assert.Contains("\"Website\" already exists in this list.", WebUtility.HtmlDecode(await TextAsync(dupSeed)), StringComparison.Ordinal);
 
         await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, await PostAsync(c, path, path, ("action", "add"), ("label", label)));
         var doc = await HttpHelpers.ParseAsync(await c.GetAsync(path));
@@ -404,7 +404,7 @@ public sealed class SettingsConfigTests(SqlServerFixture fx)
 
         await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, await PostAsync(c, path, path, ("action", "deactivate"), ("valueId", id)));
         var audit = await AuditAsync("picklistvalue", idInt);
-        Assert.Equal(["C", "ULabel", "UIsActive", "UIsActive", "USortOrder", "UIsActive"], audit.Select(a => a.Action + a.Field).ToArray());
+        Assert.Equal(["C", "ULabel", "UIsActive", "UIsActive", "USortOrder", "USortOrder", "UIsActive"], audit.Select(a => a.Action + a.Field).ToArray());
         Assert.Equal(("IsActive", "1", "0"), (audit[2].Field!, audit[2].Old!, audit[2].New!));
     }
 

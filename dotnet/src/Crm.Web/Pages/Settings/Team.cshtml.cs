@@ -19,7 +19,7 @@ public sealed class TeamModel(IRlsDb rls, IRlsContextAccessor identity, Branding
 
     private bool IsEditPath => Request.Path.Value!.TrimEnd('/').EndsWith("/edit", StringComparison.OrdinalIgnoreCase);
 
-    public async Task<IActionResult> OnGetAsync(int id, string? verb)
+    public async Task<IActionResult> OnGetAsync([FromRoute] int id, [FromRoute] string? verb)
     {
         if (verb is null && !IsEditPath) { throw new NotFoundException(); } // /settings/teams/{id} is POST-only
         Setup("users", "Team");
@@ -40,7 +40,7 @@ public sealed class TeamModel(IRlsDb rls, IRlsContextAccessor identity, Branding
         return Page();
     }
 
-    public async Task<IActionResult> OnPostAsync(int id, string? verb, string? name, string? groupId, string? confirm)
+    public async Task<IActionResult> OnPostAsync([FromRoute] int id, [FromRoute] string? verb, string? name, string? groupId, string? confirm)
     {
         if (verb is null && IsEditPath) { throw new NotFoundException(); } // POST goes to /settings/teams/{id}
         // RunAsync: exclusive branches (the deactivate/reactivate branch returns before the save branch runs)

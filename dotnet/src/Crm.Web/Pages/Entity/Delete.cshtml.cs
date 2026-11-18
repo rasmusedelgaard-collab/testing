@@ -20,7 +20,7 @@ public sealed class DeleteModel(IRlsDb rls, IRlsContextAccessor identity, TimePr
 
     public string Notice { get; private set; } = "";
 
-    public async Task<IActionResult> OnGetAsync(string entity, int id)
+    public async Task<IActionResult> OnGetAsync([FromRoute] string entity, [FromRoute] int id)
     {
         SetEntity(entity);
         var row = await RunAsync(repo => repo.GetAsync(Def.Key, id)) ?? throw new NotFoundException();
@@ -41,7 +41,7 @@ public sealed class DeleteModel(IRlsDb rls, IRlsContextAccessor identity, TimePr
         return Page();
     }
 
-    public async Task<IActionResult> OnPostAsync(string entity, int id)
+    public async Task<IActionResult> OnPostAsync([FromRoute] string entity, [FromRoute] int id)
     {
         SetEntity(entity);
         var meta = MetaOf();

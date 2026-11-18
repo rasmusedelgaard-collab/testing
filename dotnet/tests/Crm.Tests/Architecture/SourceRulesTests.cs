@@ -100,6 +100,34 @@ public sealed partial class SourceRulesTests
         Assert.Empty(bad);
     }
 
+    /// <summary>
+    /// MVC binds simple parameters from the form BEFORE the route, so a posted "id=7" would override /accounts/5. Route-derived
+    /// handler parameters must therefore say [FromRoute].
+    /// </summary>
+    [Fact]
+    public void Route_parameters_of_page_handlers_are_bound_from_the_route_only()
+    {
+        var signature = new Regex(@"public[^\n(]* On(?:Get|Post)\w*\(([^)]*)\)", RegexOptions.CultureInvariant);
+        var routeNames = new[] { "id", "entity", "verb", "outcome" };
+        var bad = new List<string>();
+        foreach (var f in Files("*.cshtml.cs").Where(f => Rel(f).StartsWith("Pages/", StringComparison.Ordinal)))
+        {
+            foreach (Match m in signature.Matches(File.ReadAllText(f)))
+            {
+                foreach (var p in m.Groups[1].Value.Split(','))
+                {
+                    var trimmed = p.Trim();
+                    var name = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
+                    if (name is not null && routeNames.Contains(name) && !trimmed.StartsWith("[FromRoute]", StringComparison.Ordinal))
+                    {
+                        bad.Add($"{Rel(f)}: {trimmed}");
+                    }
+                }
+            }
+        }
+        Assert.Empty(bad);
+    }
+
     [Fact]
     public void Html_Raw_only_for_the_json_chart_blocks() => Assert.Equal(["Pages/Dashboard/Analytics.cshtml"], Files("*.cshtml").Where(f => File.ReadAllText(f).Contains("Html.Raw(", StringComparison.Ordinal)).Select(Rel).Order());
 

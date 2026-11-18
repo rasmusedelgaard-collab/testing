@@ -47,7 +47,7 @@ public sealed partial class PicklistsModel(IRlsDb rls, IRlsContextAccessor ident
         }
     }
 
-    public async Task<IActionResult> OnGetAsync(string? code)
+    public async Task<IActionResult> OnGetAsync([FromRoute] string? code)
     {
         if (code is null) { return Redirect("/settings/picklists/industry"); }
         if (!KnownCode(code)) { throw new NotFoundException(); }
@@ -56,7 +56,7 @@ public sealed partial class PicklistsModel(IRlsDb rls, IRlsContextAccessor ident
         return Page();
     }
 
-    public async Task<IActionResult> OnPostAsync(string? code, string? action, string? valueId, string? label)
+    public async Task<IActionResult> OnPostAsync([FromRoute] string? code, string? action, string? valueId, string? label)
     {
         if (!KnownCode(code)) { throw new NotFoundException(); }
         action ??= "";

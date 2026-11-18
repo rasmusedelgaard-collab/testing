@@ -81,7 +81,7 @@ public sealed partial class FxModel(IRlsDb rls, IRlsContextAccessor identity, Br
         RateValue = rate;
     }
 
-    public async Task<IActionResult> OnGetAsync(int? id, string? verb)
+    public async Task<IActionResult> OnGetAsync([FromRoute] int? id, [FromRoute] string? verb)
     {
         if (id is not null && verb is null) { throw new NotFoundException(); } // POST-only route
         var (data, r) = await RunAsync(async (admin, repo) =>
@@ -105,7 +105,7 @@ public sealed partial class FxModel(IRlsDb rls, IRlsContextAccessor identity, Br
         return Page();
     }
 
-    public async Task<IActionResult> OnPostAsync(int? id, string? verb, string? currency, string? month, string? rate, string? confirm)
+    public async Task<IActionResult> OnPostAsync([FromRoute] int? id, [FromRoute] string? verb, string? currency, string? month, string? rate, string? confirm)
     {
         if (verb == "edit") { throw new NotFoundException(); } // GET-only route
         var meta = MetaOf();

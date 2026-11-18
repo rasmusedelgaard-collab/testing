@@ -57,7 +57,7 @@ public sealed class DetailModel(IRlsDb rls, IRlsContextAccessor identity, TimePr
 
     public bool Edited { get; private set; }
 
-    public Task<IActionResult> OnGetAsync(string? entity, int id) => ShowDetailAsync(entity ?? "", id);
+    public Task<IActionResult> OnGetAsync([FromRoute] string? entity, [FromRoute] int id) => ShowDetailAsync(entity ?? "", id);
 
     private sealed record DetailData(Row Row, Lookups Lk, string Today, IReadOnlyDictionary<string, IReadOnlyList<Row>> Related, IReadOnlyList<HistoryRow> History);
 
@@ -137,7 +137,7 @@ public sealed class DetailModel(IRlsDb rls, IRlsContextAccessor identity, TimePr
     }
 
     /// <summary>Update, close (won/lost) or done/undone, depending on the route that was matched.</summary>
-    public async Task<IActionResult> OnPostAsync(string? entity, int id, string? outcome, string? verb)
+    public async Task<IActionResult> OnPostAsync([FromRoute] string? entity, [FromRoute] int id, [FromRoute] string? outcome, [FromRoute] string? verb)
     {
         if (outcome is not null)
         {
