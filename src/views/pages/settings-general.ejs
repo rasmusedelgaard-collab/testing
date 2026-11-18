@@ -11,7 +11,7 @@
   </div>
   <div class="field<%= errors.accentColor ? ' has-error' : '' %>">
     <label for="f-accentColor">Accent colour</label>
-    <span class="help" id="h-accentColor">Used for links and buttons. It must have a contrast of at least 4.5:1 against white.</span>
+    <span class="help" id="h-accentColor">Used for links and buttons. It must have a contrast of at least 4.5:1 against both white and the light grey page background (#F9FAFB).</span>
     <% if (errors.accentColor) { %><span class="field-error" id="e-accentColor"><span aria-hidden="true">⚠ </span><%= errors.accentColor %></span><% } %>
     <input id="f-accentColor" name="accentColor" type="text" maxlength="7" pattern="#[0-9A-Fa-f]{6}" value="<%= values.accentColor %>" aria-describedby="h-accentColor<%= errors.accentColor ? ' e-accentColor' : '' %>"<%- errors.accentColor ? ' aria-invalid="true"' : '' %>>
   </div>
@@ -22,7 +22,8 @@
 <form method="post" action="/settings/general/logo" enctype="multipart/form-data" class="form">
   <div class="field">
     <label for="f-logo">Logo file (PNG, 500 KB or smaller)</label>
-    <input id="f-logo" name="logo" type="file" accept="image/png" required>
+    <%- errHtml('logo') %>
+    <input id="f-logo"<%- invalidAttrs('logo') %> name="logo" type="file" accept="image/png">
   </div>
   <input type="hidden" name="_csrf" value="<%= csrfToken() %>">
   <div class="actions"><button type="submit" class="button secondary">Upload logo</button></div>

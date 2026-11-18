@@ -10,6 +10,7 @@ import { csrfValid } from '../middleware/csrf';
 import { checkLogo, MAX_LOGO_BYTES } from '../services/logo';
 import type { BrandingProvider } from '../services/brandingTypes';
 
+const esc = (t: string) => t.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 const parseId = (raw: unknown): number => {
   if (typeof raw !== 'string' || !/^[1-9]\d{0,9}$/.test(raw) || Number(raw) > 2_147_483_647) throw new NotFoundError();
@@ -32,7 +33,10 @@ export function createSettingsRouter(store: CrmStore, branding: BrandingProvider
   const render = (res: Response, view: string, nav: string, data: Record<string, unknown>) => {
     const errors = (data.errors ?? {}) as Record<string, string>;
     const status = Object.keys(errors).length > 0 || (Array.isArray(data.summary) && data.summary.length > 0) ? 422 : 200;
-    res.status(status).render(`pages/${view}`, { activeNav: 'settings', settingsNav: nav, errors, summary: summaryOf(errors), ...data });
+    // Shared field-error pattern: inline message with icon and id, plus aria-invalid/aria-describedby on the input.
+    const errHtml = (name: string) => (errors[name] ? `<span class="field-error" id="e-${esc(name)}"><span aria-hidden="true">⚠ </span>${esc(errors[name] as string)}</span>` : '');
+    const invalidAttrs = (name: string) => (errors[name] ? ` aria-invalid="true" aria-describedby="e-${esc(name)}"` : '');
+    res.status(status).render(`pages/${view}`, { activeNav: 'settings', settingsNav: nav, errors, summary: summaryOf(errors), errHtml, invalidAttrs, ...data });
   };
 
   router.get('/', (_req, res) => res.redirect(302, '/settings/general'));
@@ -42,6 +46,10 @@ export function createSettingsRouter(store: CrmStore, branding: BrandingProvider
     const out = await store.runAdmin(ctxOf(req), async (a) => ({ s: await a.settingsMap(), logo: await a.logoInfo() }));
     render(res, 'settings-general', 'general', { title: 'General settings', values: { appName: out.s['app.name'] ?? 'CRM', accentColor: out.s['branding.accentColor'] ?? '#1D4ED8' }, logo: out.logo });
   });
+  const logoError = async (req: Request, res: Response, message: string) => {
+    const out = await store.runAdmin(ctxOf(req), async (a) => ({ s: await a.settingsMap(), logo: await a.logoInfo() }));
+    render(res, 'settings-general', 'general', { title: 'General settings', values: { appName: out.s['app.name'] ?? 'CRM', accentColor: out.s['branding.accentColor'] ?? '#1D4ED8' }, logo: out.logo, errors: { logo: message } });
+  };
   router.post('/general', async (req, res) => {
     const { values, errors } = validateGeneral(req.body as Record<string, unknown>);
     if (Object.keys(errors).length > 0) {
@@ -63,13 +71,12 @@ export function createSettingsRouter(store: CrmStore, branding: BrandingProvider
         if (!csrfValid(req, (req.body as Record<string, unknown> | undefined)?._csrf)) return next(new ForbiddenError('Invalid or missing CSRF token'));
         if (err) {
 
-          flash(req, 'Logo must be a PNG, 500 KB or smaller.', 'error');
-          return res.redirect(303, '/settings/general');
+          return await logoError(req, res, 'Logo must be a PNG, 500 KB or smaller.');
         }
         const file = req.file;
-        if (!file) { flash(req, 'Choose a logo file first.', 'error'); return res.redirect(303, '/settings/general'); }
+        if (!file) return await logoError(req, res, 'Choose a logo file first.');
         const check = checkLogo(file.buffer);
-        if (!check.ok) { flash(req, check.message, 'error'); return res.redirect(303, '/settings/general'); }
+        if (!check.ok) return await logoError(req, res, check.message);
         await store.runAdmin(ctxOf(req), (a) => a.saveLogo(check.contentType, file.buffer, check.sha256, meta(req)));
         branding.invalidate();
         flash(req, 'Logo saved.');
@@ -144,11 +151,20 @@ export function createSettingsRouter(store: CrmStore, branding: BrandingProvider
       const lk = await a.lookups();
       const v = validateFx(body, { base: lk.settings.baseCurrency, enabled: lk.settings.enabledCurrencies, locale: lk.settings.localeCode });
       if (Object.keys(v.errors).length > 0) return { kind: 'invalid' as const, errors: v.errors };
+      if (id !== null && str(body.confirm) !== '1') {
+        // Changing an existing rate restates totals: ask first, unless nothing changes.
+        const old = await a.fxRate(id);
+        const clash = (await a.fxRates()).some((x) => x.id !== id && x.currency === v.values.currency && x.month === v.values.month);
+        if (!clash && old && (old.currency !== v.values.currency || old.month !== v.values.month || old.rate !== v.values.rate)) return { kind: 'confirm' as const, month: old.month };
+      }
       const r = await a.saveFxRate({ id, base: lk.settings.baseCurrency, currency: v.values.currency, month: v.values.month, rate: v.values.rate }, meta(req));
       if (!r.ok) return { kind: 'dup' as const, dupId: r.duplicateOf, values: v.values, name: `${v.values.currency} in ${monthLabel(v.values.month)}` };
       return { kind: 'ok' as const };
     });
     const raw = { currency: str(body.currency), month: str(body.month), rate: str(body.rate) };
+    if (out.kind === 'confirm') {
+      return render(res, 'settings-confirm', 'fx', { title: 'Change rate', message: `This changes totals on the dashboard and in analytics for ${monthLabel(out.month)}. Continue?`, action: `/settings/fx/${id}`, fields: [{ name: 'currency', value: raw.currency }, { name: 'month', value: raw.month }, { name: 'rate', value: raw.rate }, { name: 'confirm', value: '1' }], label: 'Save rate', danger: false, cancel: '/settings/fx' });
+    }
     if (out.kind === 'invalid') return fxPage(req, res, { values: raw, errors: out.errors, editId: id });
     if (out.kind === 'dup') return fxPage(req, res, { values: raw, editId: id, dupId: out.dupId, errors: { currency: `A rate for ${out.name} already exists.` } });
     flash(req, 'Rate saved.');
@@ -174,9 +190,14 @@ export function createSettingsRouter(store: CrmStore, branding: BrandingProvider
     const n = Math.min(Math.max(Number(str(body.n)) || 0, 0), 50);
     return Array.from({ length: n }, (_, i) => ({ id: str(body[`id_${i}`]), name: str(body[`name_${i}`]), prob: str(body[`prob_${i}`]), type: str(body[`type_${i}`]) }));
   };
-  async function stagesPage(req: Request, res: Response, rows: Array<{ id: string; name: string; prob: string; type: string }>, usage: StageUsage[], extra: { errors?: Record<string, string>; summary?: string[]; note?: string } = {}) {
+  type StageRowForm = { id: string; name: string; prob: string; type: string };
+  async function stagesPage(req: Request, res: Response, rows: StageRowForm[], usage: StageUsage[], extra: { errors?: Record<string, string>; summary?: string[]; note?: string; focus?: string; links?: Record<string, string> } = {}) {
     const used = new Map(usage.map((u) => [String(u.id), u.used]));
-    render(res, 'settings-stages', 'stages', { title: 'Pipeline stages', rows: rows.map((r) => ({ ...r, used: used.get(r.id) ?? 0 })), errors: extra.errors ?? {}, summary: extra.summary ?? [], note: extra.note ?? '' });
+    const errors = extra.errors ?? {};
+    // One summary for everything: row problems first (each links to its field, prefixed with the row number), then page-level ones.
+    const rowItems = Object.entries(errors).map(([field, message]) => ({ field, message: `Row ${Number(field.replace(/\D/g, '')) + 1}: ${message}` }));
+    const summary = [...rowItems, ...(extra.summary ?? []).map((message) => ({ field: '', message }))];
+    render(res, 'settings-stages', 'stages', { title: 'Pipeline stages', rows: rows.map((r) => ({ ...r, used: used.get(r.id) ?? 0 })), errors, summary, note: extra.note ?? '', focus: extra.focus ?? '', links: extra.links ?? {} });
   }
   router.get('/stages', async (req, res) => {
     const usage = await store.runAdmin(ctxOf(req), (a) => a.stageUsage());
@@ -188,17 +209,38 @@ export function createSettingsRouter(store: CrmStore, branding: BrandingProvider
     let rows = stageRowsFromBody(body);
     const m = /^(up|down|remove):(\d{1,2})$/.exec(action);
     if (action === 'add' || m) {
-      if (action === 'add') rows.push({ id: '', name: '', prob: '10', type: 'open' });
-      else if (m) {
+      const usage = await store.runAdmin(ctxOf(req), (a) => a.stageUsage());
+      let focus = '';
+      if (action === 'add') {
+        rows.push({ id: '', name: '', prob: '10', type: 'open' });
+        focus = `f-name${rows.length - 1}`;
+      } else if (m) {
         const i = Number(m[2]);
-        if (m[1] === 'remove') rows = rows.filter((_, k) => k !== i);
-        else {
+        const row = rows[i];
+        if (m[1] === 'remove' && row) {
+          // Refuse right here (the row stays) instead of failing at Save and losing the row and other unsaved edits.
+          const inUse = usage.find((u) => String(u.id) === row.id)?.used ?? 0;
+          const sameType = rows.filter((r) => r.type === row.type).length;
+          if (inUse > 0) {
+            const name = row.name || 'This stage';
+            return stagesPage(req, res, rows, usage, { errors: { [`name${i}`]: `Can't remove "${name}": ${inUse} ${inUse === 1 ? 'opportunity uses' : 'opportunities use'} it. Move ${inUse === 1 ? 'it' : 'them'} to another stage first.` }, links: { [`name${i}`]: `/opportunities?stage=${row.id}&status=all` }, focus: `f-name${i}` });
+          }
+          if ((row.type === 'won' || row.type === 'lost') && sameType <= 1) {
+            return stagesPage(req, res, rows, usage, { errors: { [`name${i}`]: `Can't remove the only ${row.type === 'won' ? 'Won' : 'Lost'} stage. Make another stage ${row.type === 'won' ? 'Won' : 'Lost'} first.` }, focus: `f-name${i}` });
+          }
+          rows = rows.filter((_, k) => k !== i);
+          focus = `f-name${Math.min(i, rows.length - 1)}`;
+        } else if (m[1] !== 'remove' && row) {
           const j = m[1] === 'up' ? i - 1 : i + 1;
-          if (rows[i] && rows[j]) [rows[i], rows[j]] = [rows[j] as never, rows[i] as never];
+          if (rows[j]) {
+            [rows[i], rows[j]] = [rows[j] as StageRowForm, rows[i] as StageRowForm];
+            // Keep the focus on the same button of the moved row, or the opposite one when it reached an end.
+            const atEnd = m[1] === 'up' ? j === 0 : j === rows.length - 1;
+            focus = `${atEnd ? (m[1] === 'up' ? 'down' : 'up') : m[1]}-${j}`;
+          }
         }
       }
-      const usage = await store.runAdmin(ctxOf(req), (a) => a.stageUsage());
-      return stagesPage(req, res, rows, usage, { note: 'Changes are not saved yet. Choose Save stages to keep them.' });
+      return stagesPage(req, res, rows, usage, { note: 'Changes are not saved yet. Choose Save stages to keep them.', focus });
     }
     const v = validateStages(rows);
     const result = await store.runAdmin(ctxOf(req), async (a) => {
@@ -219,7 +261,15 @@ export function createSettingsRouter(store: CrmStore, branding: BrandingProvider
     if (!PICKLIST_CODES.includes(code)) throw new NotFoundError();
     const list = await store.runAdmin(ctxOf(req), (a) => a.picklist(code));
     if (!list) throw new NotFoundError();
-    render(res, 'settings-picklists', 'picklists', { title: `Picklist: ${list.name}`, code, list, codes: PICKLIST_CODES, canAdd: code !== 'activity_type', errors, values });
+    const fm = /^([1-9]\d{0,9})-(up|down)$/.exec(str(req.query.focus));
+    // After a move keep the focus on the same button of the moved value (or the other one when it hit an end).
+    let focus = '';
+    if (fm) {
+      const i = list.values.findIndex((v) => String(v.id) === fm[1]);
+      const atEnd = fm[2] === 'up' ? i === 0 : i === list.values.length - 1;
+      focus = i < 0 ? '' : `${atEnd ? (fm[2] === 'up' ? 'down' : 'up') : fm[2]}-${fm[1]}`;
+    }
+    render(res, 'settings-picklists', 'picklists', { title: `Picklist: ${list.name}`, code, list, codes: PICKLIST_CODES, canAdd: code !== 'activity_type', errors, values, focus });
   }
   router.get('/picklists/:code', (req, res) => picklistPage(req, res, str(req.params.code)));
   router.post('/picklists/:code', async (req, res) => {
@@ -241,7 +291,7 @@ export function createSettingsRouter(store: CrmStore, branding: BrandingProvider
     });
     if (!res2.ok) return picklistPage(req, res, code, { [res2.field ?? 'label']: res2.error }, { label });
     flash(req, 'Settings saved.');
-    res.redirect(303, `/settings/picklists/${code}`);
+    res.redirect(303, `/settings/picklists/${code}${action === 'up' || action === 'down' ? `?focus=${id}-${action}` : ''}`);
   });
 
   // ---------------- Visibility ----------------

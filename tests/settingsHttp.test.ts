@@ -107,10 +107,13 @@ describe('logo upload', () => {
   it('refuses SVG outright with a clear message (PNG only)', async () => {
     const s = await session();
     for (const svg of [SVG, Buffer.from('<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>'), Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><x:script xmlns:x="http://www.w3.org/2000/svg">1</x:script></svg>')]) {
-      expect((await upload(s, svg, 'logo.svg', 'image/svg+xml')).status).toBe(303);
+      expect((await upload(s, svg, 'logo.svg', 'image/svg+xml')).status).toBe(422);
       expect(s.state.logo).toBeNull();
     }
-    expect((await s.agent.get('/settings/general')).text).toContain('SVG logos are not supported. Upload a PNG, 500 KB or smaller.');
+    const res = await upload(s, SVG, 'logo.svg', 'image/svg+xml');
+    expect(res.text).toContain('SVG logos are not supported. Upload a PNG, 500 KB or smaller.');
+    expect(res.text).toContain('id="e-logo"');
+    expect(res.text).toContain('aria-invalid="true" aria-describedby="e-logo"');
     expect((await s.agent.get('/settings/general')).text).toContain('Logo file (PNG, 500 KB or smaller)');
   });
   it('decides by content, not by filename or declared type', async () => {
@@ -147,9 +150,10 @@ describe('logo upload', () => {
     const s = await session();
     const big = Buffer.concat([PNG, Buffer.alloc(520_000)]);
     const res = await upload(s, big);
-    expect(res.status).toBe(303);
+    expect(res.status).toBe(422);
     expect(s.state.logo).toBeNull();
-    expect((await s.agent.get('/settings/general')).text).toContain('Logo must be a PNG, 500 KB or smaller.');
+    expect(res.text).toContain('Logo must be a PNG, 500 KB or smaller.');
+    expect(res.text).toContain('id="error-summary"');
   });
   it('requires the CSRF token (checked after multipart parsing) and an Admin', async () => {
     const s = await session();
@@ -230,7 +234,10 @@ describe('FX rates', () => {
     await s.post('/settings/fx', rate());
     const id = s.state.fx[0]!.id;
     expect((await s.agent.get(`/settings/fx/${id}/edit`)).text).toContain('value="7,459"');
-    expect((await s.post(`/settings/fx/${id}`, rate({ rate: '7,5' }))).status).toBe(303);
+    const ask = await s.post(`/settings/fx/${id}`, rate({ rate: '7,5' }));
+    expect(ask.text).toContain('This changes totals on the dashboard and in analytics for 11.2026. Continue?');
+    expect(s.state.fx[0]!.rate).toBe(7.459); // nothing changes until confirmed
+    expect((await s.post(`/settings/fx/${id}`, rate({ rate: '7,5', confirm: '1' }))).status).toBe(303);
     expect(audit(s, 'fxrate').at(-1)).toMatchObject({ action: 'U', fieldName: 'Rate', oldValue: '7.459', newValue: '7.5' });
     const confirm = await s.agent.get(`/settings/fx/${id}/delete`);
     expect(confirm.text).toContain('This changes totals on the dashboard and in analytics for 11.2026. Continue?');
@@ -439,5 +446,99 @@ describe('security of the settings pages', () => {
       expect(html, p).not.toMatch(/\sstyle=/i);
       expect(html, p).not.toContain('<img src=x');
     }
+  });
+});
+
+describe('UX review fixes (increment 3)', () => {
+  const stageBody = (s: Awaited<ReturnType<typeof session>>, over: Record<string, string> = {}) => ({ n: String(s.state.stages.length), ...Object.assign({}, ...s.state.stages.map((st, i) => ({ [`id_${i}`]: String(st.id), [`name_${i}`]: st.name, [`prob_${i}`]: String(st.probability), [`type_${i}`]: st.type }))), ...over });
+
+  it('H1: the accent colour must pass 4.5:1 on white AND on the page background', async () => {
+    const s = await session();
+    expect(contrastWithWhite('#757575')).toBeGreaterThan(4.5); // passes on white...
+    const res = await s.post('/settings/general', { appName: 'X', accentColor: '#757575' }); // ...but not on #F9FAFB
+    expect(res.status).toBe(422);
+    expect(res.text).toContain('This colour is too light for text and buttons. Choose a darker shade.');
+    expect((await s.post('/settings/general', { appName: 'X', accentColor: '#6B7280' })).status).toBe(303);
+    expect((await s.agent.get('/settings/general')).text).toContain('against both white and the light grey page background');
+  });
+  it('H2: the stages summary counts every problem (rows prefixed) and links to the fields', async () => {
+    const s = await session();
+    const res = await s.post('/settings/stages', { ...stageBody(s, { name_0: '', name_2: 'needs analysis', prob_1: '150', type_0: 'won' }), action: 'save' });
+    expect(res.status).toBe(422);
+    expect(res.text).toMatch(/Fix 4 problems to save/);
+    expect(res.text).toContain('Row 1: Enter a stage name.');
+    expect(res.text).toContain('Row 3: Each stage needs a different name.');
+    expect(res.text).toContain('Row 2: Probability must be between 0 and 100.');
+    expect(res.text).toContain('You need exactly one Won stage and one Lost stage.');
+    expect(res.text).toContain('href="#f-name0"');
+    expect(res.text).toMatch(/id="f-prob1"[^>]*aria-invalid="true" aria-describedby="e-prob1"/);
+    expect(res.text).toMatch(/id="f-name0"[^>]*aria-invalid="true" aria-describedby="e-name0"/);
+  });
+  it('M1: FX, team and picklist errors link inline messages to their fields', async () => {
+    const s = await session();
+    const fx = (await s.post('/settings/fx', { currency: '', month: '', rate: 'x' })).text;
+    for (const f of ['currency', 'month', 'rate']) {
+      expect(fx).toContain(`id="e-${f}"`);
+      expect(fx).toMatch(new RegExp(`id="f-${f}"[^>]*aria-invalid="true" aria-describedby="e-${f}"`));
+    }
+    expect(fx).toContain('<span aria-hidden="true">⚠ </span>Choose a currency.');
+    const team = (await s.post('/settings/teams', { name: '', groupId: 'bad' })).text;
+    expect(team).toMatch(/id="f-name"[^>]*aria-invalid="true" aria-describedby="e-name"/);
+    expect(team).toMatch(/id="f-groupId"[^>]*aria-invalid="true" aria-describedby="e-groupId"/);
+    const edit = (await s.post('/settings/teams/1', { name: '', groupId: 'bad' })).text;
+    expect(edit).toContain('id="e-name"');
+    const pl = (await s.post('/settings/picklists/industry', { action: 'rename', valueId: String(s.state.picklists.industry![0]!.id), label: '' })).text;
+    expect(pl).toMatch(/aria-invalid="true" aria-describedby="e-label100"/);
+    expect(pl).toContain('id="e-label100"');
+    const add = (await s.post('/settings/picklists/industry', { action: 'add', label: '' })).text;
+    expect(add).toMatch(/id="f-label"[^>]*aria-invalid="true" aria-describedby="e-label"/);
+    const loc = (await s.post('/settings/locale', { base: 'XXX', locale: 'zz', timezone: 'no', firstDay: '1', fiscalStart: '1' })).text;
+    expect(loc).toMatch(/id="f-base"[^>]*aria-invalid="true" aria-describedby="e-base"/);
+  });
+  it('M2: after Move up/down the same button of the moved row gets the focus marker; Add focuses the new name', async () => {
+    const s = await session();
+    const down = await s.post('/settings/stages', { ...stageBody(s), action: 'down:1' });
+    expect(down.text).toMatch(/id="down-2" data-autofocus/);
+    const up = await s.post('/settings/stages', { ...stageBody(s), action: 'up:1' });
+    expect(up.text).toMatch(/id="down-0" data-autofocus/); // reached the top: the opposite button stays usable
+    const add = await s.post('/settings/stages', { ...stageBody(s), action: 'add' });
+    expect(add.text).toMatch(/id="f-name6" data-autofocus/);
+    expect((await s.agent.get('/js/app.js')).text).toContain('[data-autofocus]');
+    await s.post('/settings/picklists/industry', { action: 'down', valueId: String(s.state.picklists.industry![0]!.id) });
+    const pl = await s.agent.get(`/settings/picklists/industry?focus=${s.state.picklists.industry![1]!.id}-down`);
+    expect(pl.text).toContain(`id="down-${s.state.picklists.industry![1]!.id}" data-autofocus`);
+  });
+  it('M3: removing an in-use stage or the only Won/Lost stage is refused immediately and the row stays', async () => {
+    const s = await session();
+    const inUse = await s.post('/settings/stages', { ...stageBody(s), action: 'remove:2' }); // Proposal has an opportunity
+    expect(inUse.status).toBe(422);
+    expect(inUse.text).toContain('Can&#39;t remove &quot;Proposal&quot;: 1 opportunity uses it.');
+    expect(inUse.text).toContain('href="/opportunities?stage=3&amp;status=all"');
+    expect(inUse.text).toContain('value="Proposal"'); // row kept, other edits kept
+    expect(inUse.text).toContain('name="n" value="6"');
+    const won = await s.post('/settings/stages', { ...stageBody(s), action: 'remove:4' });
+    expect(won.text).toContain('Can&#39;t remove the only Won stage.');
+    expect(won.text).toContain('name="n" value="6"');
+    const ok = await s.post('/settings/stages', { ...stageBody(s), action: 'remove:0' }); // Qualification is unused
+    expect(ok.status).toBe(200);
+    expect(ok.text).toContain('name="n" value="5"');
+  });
+  it('M5: changing an FX rate asks for confirmation naming the month; an unchanged save does not', async () => {
+    const s = await session();
+    await s.post('/settings/fx', { currency: 'EUR', month: '2026-11', rate: '7,4590' });
+    const id = s.state.fx[0]!.id;
+    expect((await s.post(`/settings/fx/${id}`, { currency: 'EUR', month: '2026-11', rate: '7,4590' })).status).toBe(303);
+    const ask = await s.post(`/settings/fx/${id}`, { currency: 'EUR', month: '2026-11', rate: '8' });
+    expect(ask.text).toContain('Continue?');
+    expect(audit(s, 'fxrate').filter((a) => a.action === 'U')).toHaveLength(0);
+  });
+  it('M6: settings table cells carry data-label for the card layout', async () => {
+    const s = await session();
+    expect((await s.agent.get('/settings/stages')).text).toContain('data-label="Opportunities" class="num"');
+    expect((await s.agent.get('/settings/users')).text).toContain('data-label="Members" class="num"');
+    expect((await s.agent.get('/settings/users')).text).toContain('data-label="Last sign-in"');
+    await s.post('/settings/fx', { currency: 'EUR', month: '2026-11', rate: '7,5' });
+    expect((await s.agent.get('/settings/fx')).text).toContain('data-label="Rate to DKK" class="num"');
+    expect((await s.agent.get('/settings/picklists/industry')).text).toContain('data-label="Status"');
   });
 });

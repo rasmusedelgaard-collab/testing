@@ -1,4 +1,4 @@
-import { contrastWithWhite } from '../services/color';
+import { accentContrast } from '../services/color';
 import { ALLOWED_LOCALES, parseRate, rateExample } from '../services/format';
 import type { Errors } from './validators';
 
@@ -21,7 +21,7 @@ export function validateGeneral(body: Record<string, unknown>): Result<{ appName
   else if (appName.length > 40) errors.appName = 'CRM name must be 40 characters or fewer.';
   const accent = s(body.accentColor);
   if (!/^#[0-9a-fA-F]{6}$/.test(accent)) errors.accentColor = 'Enter a colour like #1D4ED8.';
-  else if (contrastWithWhite(accent) < 4.5) errors.accentColor = 'This colour is too light for text and buttons. Choose a darker shade.';
+  else if (accentContrast(accent) < 4.5) errors.accentColor = 'This colour is too light for text and buttons. Choose a darker shade.';
   return { values: { appName, accentColor: accent.toUpperCase() }, errors };
 }
 

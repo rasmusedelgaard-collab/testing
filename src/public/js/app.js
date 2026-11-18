@@ -22,6 +22,7 @@
 // successful action -> the flash message (so it is announced and keyboard users start next to the result).
 (function () {
   var target = document.getElementById('error-summary');
+  if (!target) target = document.querySelector('[data-autofocus]');
   if (!target) target = document.querySelector('main [aria-invalid="true"]');
   if (!target) target = document.querySelector('main .flash');
   if (!target) return;

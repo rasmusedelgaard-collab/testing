@@ -8,8 +8,8 @@
 <div class="table-wrap"><table class="data">
   <caption class="visually-hidden">Teams</caption>
   <thead><tr><th scope="col">Team name</th><th scope="col">Entra group object ID</th><th scope="col">Members</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
-  <tbody><% teams.forEach((t) => { %><tr><td><%= t.name %></td><td><code><%= t.groupId %></code></td><td class="num"><%= t.members %></td><td><%= t.active ? 'Active' : 'Inactive' %></td>
-    <td><a href="/settings/teams/<%= t.id %>/edit">Edit <%= t.name %></a> ·
+  <tbody><% teams.forEach((t) => { %><tr><td data-label="Team name"><%= t.name %></td><td data-label="Entra group object ID"><code><%= t.groupId %></code></td><td data-label="Members" class="num"><%= t.members %></td><td data-label="Status"><%= t.active ? 'Active' : 'Inactive' %></td>
+    <td data-label="Actions"><a href="/settings/teams/<%= t.id %>/edit">Edit <%= t.name %></a> ·
     <% if (t.active) { %><a href="/settings/teams/<%= t.id %>/deactivate">Deactivate <%= t.name %></a>
     <% } else { %><form method="post" action="/settings/teams/<%= t.id %>/reactivate" class="inline-form"><%- csrfField() %><button type="submit" class="button link">Reactivate <%= t.name %></button></form><% } %></td></tr><% }) %></tbody>
 </table></div>
@@ -18,12 +18,12 @@
 <form method="post" action="/settings/teams" class="form" novalidate>
   <%- csrfField() %>
   <div class="field<%= errors.name ? ' has-error' : '' %>"><label for="f-name">Team name (required)</label>
-    <% if (errors.name) { %><span class="field-error" id="e-name"><span aria-hidden="true">⚠ </span><%= errors.name %></span><% } %>
-    <input id="f-name" name="name" type="text" maxlength="80" value="<%= values.name || '' %>"></div>
+    <%- errHtml('name') %>
+    <input id="f-name"<%- invalidAttrs('name') %> name="name" type="text" maxlength="80" value="<%= values.name || '' %>"></div>
   <div class="field<%= errors.groupId ? ' has-error' : '' %>"><label for="f-groupId">Entra group object ID (required)</label>
     <span class="help">Find this in Microsoft Entra ID &gt; Groups &gt; the group &gt; Object ID.</span>
-    <% if (errors.groupId) { %><span class="field-error" id="e-groupId"><span aria-hidden="true">⚠ </span><%= errors.groupId %></span><% } %>
-    <input id="f-groupId" name="groupId" type="text" spellcheck="false" autocomplete="off" value="<%= values.groupId || '' %>"></div>
+    <%- errHtml('groupId') %>
+    <input id="f-groupId"<%- invalidAttrs('groupId') %> name="groupId" type="text" spellcheck="false" autocomplete="off" value="<%= values.groupId || '' %>"></div>
   <button type="submit" class="button primary">Add team</button>
 </form>
 <h2>Users</h2>
@@ -38,8 +38,8 @@
 <div class="table-wrap"><table class="data">
   <caption class="visually-hidden">Users</caption>
   <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Team</th><th scope="col">Last sign-in</th><th scope="col">Status</th></tr></thead>
-  <tbody><% users.forEach((u) => { %><tr><td><%= u.name %></td><td><%= u.email || '' %></td><td><%= u.role %></td>
-    <td><%= u.teamLabel %><% if (u.badge) { %> <span class="badge warn"><span aria-hidden="true">⚠ </span><%= u.badge %></span><% } %></td>
-    <td><%= u.lastSignInText %></td><td><%= u.active ? 'Active' : 'Inactive' %></td></tr><% }) %></tbody>
+  <tbody><% users.forEach((u) => { %><tr><td data-label="Name"><%= u.name %></td><td data-label="Email"><%= u.email || '' %></td><td data-label="Role"><%= u.role %></td>
+    <td data-label="Team"><%= u.teamLabel %><% if (u.badge) { %> <span class="badge warn"><span aria-hidden="true">⚠ </span><%= u.badge %></span><% } %></td>
+    <td data-label="Last sign-in"><%= u.lastSignInText %></td><td data-label="Status"><%= u.active ? 'Active' : 'Inactive' %></td></tr><% }) %></tbody>
 </table></div>
 <%- include('../partials/foot') %>

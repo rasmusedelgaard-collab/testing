@@ -14,9 +14,9 @@
   <caption class="visually-hidden">FX rates</caption>
   <thead><tr><th scope="col">Currency</th><th scope="col">Month</th><th scope="col">Rate to <%= base %></th><th scope="col">Last changed</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
   <tbody>
-  <% missing.forEach((c) => { %><tr><td><%= c %></td><td><%= curLabel %></td><td>–  Missing</td><td></td><td><a href="/settings/fx?currency=<%= c %>#add-rate">Add rate for <%= c %></a></td></tr><% }) %>
-  <% rows.forEach((r) => { %><tr><td><%= r.currency %></td><td><%= r.monthLabel %></td><td class="num"><%= r.rateText %></td><td><%= r.at %> by <%= r.modifiedByName %></td>
-    <td><a href="/settings/fx/<%= r.id %>/edit">Edit <%= r.currency %> <%= r.monthLabel %></a> · <a href="/settings/fx/<%= r.id %>/delete">Delete <%= r.currency %> <%= r.monthLabel %></a></td></tr><% }) %>
+  <% missing.forEach((c) => { %><tr><td data-label="Currency"><%= c %></td><td data-label="Month"><%= curLabel %></td><td data-label="Rate to <%= base %>">–  Missing</td><td data-label="Last changed"></td><td data-label="Actions"><a href="/settings/fx?currency=<%= c %>#add-rate">Add rate for <%= c %></a></td></tr><% }) %>
+  <% rows.forEach((r) => { %><tr><td data-label="Currency"><%= r.currency %></td><td data-label="Month"><%= r.monthLabel %></td><td data-label="Rate to <%= base %>" class="num"><%= r.rateText %></td><td data-label="Last changed"><%= r.at %> by <%= r.modifiedByName %></td>
+    <td data-label="Actions"><a href="/settings/fx/<%= r.id %>/edit">Edit <%= r.currency %> <%= r.monthLabel %></a> · <a href="/settings/fx/<%= r.id %>/delete">Delete <%= r.currency %> <%= r.monthLabel %></a></td></tr><% }) %>
   </tbody>
 </table></div>
 <h2 id="add-rate"><%= editId ? 'Edit rate' : 'Add rate' %></h2>
@@ -24,14 +24,14 @@
 <form method="post" action="<%= editId ? '/settings/fx/' + editId : '/settings/fx' %>" class="form" novalidate>
   <%- csrfField() %>
   <div class="field<%= errors.currency ? ' has-error' : '' %>"><label for="f-currency">Currency (required)</label>
-    <% if (errors.currency) { %><span class="field-error" id="e-currency"><span aria-hidden="true">⚠ </span><%= errors.currency %></span><% } %>
-    <select id="f-currency" name="currency"><option value="">— choose —</option><% currencies.forEach((c) => { %><option<%- c === (values.currency || wantCur) ? ' selected' : '' %>><%= c %></option><% }) %></select></div>
+    <%- errHtml('currency') %>
+    <select id="f-currency"<%- invalidAttrs('currency') %> name="currency"><option value="">— choose —</option><% currencies.forEach((c) => { %><option<%- c === (values.currency || wantCur) ? ' selected' : '' %>><%= c %></option><% }) %></select></div>
   <div class="field<%= errors.month ? ' has-error' : '' %>"><label for="f-month">Month (required)</label>
-    <% if (errors.month) { %><span class="field-error" id="e-month"><span aria-hidden="true">⚠ </span><%= errors.month %></span><% } %>
-    <input id="f-month" name="month" type="month" value="<%= values.month %>" required></div>
+    <%- errHtml('month') %>
+    <input id="f-month"<%- invalidAttrs('month') %> name="month" type="month" value="<%= values.month %>" required></div>
   <div class="field<%= errors.rate ? ' has-error' : '' %>"><label for="f-rate">Rate to <%= base %> (required)</label>
-    <% if (errors.rate) { %><span class="field-error" id="e-rate"><span aria-hidden="true">⚠ </span><%= errors.rate %></span><% } %>
-    <input id="f-rate" name="rate" type="text" inputmode="decimal" value="<%= values.rate %>" required></div>
+    <%- errHtml('rate') %>
+    <input id="f-rate"<%- invalidAttrs('rate') %> name="rate" type="text" inputmode="decimal" value="<%= values.rate %>" required></div>
   <div class="actions"><button type="submit" class="button primary">Save rate</button><% if (editId) { %><a href="/settings/fx">Cancel</a><% } %></div>
 </form>
 <%- include('../partials/foot') %>

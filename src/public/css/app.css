@@ -179,3 +179,11 @@ fieldset.plain { border: 0; padding: 0; margin: 0; }
 .chart { margin: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: var(--space-4); min-width: 0; }
 .chart-box { position: relative; height: 300px; margin-top: var(--space-3); }
 .chart-table summary { cursor: pointer; margin: var(--space-3) 0; color: var(--color-primary); }
+
+/* ---- settings pages: no page-level horizontal scroll ---- */
+form, .field, .filters, .form { min-width: 0; }
+.field select, .field input { max-width: 100%; }
+.filters select { max-width: 100%; min-width: 0; }
+.table-wrap { max-width: 100%; }
+table.data td input[type="text"] { max-width: 100%; }
+@media (max-width: 1023px) { table.data td input[type="text"][name^="name_"] { width: 12ch; } }
