@@ -93,7 +93,7 @@ CREATE TABLE crm.FxRates (                         -- ADR-0005
   ModifiedAt   datetime2(3)  NOT NULL CONSTRAINT DF_FxRates_ModifiedAt DEFAULT SYSUTCDATETIME(),
   RowVer       rowversion    NOT NULL,
   CONSTRAINT CK_FxRates_NotBase CHECK (CurrencyCode <> BaseCurrency),
-  CONSTRAINT CK_FxRates_Codes   CHECK (BaseCurrency LIKE '[A-Z][A-Z][A-Z]' AND CurrencyCode LIKE '[A-Z][A-Z][A-Z]'),
+  CONSTRAINT CK_FxRates_Codes   CHECK (BaseCurrency COLLATE Latin1_General_BIN LIKE '[A-Z][A-Z][A-Z]' AND CurrencyCode COLLATE Latin1_General_BIN LIKE '[A-Z][A-Z][A-Z]'),
   CONSTRAINT UQ_FxRates UNIQUE (BaseCurrency, CurrencyCode, RateMonth)
 );
 
@@ -160,7 +160,7 @@ CREATE TABLE crm.Opportunities (
   PrimaryContactId  int           NULL     CONSTRAINT FK_Opps_Contact REFERENCES crm.Contacts(ContactId),
   StageId           int           NOT NULL CONSTRAINT FK_Opps_Stage   REFERENCES crm.PipelineStages(StageId),
   Amount            decimal(19,2) NOT NULL CONSTRAINT CK_Opps_Amount CHECK (Amount >= 0),
-  CurrencyCode      char(3)       NOT NULL CONSTRAINT CK_Opps_Currency CHECK (CurrencyCode LIKE '[A-Z][A-Z][A-Z]'),
+  CurrencyCode      char(3)       NOT NULL CONSTRAINT CK_Opps_Currency CHECK (CurrencyCode COLLATE Latin1_General_BIN LIKE '[A-Z][A-Z][A-Z]'),
   CloseDate         date          NOT NULL,
   LeadSourceValueId int           NULL CONSTRAINT FK_Opps_LeadSource REFERENCES crm.PicklistValues(ValueId),
   LostReasonValueId int           NULL CONSTRAINT FK_Opps_LostReason REFERENCES crm.PicklistValues(ValueId),
@@ -243,6 +243,8 @@ AS
 BEGIN
   SET NOCOUNT ON; SET XACT_ABORT ON;
   IF @Role NOT IN ('Admin','Manager','User') THROW 50010, 'Invalid role', 1;
+  -- A deactivated user stays deactivated: login never reactivates (only an administrator does, in the database).
+  IF EXISTS (SELECT 1 FROM crm.Users WHERE EntraOid = @EntraOid AND IsActive = 0) THROW 50011, 'User is deactivated', 1;
 
   DECLARE @TeamId int, @TeamMatches int, @TeamStatus varchar(10);
   SELECT @TeamMatches = COUNT(DISTINCT t.TeamId), @TeamId = MIN(t.TeamId)
@@ -260,7 +262,7 @@ BEGIN
   MERGE crm.Users WITH (HOLDLOCK) AS u
   USING (SELECT @EntraOid AS EntraOid) AS s ON u.EntraOid = s.EntraOid
   WHEN MATCHED THEN UPDATE SET DisplayName = @DisplayName, Email = @Email, Role = @Role, TeamId = @TeamId,
-       TeamStatus = @TeamStatus, TenantId = @TenantId, IsActive = 1,
+       TeamStatus = @TeamStatus, TenantId = @TenantId,
        LastSignInAt = SYSUTCDATETIME(), ModifiedAt = SYSUTCDATETIME()
   WHEN NOT MATCHED THEN INSERT (EntraOid, TenantId, DisplayName, Email, Role, TeamId, TeamStatus, LastSignInAt)
        VALUES (@EntraOid, @TenantId, @DisplayName, @Email, @Role, @TeamId, @TeamStatus, SYSUTCDATETIME());

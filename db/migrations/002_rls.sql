@@ -89,7 +89,15 @@ RETURN
   WHERE c.UserId IS NOT NULL
     AND c.Role IN (N'Admin', N'Manager', N'User')
     AND @ChangedBy = c.UserId
-    AND (c.Role = N'Admin' OR @OwnerId = c.UserId OR @TeamId = c.TeamId);
+    AND (   c.Role = N'Admin'
+         OR (@OwnerId = c.UserId AND (@TeamId = c.TeamId OR (@TeamId IS NULL AND c.TeamId IS NULL)))  -- own record: the team must match too
+         OR @TeamId = c.TeamId);
+GO
+
+-- Always false: AuditLog rows can never be updated or deleted, not even by Admin or dbo.
+CREATE FUNCTION sec.fn_Deny(@RowId bigint)
+RETURNS TABLE WITH SCHEMABINDING AS
+RETURN SELECT 1 AS ok WHERE 1 = 0;
 GO
 
 -- Config tables: any valid context may read
@@ -137,7 +145,9 @@ CREATE SECURITY POLICY sec.CrmRowPolicy
 
   -- AuditLog is append-only: crm_app has no UPDATE/DELETE grant, so only the insert is guarded
   ADD FILTER PREDICATE sec.fn_RowAccess(OwnerId, TeamId)                ON crm.AuditLog,
-  ADD BLOCK  PREDICATE sec.fn_AuditInsert(ChangedBy, OwnerId, TeamId)   ON crm.AuditLog AFTER INSERT
+  ADD BLOCK  PREDICATE sec.fn_AuditInsert(ChangedBy, OwnerId, TeamId)   ON crm.AuditLog AFTER INSERT,
+  ADD BLOCK  PREDICATE sec.fn_Deny(AuditId)                             ON crm.AuditLog BEFORE UPDATE,
+  ADD BLOCK  PREDICATE sec.fn_Deny(AuditId)                             ON crm.AuditLog BEFORE DELETE
 WITH (STATE = ON, SCHEMABINDING = ON);
 GO
 
