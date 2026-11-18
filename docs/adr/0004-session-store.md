@@ -1,6 +1,6 @@
 # ADR-0004: Server-side sessions in Azure SQL (`app.Sessions`) with a small custom express-session store
 
-- **Status:** Proposed
+- **Status:** Accepted (user-approved 2026-11-18)
 - **Date:** 2026-11-18
 - **One-way door:** No. The store is behind the `express-session` `Store` interface and can be swapped for Redis in a day.
 
@@ -29,7 +29,8 @@ Option A, with the table `app.Sessions (Sid varchar(128) PK, Data nvarchar(max),
   - `set`: `MERGE` / upsert with the expiry from `cookie.expires`, or idle minutes.
   - `destroy`: delete the row.
   - `touch`: update `ExpiresAt` only.
-- **Cleanup:** every 15 min, on each instance, `DELETE TOP (1000) FROM app.Sessions WHERE ExpiresAt < SYSUTCDATETIME()`, repeated while rows are affected.
+- **Cleanup:** `DELETE TOP (1000) FROM app.Sessions WHERE ExpiresAt < SYSUTCDATETIME()`, repeated while rows are affected. It runs **opportunistically**: after a request has been served, at most once per 15 minutes per instance. It never runs on a timer, because a timer would keep the serverless database awake and defeat auto-pause (overview §8.1). Expired rows are already ignored by `get`, so delayed cleanup is harmless.
+- **Transient errors:** store operations go through `withDbRetry` (overview §8.1). The session `get` is usually the first database call of a request, so it is where a paused database is first detected.
 - **Pool:** runs on `systemPool`, never on `rlsPool`. No session context is set.
 - **Grants:** `crm_app_role` gets SELECT, INSERT, UPDATE and DELETE on `app.Sessions` only.
 - **`express-session` options:**
@@ -47,5 +48,5 @@ Option A, with the table `app.Sessions (Sid varchar(128) PK, Data nvarchar(max),
 - **Load:** one extra read per request, and one write when `rolling` touches the session. Trivial at this scale.
 - **Revocation:** a session can be revoked by deleting its row (runbook: "force sign-out of user X" means deleting rows whose `Data` contains their `oid`).
 - **Personal data:** `Data` holds name and email for up to 10 h. Rows are removed on expiry. Logs never contain `Data`.
-- **Risk: serverless SQL auto-pause in dev makes the first request slow.** It is acceptable in dev. Auto-pause is off in prod.
+- **Risk: serverless SQL auto-pause (60 min, all environments including prod, user decision 2026-11-18) makes the first request after an idle hour slow**, because the session lookup has to wait for the database to resume. Handled by the retry and "waking up the database" design in overview §8.1.
 - **Reversibility:** high. Only the `store:` option changes.

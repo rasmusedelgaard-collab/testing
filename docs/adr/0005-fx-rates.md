@@ -1,6 +1,6 @@
 # ADR-0005: Currency conversion with Admin-entered monthly FX rates to a base currency
 
-- **Status:** Accepted for the approach (product owner decision in the plan: Admin enters the rates). Proposed for the conversion rules below.
+- **Status:** Accepted (user-approved 2026-11-18). The approach (Admin enters the rates) is from the plan; the conversion rules below were decided by the user in the 2nd round.
 - **Date:** 2026-11-18
 - **One-way door:** No. The rates source can later be replaced by an ERP or ECB feed that writes the same table.
 
@@ -22,13 +22,15 @@
 Option A. The table is `crm.FxRates (BaseCurrency, CurrencyCode, RateMonth, Rate)` (DDL in overview §4.1).
 
 - **Semantics:** 1 unit of `CurrencyCode` = `Rate` units of `BaseCurrency` for the calendar month `RateMonth`. `RateMonth` is the first day of the month. The base currency always has an implicit rate of 1 and is never stored.
-- **Rate lookup:** `fx.ts` is pure and unit-tested. Conversion uses the rate of the **reference month**, or else the **latest earlier month**, with the current `BaseCurrency`.
-  - Won and lost opportunities: reference month = month of `CloseDate`.
-  - Open pipeline (open, weighted): reference month = **current month**, as a "today's value" view.
-- **Missing rate:** if no rate exists for that month or any earlier month:
-  - The amount is **excluded** from the total.
-  - The tile or chart shows: "Excludes 3 opportunities in SEK: no exchange rate. Add rates in Settings > Exchange rates."
-  - There is never a silent 1:1 conversion.
+- **Rate lookup (user decision 2026-11-18):** `fx.ts` is pure and unit-tested. Conversion uses the rate of the **reference month**, or else the **latest earlier month** that has a rate, with the current `BaseCurrency`. Never a later month.
+  - **Won and lost opportunities:** reference month = the month of `CloseDate` (the close month). If that month has no rate, the latest earlier month's rate is used.
+  - **Open pipeline** (open and weighted totals): reference month = the **current month** (in the Settings timezone), as a "today's value" view. If the current month has no rate yet (e.g. early in the month), the latest earlier month's rate is used, so the pipeline does not drop out on the 1st of each month.
+  - Base currency amounts: implicit rate 1, never looked up.
+- **Missing rate:** if no rate exists for the reference month or any earlier month:
+  - The opportunity is **excluded** from the converted total. It is never converted at 1:1 and never at a later month's rate.
+  - The tile, chart and table show a **visible note**: "Excludes 3 opportunities in SEK: no exchange rate."
+  - **Admin link:** for Admins the note continues "Add rates in Settings > Exchange rates" linking to `/settings/fx` (pre-selecting the missing month and currency). Other roles see "Ask an administrator to add exchange rates." (they would get 403 on the link).
+  - The note is part of the accessible text and the data-table fallback, not colour or an icon alone.
 - **Computation:**
   - SQL aggregates `SUM(Amount)` per `(CurrencyCode, reference month)` under RLS, using exact decimal arithmetic.
   - `fx.ts` multiplies each subtotal by its rate and sums the results.
@@ -43,7 +45,8 @@ Option A. The table is `crm.FxRates (BaseCurrency, CurrencyCode, RateMonth, Rate
   - It accepts up to 8 decimals.
   - Each save is audited (`EntityType = 'fxrate'`, old and new value).
   - Admin-only, enforced by route `requireRole('Admin')` and by the `fn_AdminWrite` RLS block predicate.
-- **Transparency:** chart and table footers state "Converted to DKK at monthly rates; open pipeline at {Month YYYY} rates."
+- **Transparency:** chart and table footers state "Converted to DKK at monthly rates (won/lost at close month; open pipeline at {Month YYYY} rates). Where a month has no rate, the latest earlier month is used."
+- **Unit tests (`fx.ts`):** exact month hit; fallback to latest earlier month; no earlier month → excluded and counted per currency; base currency → rate 1; open pipeline uses current month and falls back; a later month's rate is never used; rounding to the cent.
 
 ## Consequences
 - **Easier:**

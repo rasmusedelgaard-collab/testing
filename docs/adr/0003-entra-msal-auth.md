@@ -1,8 +1,8 @@
 # ADR-0003: Authentication with Microsoft Entra ID (MSAL Node, auth-code + PKCE), roles from app roles, teams from groups
 
-- **Status:**
-  - Accepted: Entra ID, MSAL auth-code + PKCE, and app roles `CRM.Admin`, `CRM.Manager` and `CRM.User` (product owner decision in the plan).
-  - Proposed: team mapping via Entra groups **[sign-off]**.
+- **Status:** Accepted (user-approved 2026-11-18).
+  - Entra ID, MSAL auth-code + PKCE, and app roles `CRM.Admin`, `CRM.Manager` and `CRM.User` (product owner decision in the plan).
+  - Team mapping via Entra security groups (option T1) and the Admin "Add team" form (user decision, 2nd round, 2026-11-18).
 - **Date:** 2026-11-18
 - **One-way door:**
   - Entra ID as the identity provider is effectively one-way, because user IDs (`oid`) are stored as the identity key.
@@ -25,7 +25,7 @@
 
 **Role source:** Entra **app roles** in the `roles` claim (chosen), or group IDs mapped to roles. App roles are named and scoped to the app, and admins can assign groups to them.
 
-**Team source** **[sign-off]**
+**Team source** (decided: T1)
 | Option | Pros | Cons |
 |---|---|---|
 | **T1. Entra security group per team, mapped in `crm.Teams.EntraGroupId`; groups claim limited to "groups assigned to the application"** | Membership is managed in Entra, as the UI spec states. No overage for normal tenants. Read at every login. | Admin must register each team's group object ID once. A user in several team groups gets the lowest TeamId (and a warning in the log). |
@@ -55,7 +55,12 @@
 - **Local and test:**
   - Developers use a separate "CRM (dev)" app registration with a localhost redirect URI.
   - Playwright uses `/__test/login`, which only exists when `NODE_ENV=test` and the app is not on App Service. Startup fails if `AUTH_TEST_BYPASS` is set in any other mode.
-- **Team mapping:** option T1. A small Admin form (Settings > Users & teams, "Add team": name and Entra group object ID) maintains `crm.Teams`. **[sign-off from product owner and UX: small addition to the read-only Users & teams page]** Fallback if declined: teams are maintained via a SQL script by the DBA.
+- **Team mapping:** option T1, approved by the user 2026-11-18.
+  - **Teams are Entra security groups**, one group per team, stored as `crm.Teams.EntraGroupId` (unique).
+  - **Groups claim** is configured as "Groups assigned to the application" (ID token, group IDs). Each team group must be assigned to the enterprise app.
+  - **Resolution at login:** `usp_UpsertUserOnLogin` intersects the `groups` claim with active `crm.Teams.EntraGroupId` values and stores the result as `crm.Users.TeamId`. No match gives NULL. Several matches give the lowest `TeamId` and a logged warning.
+  - **Overage** (`_claim_names` contains `groups`, or `hasgroups` is true): no Graph call. `TeamId` is NULL (fail closed: own records only) and an **error** is logged with the user's `oid`.
+  - **Admin "Add team" form** on Settings > Users & teams: team name and Entra group object ID (GUID, unique). Writes are Admin-only (route check plus `fn_AdminWrite`) and audited. Users and memberships stay read-only in the CRM.
 
 ## Consequences
 - **Easier:**
@@ -66,7 +71,8 @@
   - Secret rotation every 12 months; this goes in the runbook and a calendar reminder.
   - Each environment needs its own app registration.
 - **Risks:**
-  - Groups claim overage: mitigated by "groups assigned to the application". On overage, `TeamId` is NULL (fail closed) and the app logs an error.
+  - Groups claim overage: mitigated by "groups assigned to the application" (overage only if a user is in more than 200 groups assigned to the app). On overage, `TeamId` is NULL (fail closed) and the app logs an error.
+  - Wrong group object ID typed into "Add team": the team simply gets no members at next sign-in. Mitigation: the Users & teams page shows a member count per team, so an empty team is visible.
   - Stale role in a long session: bounded by the 10 h absolute timeout.
   - Open redirect via `returnTo`: only relative paths starting with a single `/` are accepted.
 - **Reversibility:**

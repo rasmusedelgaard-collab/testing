@@ -1,6 +1,6 @@
 # ADR-0001: Application stack: Node.js 22 / TypeScript, Express 5 + EJS, Azure App Service + Azure SQL
 
-- **Status:** Accepted. The product owner chose the language, hosting and database in the approved plan. Library choices are architect recommendations within that decision.
+- **Status:** Accepted (user-approved 2026-11-18). The product owner chose the language, hosting and database in the approved plan, and serverless SQL with auto-pause in prod in the 2nd round. Library choices are architect recommendations within that decision.
 - **Date:** 2026-11-18
 - **One-way door:** **Yes, partly.**
   - Azure SQL is the system of record, and RLS is built on SQL Server features. Moving to another database means rewriting the security layer. Product owner sign-off was given via the plan.
@@ -31,6 +31,7 @@ Option A, with these libraries (all MIT or Apache-2.0; latest majors checked on 
 - **Tests and lint:** `vitest` for unit tests, `@playwright/test` for e2e, ESLint with typescript-eslint.
 - **Database migrations:** a small in-repo runner. It applies `db/migrations/NNN_*.sql` in order, splits on `GO`, and records each version and SHA-256 checksum in `dbo.SchemaVersions`. It runs as the deployer identity, never as `crm_app`.
 - **Hosting:** Azure App Service Linux (Node 22) and Azure SQL Database (serverless), in an EU region. See overview §12.
+- **Prod SQL (user decision 2026-11-18):** serverless with **auto-pause after 60 minutes** in every environment, including prod. Public endpoint with "Allow Azure services" and Entra-only authentication. The app retries transient errors (40613 and others) with backoff up to about 60 s and shows a "Waking up the database" page if the database is still not available (overview §8.1).
 
 ## Consequences
 - **Easier:**
@@ -43,7 +44,9 @@ Option A, with these libraries (all MIT or Apache-2.0; latest majors checked on 
 - **Risk: the `mssql` pool does not reset connections.** This is handled in ADR-0002.
 - **Cost (estimate):**
   - App Service B1/P0v3: about 13–60 EUR/month.
-  - SQL serverless at 1 vCore with auto-pause off in prod: about 150–200 EUR/month. In dev, auto-pause brings this close to zero.
+  - SQL serverless at 1–2 vCores with auto-pause 60 min: compute is billed only while the database is running, plus storage always. For business-hours use this is well below the about 150–200 EUR/month of an always-on database. In dev it is close to zero.
+- **Trade-off: cold start.** The first request after about an hour idle (typically the first user each morning) waits while the database resumes, up to about 60 s. Accepted by the user for an internal tool. Mitigations: retry with backoff, a friendly "waking up" page, no background jobs or health probes that touch the database (they would also prevent the pause). Reversible with a one-line Bicep change (`autoPauseDelay = -1`); no app change needed.
+- **Trade-off: public endpoint.** "Allow Azure services" admits connection attempts from any Azure tenant's resources, but Entra-only auth means only principals created as database users can sign in. Private endpoint is a later hardening option.
   - Key Vault and Application Insights: small.
 - **Reversibility:**
   - The framework is moderate to reverse: routes and views would be rewritten, but repositories and SQL survive.
