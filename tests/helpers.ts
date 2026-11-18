@@ -41,7 +41,7 @@ export function testAccessConfig(extra: NodeJS.ProcessEnv = {}) {
 
 export function makeApp(deps: Omit<AppDeps, 'sessionStore'> & { sessionStore?: session.MemoryStore }) {
   const store = deps.sessionStore ?? new session.MemoryStore();
-  return { app: createApp({ ...deps, sessionStore: store }), store };
+  return { app: createApp({ isUserActive: async () => true, ...deps, sessionStore: store }), store };
 }
 
 export function csrfFrom(html: string): string {

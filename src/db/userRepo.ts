@@ -23,8 +23,16 @@ export interface UserRepo {
   upsertOnLogin(input: UpsertUserInput): Promise<UpsertUserResult>;
 }
 
+/** Error number raised by crm.usp_UpsertUserOnLogin for a deactivated user. */
+export const USER_DEACTIVATED = 50011;
+
 /** The only write path to crm.Users: crm.usp_UpsertUserOnLogin (idempotent MERGE, so retry-safe). */
-export const userRepo: UserRepo = {
+/** Is the user still active? A missing row counts as inactive. Read-only and idempotent. */
+export const userRepo: UserRepo & { isActive(userId: number): Promise<boolean> } = {
+  async isActive(userId) {
+    const rows = await systemQuery<{ IsActive: boolean }>('SELECT IsActive FROM crm.Users WHERE UserId = @id', [{ name: 'id', type: sql.Int, value: userId }]);
+    return rows[0]?.IsActive === true;
+  },
   async upsertOnLogin(i) {
     const rows = await systemQuery<{ UserId: number; TeamId: number | null; TeamStatus: TeamStatus; TeamMatches: number }>(
       `EXEC crm.usp_UpsertUserOnLogin @EntraOid = @EntraOid, @TenantId = @TenantId, @DisplayName = @DisplayName,

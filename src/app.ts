@@ -13,6 +13,7 @@ import { testUserRepo, type TestUserRepo } from './db/testUserRepo';
 import { userRepo, type UserRepo } from './db/userRepo';
 import { csrfProtection } from './middleware/csrf';
 import { errorHandler, notFoundHandler } from './middleware/errorPages';
+import { cachedProbe, rateLimit } from './middleware/rateLimit';
 import { requestContext } from './middleware/requestContext';
 import { securityHeaders } from './middleware/security';
 import { createCommonAuthRouter, createEntraAuthRouter } from './routes/auth';
@@ -25,6 +26,7 @@ export interface AppDeps {
   testUserRepo?: TestUserRepo;
   sessionStore?: session.Store;
   ping?: () => Promise<boolean>;
+  isUserActive?: (userId: number) => Promise<boolean>;
 }
 
 export function createApp(deps: AppDeps): Express {
@@ -53,8 +55,10 @@ export function createApp(deps: AppDeps): Express {
 
   // Public probes: no session, no DB for /healthz.
   app.get('/healthz', (_req, res) => res.type('text/plain').send('ok'));
-  app.get('/readyz', async (_req, res) => {
-    const ok = await (deps.ping ?? pingDatabase)();
+  // Probe results are cached for 10 s and the endpoint is rate limited, so it cannot hammer (or keep awake) the database.
+  const probe = cachedProbe(deps.ping ?? pingDatabase, 10_000);
+  app.get('/readyz', rateLimit({ max: 30, windowMs: 60_000 }), async (_req, res) => {
+    const ok = await probe();
     res.status(ok ? 200 : 503).type('text/plain').send(ok ? 'ok' : 'fail');
   });
 
@@ -63,6 +67,8 @@ export function createApp(deps: AppDeps): Express {
   app.use(sessions.cleanup);
   app.use(express.urlencoded({ extended: false, limit: '100kb' }));
   app.use(csrfProtection);
+
+  app.use('/auth', rateLimit({ max: 120, windowMs: 60_000 }));
 
   // Authentication, by mode.
   let loginPath = '/auth/login';
@@ -81,7 +87,20 @@ export function createApp(deps: AppDeps): Express {
 
   // Everything below needs a signed-in user.
   const authed = express.Router();
-  authed.use(requireAuth({ absoluteHours: config.sessionAbsoluteHours }));
+  // Authenticated pages carry personal data: never cache them in the browser or a proxy.
+  authed.use((_req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
+  authed.use(requireAuth({ absoluteHours: config.sessionAbsoluteHours, isActive: config.demoMode ? undefined : (deps.isUserActive ?? userRepo.isActive), recheckMs: 5 * 60_000 }));
+  authed.use((req, res, next) => {
+    const f = req.session.flash;
+    if (f) {
+      res.locals.flash = f;
+      delete req.session.flash;
+    }
+    next();
+  });
   authed.use(createAppRouter({ requireAdmin: requireRole('Admin') }));
   app.use(authed);
 

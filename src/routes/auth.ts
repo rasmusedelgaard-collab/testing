@@ -7,7 +7,8 @@ import { safeReturnTo } from '../auth/returnTo';
 import type { OidcClient } from '../auth/msal';
 import { syncUser } from '../auth/userSync';
 import type { AppConfig } from '../config';
-import type { UserRepo } from '../db/userRepo';
+import { sqlErrorNumber } from '../db/transient';
+import { USER_DEACTIVATED, type UserRepo } from '../db/userRepo';
 import { logger } from '../logger';
 
 const b64url = (buf: Buffer) => buf.toString('base64url');
@@ -68,7 +69,17 @@ export function createEntraAuthRouter(deps: { config: AppConfig; oidc: OidcClien
       return res.redirect(303, '/no-access');
     }
 
-    const user = await syncUser(users, { claims, role, tenantId: claims.tid });
+    let user;
+    try {
+      user = await syncUser(users, { claims, role, tenantId: claims.tid });
+    } catch (err) {
+      if (sqlErrorNumber(err) === USER_DEACTIVATED) {
+        logger.warn({ oid: claims.oid }, 'sign-in refused: user is deactivated');
+        await saveSession(req);
+        return res.redirect(303, '/no-access');
+      }
+      throw err;
+    }
     await establishSession(req, user);
     res.redirect(303, pending.returnTo);
   });

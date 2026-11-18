@@ -15,6 +15,10 @@ function walk(dir: string): string[] {
 const rel = (f: string) => path.relative(root, f).split(path.sep).join('/');
 const files = walk(srcDir).map((f) => ({ file: rel(f), text: readFileSync(f, 'utf8') }));
 const outside = (dir: string) => files.filter((f) => !f.file.startsWith(dir));
+// Static imports, re-exports, dynamic import() and require(), with or without a .js/.ts suffix.
+const SPEC = String.raw`\s*['"]`;
+const POOL_IMPORT = new RegExp(String.raw`(?:from|import\s*\(|require\s*\()${SPEC}(?:[^'"]*/)?pool(?:\.[jt]s)?['"]`);
+const MSSQL_IMPORT = new RegExp(String.raw`(?:from|import\s*\(|require\s*\()${SPEC}mssql(?:/[^'"]*)?['"]`);
 const offenders = (list: typeof files, re: RegExp) => list.filter((f) => re.test(f.text)).map((f) => f.file);
 
 describe('data-access guardrails (overview section 2)', () => {
@@ -30,11 +34,11 @@ describe('data-access guardrails (overview section 2)', () => {
   });
 
   it("only src/db/ imports the 'mssql' driver", () => {
-    expect(offenders(outside('src/db/'), /from\s+['"]mssql['"]|require\(\s*['"]mssql['"]\s*\)/)).toEqual([]);
+    expect(offenders(outside('src/db/'), MSSQL_IMPORT)).toEqual([]);
   });
 
   it('only withRlsContext.ts and system.ts import db/pool', () => {
-    const importers = files.filter((f) => /from\s+['"][^'"]*\/pool['"]|from\s+['"]\.\/pool['"]/.test(f.text)).map((f) => f.file).sort();
+    const importers = files.filter((f) => POOL_IMPORT.test(f.text)).map((f) => f.file).sort();
     expect(importers).toEqual(['src/db/system.ts', 'src/db/withRlsContext.ts']);
   });
 
@@ -48,6 +52,17 @@ describe('data-access guardrails (overview section 2)', () => {
 
   it('process.env is read only in config.ts', () => {
     expect(offenders(files, /process\.env/)).toEqual(['src/config.ts']);
+  });
+});
+
+describe('import guard patterns', () => {
+  it.each([
+    "import { x } from '../db/pool';", "import { x } from './pool.js';", "const m = await import('../db/pool.js');", "const m = require('./pool');", "export * from './pool';",
+  ])('POOL_IMPORT matches %s', (code) => expect(POOL_IMPORT.test(code)).toBe(true));
+  it.each(["import sql from 'mssql';", "const sql = require('mssql');", "await import('mssql')", "import x from 'mssql/lib/base';"])('MSSQL_IMPORT matches %s', (code) => expect(MSSQL_IMPORT.test(code)).toBe(true));
+  it('does not match unrelated modules', () => {
+    expect(POOL_IMPORT.test("import { x } from './carpool';")).toBe(false);
+    expect(MSSQL_IMPORT.test("import x from 'mssql-tools';")).toBe(false);
   });
 });
 

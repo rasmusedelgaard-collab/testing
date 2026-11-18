@@ -14,7 +14,7 @@ export function establishSession(req: Request, user: SessionUser): Promise<void>
   return new Promise((resolve, reject) => {
     req.session.regenerate((err) => {
       if (err) return reject(err as Error);
-      req.session.user = user;
+      req.session.user = { ...user, activeCheckedAt: user.authAt };
       req.session.csrfToken = newCsrfToken();
       req.session.save((saveErr) => (saveErr ? reject(saveErr as Error) : resolve()));
     });

@@ -12,6 +12,8 @@ export interface SessionUser {
   teamId: number | null;
   /** Epoch ms of sign-in; drives the absolute session timeout. */
   authAt: number;
+  /** Epoch ms of the last IsActive check against the database (re-checked every 5 minutes). */
+  activeCheckedAt?: number;
 }
 
 declare module 'express-session' {
