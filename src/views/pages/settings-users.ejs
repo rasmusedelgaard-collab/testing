@@ -2,6 +2,7 @@
 <%- include('../partials/settings-nav') %>
 <h1>Users &amp; teams</h1>
 <%- include('../partials/error-summary') %>
+<p class="muted" id="connection-info">Your connection: IP <%= connection.ip %> (X-Forwarded-For hops trusted: <%= connection.hops %>)</p>
 <h2>Teams</h2>
 <p class="muted">Team membership is managed in Microsoft Entra ID; ask IT to add people to the group. A user must be in exactly one linked group.</p>
 <% if (teams.length === 0) { %><p>No teams yet. Add a team to link an Entra group.</p><% } else { %>

@@ -325,7 +325,7 @@ export function createSettingsRouter(store: CrmStore, branding: BrandingProvider
     const users = all.filter((u) => (!role || u.role === role) && (!team || (team === 'none' ? u.teamId === null : String(u.teamId) === team)) && (!q || u.name.toLowerCase().includes(q) || (u.email ?? '').toLowerCase().includes(q)));
     const badge = (u: (typeof all)[number]) => u.teamStatus === 'multiple' ? 'In several teams — check Entra groups' : u.teamStatus === 'overage' ? 'Too many groups — team not applied' : u.teamStatus === 'none' || u.teamId === null ? 'No team — sees own records only' : '';
     render(res, 'settings-users', 'users', {
-      title: 'Users & teams', teams: out.teams, filters: { role, team, q },
+      title: 'Users & teams', teams: out.teams, filters: { role, team, q }, connection: { ip: req.ip ?? 'unknown', hops: String(req.app.get('trust proxy')) },
       users: users.map((u) => ({ ...u, lastSignInText: u.lastSignIn ? f.dateTime(u.lastSignIn) : '', badge: badge(u), teamLabel: u.teamName ?? '' })),
       noTeamCount: all.filter((u) => u.active && badge(u) !== '').length, errors: over.errors ?? {}, values: over.values ?? {},
     });

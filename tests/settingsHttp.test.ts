@@ -1,6 +1,7 @@
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createMemoryStore } from '../src/db/memoryStore';
+import { logger } from '../src/logger';
 import { checkLogo } from '../src/services/logo';
 import { contrastWithWhite } from '../src/services/color';
 import { validateFx, validateStages, validateTeam } from '../src/domain/settingsValidators';
@@ -540,5 +541,22 @@ describe('UX review fixes (increment 3)', () => {
     await s.post('/settings/fx', { currency: 'EUR', month: '2026-11', rate: '7,5' });
     expect((await s.agent.get('/settings/fx')).text).toContain('data-label="Rate to DKK" class="num"');
     expect((await s.agent.get('/settings/picklists/industry')).text).toContain('data-label="Status"');
+  });
+});
+
+describe('connection info for verifying the proxy setting', () => {
+  it('Admin sees the IP and trusted hops on Users & teams; other roles cannot reach the page', async () => {
+    const s = await session();
+    const html = (await s.agent.get('/settings/users')).text;
+    expect(html).toMatch(/Your connection: IP [0-9a-f.:]+ \(X-Forwarded-For hops trusted: 0\)/);
+    expect((await (await session('User')).agent.get('/settings/users')).status).toBe(403);
+  });
+  it('the request log line carries the client IP', async () => {
+    const lines: unknown[] = [];
+    const spy = vi.spyOn(logger, 'info').mockImplementation(((o: unknown) => { lines.push(o); }) as never);
+    const s = await session();
+    await s.agent.get('/healthz');
+    spy.mockRestore();
+    expect(lines.some((l) => typeof (l as { ip?: unknown }).ip === 'string')).toBe(true);
   });
 });

@@ -9,7 +9,7 @@ export const requestContext: RequestHandler = (req, res, next) => {
   const start = process.hrtime.bigint();
   res.on('finish', () => {
     const ms = Number(process.hrtime.bigint() - start) / 1e6;
-    logger.info({ reqId: req.id, userId: req.session?.user?.userId, method: req.method, route: req.path, status: res.statusCode, ms: Math.round(ms) }, 'request');
+    logger.info({ reqId: req.id, userId: req.session?.user?.userId, ip: req.ip, method: req.method, route: req.path, status: res.statusCode, ms: Math.round(ms) }, 'request');
   });
   next();
 };
