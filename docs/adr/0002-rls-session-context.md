@@ -11,7 +11,7 @@
   - Admin sees everything.
   - Manager sees own and own-team records.
   - User sees own records, or own-team records when Admin sets visibility to `team`.
-  - In `team` mode a User may also **update** team-mates' records, but not delete them and not move them to another team (user decision 2026-11-18).
+  - In `team` mode a User may also **update** team-mates' records, but not delete them directly and not move them to another team (user decision 2026-11-18). A User may take over a team-mate's record (reassign it to self) and then delete it as the new owner; both steps are audited (product owner decision 2026-11-18, security finding M4).
 - Enforcement must hold even if an app query forgets a `WHERE` clause.
 - Constraints:
   - The app connects as **one** managed identity (`crm_app`), not as each end user.
@@ -33,7 +33,7 @@ Option A, concretely (T-SQL in [overview §5](../architecture/overview.md#5-row-
 2. **Predicate functions.** Inline, schema-bound table-valued functions live in schema `sec`, which is owned by dbo. `crm_app` has no permissions on `sec`.
    - `fn_RowAccess`: FILTER, read. Admin, owner, Manager of same team, or (`team` mode AND same team).
    - `fn_RowUpdate`: BEFORE UPDATE, existing row. Admin, owner, Manager of same team, or (`team` mode AND same team). Same rule as read today, kept as a separate function so the two can diverge by migration. (S1)
-   - `fn_RowDelete`: BEFORE DELETE, existing row. Admin, owner, or Manager of same team only. Visibility mode never grants delete. (S1)
+   - `fn_RowDelete`: BEFORE DELETE, existing row. Admin, owner, or Manager of same team only. Visibility mode never grants delete directly; a team-mode User can delete a team-mate's record only after taking it over (S1, M4).
    - `fn_RowWriteTarget`: AFTER INSERT and AFTER UPDATE, resulting row. (S2)
    - `fn_AuditInsert`: AuditLog AFTER INSERT.
    - `fn_HasContext`: config tables, read.
@@ -58,12 +58,12 @@ Option A, concretely (T-SQL in [overview §5](../architecture/overview.md#5-row-
    - The app always derives `TeamId` from the owner's `crm.Users.TeamId`.
    - `fn_RowWriteTarget` rejects rows whose owner is not self or an active member of the caller's team, or whose `TeamId` is not the caller's team. Admin is exempt.
    - Because it also runs AFTER UPDATE, `TeamId` can only change when Admin makes the change.
-   - **Owner reassignment rule (Managers and Users alike, both visibility modes; only Admin may reassign across teams):** after an INSERT or UPDATE, `TeamId` must equal the caller's `TeamId`, and `OwnerId` must be the caller or a user with `crm.Users.TeamId` = caller's `TeamId` and `IsActive = 1`. In `team` mode this lets a User reassign a team-mate's record to themselves or to another active team-mate, never to an inactive user or someone outside the team. A record still owned by a deactivated team-mate can be updated by a non-Admin only if the same update reassigns it to an active team-mate.
+   - **Owner reassignment rule (Managers and Users alike, both visibility modes; only Admin may reassign across teams):** after an INSERT or UPDATE, `TeamId` must equal the caller's `TeamId`, and `OwnerId` must be the caller or a user with `crm.Users.TeamId` = caller's `TeamId` and `IsActive = 1`. In `team` mode this lets a User reassign a team-mate's record to themselves or to another active team-mate, never to an inactive user or someone outside the team. Reassigning to self (takeover) makes the User the owner, so `fn_RowDelete` then permits delete (M4, accepted). A record still owned by a deactivated team-mate can be updated by a non-Admin only if the same update reassigns it to an active team-mate.
 
 ### Sub-decisions (decided by the user 2026-11-18)
 | # | Decision | Outcome | Alternative not chosen |
 |---|---|---|---|
-| S1 | In `team` mode, Users can **read and update** team-mates' records, but **not delete** them. Delete stays with owner, Manager (same team) and Admin. | **Accepted.** Implemented by splitting the former `fn_RowModify` into `fn_RowUpdate` (BEFORE UPDATE) and `fn_RowDelete` (BEFORE DELETE). | Read-only team mode (the architect's original recommendation). |
+| S1 | In `team` mode, Users can **read and update** team-mates' records, but **not delete** them directly. Delete stays with owner, Manager (same team) and Admin. A User may take over a record (reassign to self) and then delete it as owner; both steps audited (M4, 2026-11-18). | **Accepted.** Implemented by splitting the former `fn_RowModify` into `fn_RowUpdate` (BEFORE UPDATE) and `fn_RowDelete` (BEFORE DELETE). | Read-only team mode (the architect's original recommendation). |
 | S2 | Users may create a record for, or hand a record over to, an **active team-mate**. Nobody but Admin can move records across teams. | **Accepted.** | Users can only own their own records; Owner picker for Managers and Admins only. |
 | S3 | Visibility mode is read from `crm.Settings` inside the predicate, not from a `Visibility` context key | **Accepted.** | A context key set by the app. Cheaper per row, but it needs a cache plus invalidation across instances, and it adds a trusted input. |
 
@@ -113,6 +113,7 @@ GO
   - Admin config writes are blocked in the DB even if a route check is missed.
   - Remaining trust: the app must set the context correctly. It must not let user input influence `UserId`, `Role` or `TeamId`; they come only from the server-side session populated at login.
   - **Team-mode edit weakens ownership (accepted risk):** in `team` mode any team member can change Amount, Stage or Owner on a colleague's deal. Mitigations: audited fields record `ChangedBy` (overview §7), every row carries `ModifiedBy`, and the record page shows "Last modified by". Admin can switch back to `private` at any time with immediate effect. Revisit if forecast integrity becomes an issue.
+  - **Team-mode takeover then delete (accepted risk, product owner decision 2026-11-18, security finding M4):** `fn_RowDelete` does not grant delete on team-mates' records, but in `team` mode a User can reassign a team-mate's record to themselves (permitted by the owner reassignment rule) and then delete it as the new owner. So in `team` mode the delete restriction is a speed bump, not a hard barrier. The product owner accepted this rather than restricting owner reassignment. Mitigations: both steps are audited in the same transaction as the change (an `OwnerId` `U` row and a `D` row, each with `ChangedBy`, overview §7); the two-step flow is deliberate and visible to the original owner, who loses the record from their own list; Admin can switch to `private` with immediate effect. Reversible: if needed later, add a rule (for example, block delete when the latest `OwnerId` change was made by the caller within N days, or require Manager approval) without schema change to entity tables.
 - **Performance:** each predicate adds an OR-heavy filter. This is acceptable at CRM scale (about 10^5 rows). `(TeamId, OwnerId)` indexes exist on every entity table. If plans degrade, add per-role query hints or filtered indexes; no redesign is needed.
 - **Operations:**
   - Schema-bound predicates block `ALTER TABLE` on the protected tables and on `crm.Settings` and `crm.Users`.

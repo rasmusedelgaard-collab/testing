@@ -497,13 +497,14 @@ All three keys are set with `@read_only = 1`. Visibility mode is **not** a conte
 |---|---|---|---|---|
 | Read (FILTER) | all | own + own team | own | own + own team |
 | Update existing row (BEFORE UPDATE, `fn_RowUpdate`) | all | own + own team | own | own + own team |
-| Delete existing row (BEFORE DELETE, `fn_RowDelete`) | all | own + own team | own | **own only** |
+| Delete existing row (BEFORE DELETE, `fn_RowDelete`) | all | own + own team | own | **own only** (a team-mate's record only after taking it over, see below) |
 | Resulting row (AFTER INSERT/UPDATE, `fn_RowWriteTarget`) | any | owner is self, or an active member of own team; TeamId = own team | same as Manager | same as Manager |
 
 User decisions (2026-11-18, ADR-0002):
-- In `team` mode a User can **read and update** team-mates' records, but **cannot delete** them. Delete stays with the owner, a Manager of the same team, and Admin.
+- In `team` mode a User can **read and update** team-mates' records, but **cannot delete them directly**. `fn_RowDelete` grants delete only to the owner, a Manager of the same team, and Admin.
+- **Takeover then delete (product owner decision 2026-11-18, security finding M4, ADR-0002):** in `team` mode a User **may** take over a team-mate's record by reassigning it to themselves (allowed by the owner reassignment rule below), and then delete it as the new owner. This is accepted behaviour, not a bypass to be closed. Both steps are audited (§7): the reassignment writes a `U` row for `OwnerId` (old and new owner, `ChangedBy` = the User), and the delete writes a `D` row (`ChangedBy` = the User, record name in `OldValue`). The two steps are separate requests and separate transactions. Admin can stop this at any time by switching visibility to `private`.
 - **Nobody except Admin can move a record across teams.** `fn_RowWriteTarget` runs AFTER UPDATE as well as AFTER INSERT, so the resulting `TeamId` must equal the caller's `TeamId`.
-- **Owner reassignment rule (applies to Managers and Users alike, both modes; only Admin is exempt, so only Admin can reassign across teams):** the resulting `OwnerId` must be either the caller, or a user whose `crm.Users.TeamId` equals the caller's `TeamId` and whose `IsActive = 1`. The resulting `TeamId` must equal the caller's `TeamId`. So in `team` mode a User may reassign a team-mate's record to themselves or to any other **active** team-mate. They may not assign it to an inactive user or to anyone outside the team. In `private` mode a User may hand their **own** record to an active team-mate (and then loses sight of it, §9).
+- **Owner reassignment rule (applies to Managers and Users alike, both modes; only Admin is exempt, so only Admin can reassign across teams):** the resulting `OwnerId` must be either the caller, or a user whose `crm.Users.TeamId` equals the caller's `TeamId` and whose `IsActive = 1`. The resulting `TeamId` must equal the caller's `TeamId`. So in `team` mode a User may reassign a team-mate's record to themselves (takeover, after which they own it and may delete it) or to any other **active** team-mate. They may not assign it to an inactive user or to anyone outside the team. In `private` mode a User may hand their **own** record to an active team-mate (and then loses sight of it, §9).
 - Consequence of the rule: a record owned by a team-mate who has since been deactivated can be updated by a non-Admin only if the same update reassigns it to an active team-mate. The edit form shows the owner picker with "Current owner is inactive: choose a new owner" in that case.
 - A user with `TeamId = NULL` (no team group, or groups overage) never matches a team rule. They can read, update and delete only their own records.
 - Every edit is attributed: `ModifiedBy` on the row, and `AuditLog.ChangedBy` for audited fields (§7). The record page shows "Last modified by {name}".
@@ -553,7 +554,8 @@ RETURN
 GO
 
 -- Delete an existing row: BEFORE DELETE.
--- Admin, owner, or Manager of the same team. Visibility mode never grants delete.
+-- Admin, owner, or Manager of the same team. Visibility mode never grants delete directly; in team mode a User
+-- may first take over a team-mate's record (owner reassignment, audited) and then delete it as owner (M4, §5.2).
 CREATE FUNCTION sec.fn_RowDelete(@OwnerId int, @TeamId int)
 RETURNS TABLE WITH SCHEMABINDING AS
 RETURN
