@@ -51,6 +51,7 @@ public sealed class FormModel(IRlsDb rls, IRlsContextAccessor identity, TimeProv
             var l = await repo.LookupsAsync();
             return new { Row = row, Lk = l, Env = await FormEnvAsync(repo, l, row) };
         }) ?? throw new NotFoundException();
+        HttpContext.RequestServices.GetRequiredService<ILogger<FormModel>>().LogWarning("edit page rowVer {Value} ({Type})", edit.Row.S("RowVer"), edit.Row["RowVer"]?.GetType().Name);
         var f = new Formatter(edit.Lk.Settings.LocaleCode, edit.Lk.Settings.Timezone);
         var name = EntityViews.RecordName(def.Key, edit.Row);
         return RenderForm(BuildForm($"Edit {name}", $"{def.Path}/{id}", $"{def.Path}/{id}", EntityViews.FormValuesFromRow(def.Key, edit.Row, f), new Dictionary<string, string>(), edit.Env, edit.Row.S("RowVer")));
