@@ -46,7 +46,7 @@ public sealed class Row(IDictionary<string, object?> data)
 
     public bool Has(string key) => _d.ContainsKey(key);
 
-    public string S(string key) => this[key] switch { null => "", bool b => b ? "1" : "0", IFormattable f => f.ToString(null, CultureInfo.InvariantCulture), var o => o.ToString() ?? "" };
+    public string S(string key) => this[key] switch { null => "", byte[] bytes => Convert.ToBase64String(bytes), bool b => b ? "1" : "0", IFormattable f => f.ToString(null, CultureInfo.InvariantCulture), var o => o.ToString() ?? "" };
 
     public int Int(string key) => this[key] is null ? 0 : Convert.ToInt32(this[key], CultureInfo.InvariantCulture);
 

@@ -9,7 +9,7 @@ public static class CrmSql
 
     public static readonly string CommonCols = $"""
         e.OwnerId, e.TeamId, uo.DisplayName AS OwnerName, e.CreatedBy, uc.DisplayName AS CreatedByName, {Ts("e.CreatedAt")} AS CreatedAt,
-          e.ModifiedBy, um.DisplayName AS ModifiedByName, {Ts("e.ModifiedAt")} AS ModifiedAt, CONVERT(varchar(20), e.RowVer, 1) AS RowVer
+          e.ModifiedBy, um.DisplayName AS ModifiedByName, {Ts("e.ModifiedAt")} AS ModifiedAt, e.RowVer AS RowVer
         """;
 
     public const string CommonJoins = "JOIN crm.Users uo ON uo.UserId = e.OwnerId JOIN crm.Users uc ON uc.UserId = e.CreatedBy JOIN crm.Users um ON um.UserId = e.ModifiedBy";

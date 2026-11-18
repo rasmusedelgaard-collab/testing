@@ -10,13 +10,11 @@ namespace Crm.Web.Data;
 /// <summary>All CRM SQL for the four entities (port of sqlRepo.ts). One instance per request around the RlsTx. Parameterised SQL only.</summary>
 public sealed partial class CrmRepo(RlsTx tx, RlsContext ctx)
 {
-    [GeneratedRegex(@"^0x[0-9A-Fa-f]{16}\z", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^[A-Za-z0-9+/]{11}=\z", RegexOptions.CultureInvariant)]
     private static partial Regex RowVerPattern();
 
+    /// <summary>The rowversion travels in the hidden form field as base64 of its 8 bytes.</summary>
     public static bool IsRowVer(string s) => RowVerPattern().IsMatch(s);
-
-    /// <summary>Why the last UpdateAsync matched no row (row version values only, never record data).</summary>
-    public string? Diagnostics { get; private set; }
 
     private static DynamicParameters P() => new();
 
@@ -252,7 +250,6 @@ public sealed partial class CrmRepo(RlsTx tx, RlsContext ctx)
         var d = EntityDefinitions.All[entity];
         if (!IsRowVer(rowVer))
         {
-            Diagnostics = $"rowVer has an invalid format (length {rowVer.Length})";
             return UpdateResult.Conflict;
         }
         var x = CrmSql.Entities[entity].UpdateExtra;
@@ -265,18 +262,17 @@ public sealed partial class CrmRepo(RlsTx tx, RlsContext ctx)
         var p = ValueParams(d, values);
         p.Add("By", meta.UserId, DbType.Int32);
         p.Add("id", id, DbType.Int32);
-        p.Add("rv", rowVer, DbType.AnsiString, size: 20);
+        p.Add("rv", Convert.FromBase64String(rowVer), DbType.Binary, size: 8);
         var rows = await tx.QueryRowsAsync(
             $"""
             UPDATE {d.Table} SET {string.Join(", ", sets)} OUTPUT {string.Join(", ", output)}, inserted.TeamId AS n_TeamId
-              WHERE {d.Pk} = @id AND RowVer = CONVERT(binary(8), @rv, 1)
+              WHERE {d.Pk} = @id AND RowVer = @rv
             """, p).ConfigureAwait(false);
         var r = rows.FirstOrDefault();
         if (r is null)
         {
             // Not updated: either someone else changed it (409) or it is gone / hidden by RLS (404).
-            var exists = await tx.QueryAsync<string>($"SELECT CONVERT(varchar(20), RowVer, 1) FROM {d.Table} WHERE {d.Pk} = @id", new { id }).ConfigureAwait(false);
-            Diagnostics = exists.Count > 0 ? $"update matched no row: sent rowVer={rowVer} stored={exists[0]}" : null;
+            var exists = await tx.QueryAsync<int>($"SELECT 1 FROM {d.Table} WHERE {d.Pk} = @id", new { id }).ConfigureAwait(false);
             return exists.Count > 0 ? UpdateResult.Conflict : UpdateResult.NotFound;
         }
         Dictionary<string, object?> Pick(string prefix) => d.AuditFields.ToDictionary(f => f, f => r[$"{prefix}_{f}"], StringComparer.Ordinal);

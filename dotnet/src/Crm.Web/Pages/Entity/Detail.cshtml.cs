@@ -175,7 +175,6 @@ public sealed class DetailModel(IRlsDb rls, IRlsContextAccessor identity, TimePr
             }
             if (r != UpdateResult.Ok)
             {
-                if (repo.Diagnostics is not null) { HttpContext.RequestServices.GetRequiredService<ILogger<DetailModel>>().LogWarning("{Diagnostics}", repo.Diagnostics); }
                 return (new SaveOutcome(r == UpdateResult.Conflict ? "conflict" : "notfound", null, new Dictionary<string, string>()), recName);
             }
             var visible = await repo.GetAsync(def.Key, id) is not null;
@@ -219,7 +218,7 @@ public sealed class DetailModel(IRlsDb rls, IRlsContextAccessor identity, TimePr
         {
             var row = await repo.GetAsync(def.Key, id);
             if (row is null) { return new CloseResult("notfound"); }
-            if (!CrmRepo.IsRowVer(rowVer)) { HttpContext.RequestServices.GetRequiredService<ILogger<DetailModel>>().LogWarning("rowVer has an invalid format (length {Length}, value {Value})", rowVer.Length, rowVer); return new CloseResult("conflict"); } // the action must carry the RowVer of the page it was clicked on
+            if (!CrmRepo.IsRowVer(rowVer)) { return new CloseResult("conflict"); } // the action must carry the RowVer of the page it was clicked on
             var lk = await repo.LookupsAsync();
             var stage = lk.Stages.FirstOrDefault(s => s.Type == outcome);
             if (stage is null) { return new CloseResult("error", $"No {outcome} stage is configured."); }

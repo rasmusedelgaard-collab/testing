@@ -203,3 +203,21 @@ public class DomainTests
         Assert.Equal("", Converter.ExclusionNote(Conv.ConvertRows(Array.Empty<(string, int, decimal, string)>(), r => (r.Item1, r.Item2, r.Item3), r => r.Item4)));
     }
 }
+
+public class RowVerTests
+{
+    [Fact]
+    public void Row_version_is_base64_of_eight_bytes()
+    {
+        var bytes = new byte[] { 0, 0, 0, 0, 0, 0, 7, 0xD1 };
+        var row = new Row(new Dictionary<string, object?> { ["RowVer"] = bytes });
+        var text = row.S("RowVer");
+        Assert.Equal("AAAAAAAAB9E=", text);
+        Assert.True(Crm.Web.Data.CrmRepo.IsRowVer(text));
+        Assert.Equal(bytes, Convert.FromBase64String(text));
+        foreach (var bad in new[] { "", "AAAAAAAAB9E", "0x00000000000007D1", "AAAAAAAAB9E=\n", "AAAAAAAAB9E=AA", "!!!!!!!!!!!=" })
+        {
+            Assert.False(Crm.Web.Data.CrmRepo.IsRowVer(bad), bad);
+        }
+    }
+}
