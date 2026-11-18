@@ -15,7 +15,8 @@
     "test": "vitest run",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts"
+    "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
+    "db:seed:test": "tsx --env-file-if-exists=.env scripts/migrate.ts seed-test"
   },
   "dependencies": {
     "@azure/msal-node": "^7.2.2",
