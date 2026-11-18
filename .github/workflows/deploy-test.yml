@@ -1,12 +1,17 @@
 name: Deploy to test (MonsterASP)
 
-# Builds the deploy package and force-pushes it as ONE fresh orphan commit to branch `deploy`.
-# MonsterASP git-deploys from that branch. No secrets are used or needed (only the built-in GITHUB_TOKEN);
-# runtime secrets live in crm.env on the host (docs/deploy/monsterasp.md). Add `main` below once it is the trunk.
+# verify -> build package (ubuntu) -> [optional migrate] -> Web Deploy to MonsterASP (windows).
+# Secrets and variables live in the GitHub Environment `test` (Settings > Environments > test); see docs/deploy/monsterasp.md.
+# crm.env is written from those secrets on the Windows runner after the package was verified, and is never uploaded as an artifact.
 on:
   push:
     branches: [claude/tender-darwin-4quuzo]
   workflow_dispatch:
+    inputs:
+      run_migrations:
+        description: Also run db:migrate and db:seed:test before deploying (needs the DB to accept GitHub runner IPs)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -30,38 +35,146 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
-  publish:
+  build:
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Build package
-        run: npm run package
-      - name: Force-push package to deploy branch as a single orphan commit
+      # package.mjs fails here if the package contains .env*, crm.env, source maps, src/ or tests/.
+      - run: npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: package/
+          if-no-files-found: error
+          retention-days: 7
+
+  migrate:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_migrations }}
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: test
+    env:
+      DB_AUTH_MODE: sql-password
+      DB_SERVER: ${{ vars.DB_SERVER || 'db81053.databaseasp.net' }}
+      DB_NAME: ${{ vars.DB_NAME || 'db81053' }}
+      DB_USER: ${{ vars.DB_USER || 'db81053' }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      DB_TRUST_SERVER_CERT: ${{ vars.DB_TRUST_SERVER_CERT || 'false' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # GitHub runner IPs are dynamic: if the host's DB firewall rejects them this fails; run from your own PC instead.
+      - run: npm run db:migrate
+      - run: npm run db:seed:test
+
+  deploy:
+    # Run after a successful build; migrate may be skipped, but if it ran it must have succeeded.
+    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.migrate.result == 'success' || needs.migrate.result == 'skipped') }}
+    needs: [build, migrate]
+    runs-on: windows-latest
+    timeout-minutes: 30
+    environment: test
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+          path: package
+
+      - name: Write crm.env from secrets
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          SRC_SHA: ${{ github.sha }}
-          SRC_REF: ${{ github.ref_name }}
-        working-directory: package
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          TEST_ACCESS_CODE: ${{ secrets.TEST_ACCESS_CODE }}
+          DB_SERVER: ${{ vars.DB_SERVER || 'db81053.databaseasp.net' }}
+          DB_NAME: ${{ vars.DB_NAME || 'db81053' }}
+          DB_USER: ${{ vars.DB_USER || 'db81053' }}
+          SITE_URL: ${{ vars.SITE_URL || 'https://crmtest.runasp.net' }}
+          TRUST_PROXY: ${{ vars.TRUST_PROXY || '1' }}
+          DB_TRUST_SERVER_CERT: ${{ vars.DB_TRUST_SERVER_CERT || 'false' }}
         run: |
-          set -euo pipefail
-          git init -q -b deploy
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A -f
-          git commit -q -m "deploy: ${SRC_SHA:0:7} from ${SRC_REF}" -m "Built from ${SRC_SHA}. Generated; do not edit."
-          git remote add origin "https://github.com/${REPO}.git"
-          AUTH="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          echo "::add-mask::${AUTH}"
-          git -c "http.extraheader=AUTHORIZATION: basic ${AUTH}" push --force origin deploy
+          $ErrorActionPreference = 'Stop'
+          foreach ($n in 'DB_PASSWORD','SESSION_SECRET','TEST_ACCESS_CODE') {
+            if ([string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($n))) { throw "Secret $n is not set in Environment 'test'" }
+          }
+          $lines = @(
+            'NODE_ENV=production',
+            'AUTH_MODE=test-access-code',
+            "REDIRECT_URI=$($env:SITE_URL.TrimEnd('/'))/auth/redirect",
+            "TRUST_PROXY=$env:TRUST_PROXY",
+            'LOG_LEVEL=info',
+            'DB_AUTH_MODE=sql-password',
+            "DB_SERVER=$env:DB_SERVER",
+            "DB_NAME=$env:DB_NAME",
+            "DB_USER=$env:DB_USER",
+            "DB_TRUST_SERVER_CERT=$env:DB_TRUST_SERVER_CERT",
+            "DB_PASSWORD=$env:DB_PASSWORD",
+            "SESSION_SECRET=$env:SESSION_SECRET",
+            "TEST_ACCESS_CODE=$env:TEST_ACCESS_CODE"
+          )
+          $path = Join-Path (Resolve-Path package) 'crm.env'
+          [System.IO.File]::WriteAllText($path, (($lines -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
+          Write-Host 'crm.env written (values not shown)'
+
+      - name: Locate or install Web Deploy
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidates = @(
+            "${env:ProgramFiles}\IIS\Microsoft Web Deploy V3\msdeploy.exe",
+            "${env:ProgramFiles(x86)}\IIS\Microsoft Web Deploy V3\msdeploy.exe"
+          )
+          $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $exe) {
+            choco install webdeploy -y --no-progress | Out-Host
+            $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $exe) { throw 'msdeploy.exe not found after install' }
+          "MSDEPLOY=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "msdeploy: $exe"
+
+      - name: Web Deploy to MonsterASP
+        env:
+          WD_SERVER: ${{ secrets.MONSTERASP_WEBDEPLOY_SERVER }}
+          WD_SITE: ${{ secrets.MONSTERASP_WEBDEPLOY_SITE }}
+          WD_USER: ${{ secrets.MONSTERASP_WEBDEPLOY_USER }}
+          WD_PASSWORD: ${{ secrets.MONSTERASP_WEBDEPLOY_PASSWORD }}
+          WD_ALLOW_UNTRUSTED: ${{ vars.MONSTERASP_WEBDEPLOY_ALLOW_UNTRUSTED || 'false' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($n in 'WD_SERVER','WD_SITE','WD_USER','WD_PASSWORD') {
+            if ([string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($n))) { throw "Web Deploy secret for $n is not set in Environment 'test'" }
+          }
+          Write-Host "::add-mask::$env:WD_PASSWORD"
+          # Accept either "siteXXXX.siteasp.net" or "siteXXXX.siteasp.net:8172"
+          $server = ($env:WD_SERVER -replace '^https?://','' -replace '/.*$','')
+          if ($server -notmatch ':\d+$') { $server = "${server}:8172" }
+          $src = (Resolve-Path package).Path
+          $dest = "contentPath=$($env:WD_SITE),computerName=https://$server/msdeploy.axd?site=$($env:WD_SITE),userName=$($env:WD_USER),password=$($env:WD_PASSWORD),authType=Basic"
+          $msArgs = @(
+            '-verb:sync',
+            "-source:contentPath=$src",
+            "-dest:$dest",
+            '-enableRule:AppOffline',
+            # Keep the host's iisnode log folder (and its contents) instead of deleting it as "extra" remote files.
+            '-skip:objectName=dirPath,absolutePath=.*\\iisnode$',
+            '-skip:objectName=filePath,absolutePath=.*\\iisnode\\.*',
+            '-retryAttempts:3',
+            '-retryInterval:5000'
+          )
+          if ($env:WD_ALLOW_UNTRUSTED -eq 'true') { $msArgs += '-allowUntrusted' }
+          & $env:MSDEPLOY @msArgs
+          if ($LASTEXITCODE -ne 0) { throw "msdeploy failed with exit code $LASTEXITCODE" }

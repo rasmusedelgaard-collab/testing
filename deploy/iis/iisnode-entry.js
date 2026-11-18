@@ -5,8 +5,8 @@
  *
  * Lookup order (first file found wins; values already present in the real environment are never overridden):
  *   1. file named by CRM_ENV_FILE (if the host lets you set real environment variables)
- *   2. ..\crm.env   (one level above the site folder: survives deploys that wipe the site folder)
- *   3. .\crm.env    (inside the site folder: survives only if the deploy does not delete untracked files)
+ *   2. .\crm.env    (site folder: written by the deploy workflow from GitHub Secrets)
+ *   3. ..\crm.env   (one level above the site folder: optional manual fallback)
  * Format: KEY=value per line, '#' comments, optional single/double quotes. Values are never logged.
  */
 const fs = require('node:fs');
@@ -27,7 +27,7 @@ function parse(text) {
   return out;
 }
 
-const candidates = [process.env.CRM_ENV_FILE, path.join(__dirname, '..', 'crm.env'), path.join(__dirname, 'crm.env')].filter(Boolean);
+const candidates = [process.env.CRM_ENV_FILE, path.join(__dirname, 'crm.env'), path.join(__dirname, '..', 'crm.env')].filter(Boolean);
 const file = candidates.find((f) => {
   try {
     return fs.statSync(f).isFile();
@@ -41,7 +41,7 @@ if (file) {
   for (const [k, v] of Object.entries(vars)) if (process.env[k] === undefined) process.env[k] = v;
   console.log(`config: loaded ${Object.keys(vars).length} settings from ${path.basename(file)}`);
 } else {
-  console.error('config: no crm.env found (looked for CRM_ENV_FILE, ..\\crm.env, .\\crm.env); relying on real environment variables');
+  console.error('config: no crm.env found (looked for CRM_ENV_FILE, .\\crm.env, ..\\crm.env); relying on real environment variables');
 }
 
 require('./dist/server.js');

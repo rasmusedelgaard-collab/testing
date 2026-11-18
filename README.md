@@ -90,7 +90,7 @@ Test data only; never use this mode with real data.
 
 ## Deploying the interim test site
 
-The TEST site runs on MonsterASP.NET (IIS + iisnode, branch `deploy` built by GitHub Actions). Build the deploy folder locally with
+The TEST site runs on MonsterASP.NET (IIS + iisnode, deployed by GitHub Actions via Web Deploy). Build the deploy folder locally with
 `npm run package` (output in `package/`, git-ignored). Setup, secrets handling, migrations, rollback and troubleshooting:
 [docs/deploy/monsterasp.md](docs/deploy/monsterasp.md).
 
