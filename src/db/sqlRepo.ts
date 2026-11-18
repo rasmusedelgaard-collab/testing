@@ -1,6 +1,6 @@
 import sql from 'mssql';
 import { ENTITIES, type ColumnSpec } from '../domain/entities';
-import type { CrmStore, EntityKey, HistoryRow, ListQuery, Lookups, Meta, OwnerOption, PicklistValue, RefOption, Repo, Row, Settings, Stage, UpdateResult, Values } from '../domain/types';
+import type { AggRow, CrmStore, EntityKey, FxRateRow, HistoryRow, OppAggFilter, ListQuery, Lookups, Meta, OwnerOption, PicklistValue, RefOption, Repo, Row, Settings, Stage, UpdateResult, Values } from '../domain/types';
 import { createRow, deleteRow, updateRows, type AuditRow } from '../services/audit';
 import { COMMON_COLS, COMMON_JOINS, filterClause, SQL } from './crmSql';
 import { SqlAdminRepo } from './sqlAdmin';
@@ -131,6 +131,58 @@ export class SqlRepo implements Repo {
       FROM crm.AuditLog a JOIN crm.Users u ON u.UserId = a.ChangedBy
       WHERE a.EntityType = @et AND a.EntityId = @id ORDER BY a.ChangedAt DESC, a.AuditId DESC`, [['et', sql.VarChar(20), ENTITIES[entity].auditType], ['id', sql.Int, id]]);
     return this.rows(res).map((r) => ({ at: String(r.At), by: String(r.ByName), action: r.Action as HistoryRow['action'], field: (r.FieldName as string | null) ?? null, oldValue: (r.OldValue as string | null) ?? null, newValue: (r.NewValue as string | null) ?? null }));
+  }
+
+  async oppAggregates(f: OppAggFilter): Promise<AggRow[]> {
+    // Whitelisted fragments only: dimensions and types come from fixed sets, values are parameters.
+    const DIM: Record<string, { select: string; group: string; join?: string }> = {
+      stage: { select: 'e.StageId AS StageId', group: 'e.StageId' },
+      owner: { select: 'e.OwnerId AS OwnerId, uo.DisplayName AS OwnerName', group: 'e.OwnerId, uo.DisplayName', join: 'JOIN crm.Users uo ON uo.UserId = e.OwnerId' },
+      leadSource: { select: 'ls.Label AS LeadSource', group: 'ls.Label', join: 'LEFT JOIN crm.PicklistValues ls ON ls.ValueId = e.LeadSourceValueId' },
+      month: { select: "CONVERT(char(7), e.CloseDate, 23) AS Month", group: 'CONVERT(char(7), e.CloseDate, 23)' },
+      account: { select: 'e.AccountId AS AccountId', group: 'e.AccountId' },
+    };
+    const dims = [...new Set(f.groupBy)].filter((d) => Object.hasOwn(DIM, d)).map((d) => DIM[d]!);
+    const types = [...new Set(f.types)].filter((t) => t === 'open' || t === 'won' || t === 'lost');
+    if (types.length === 0) return [];
+    const params: Param[] = [];
+    const where = [`s.StageType IN (${types.map((t) => `'${t}'`).join(', ')})`];
+    if (f.from) { where.push('e.CloseDate >= @from'); params.push(['from', sql.VarChar(10), f.from]); }
+    if (f.to) { where.push('e.CloseDate <= @to'); params.push(['to', sql.VarChar(10), f.to]); }
+    if (f.ownerId) { where.push('e.OwnerId = @owner'); params.push(['owner', sql.Int, f.ownerId]); }
+    if (f.accountIds) {
+      if (f.accountIds.length === 0) return [];
+      where.push('e.AccountId IN (SELECT CAST([value] AS int) FROM OPENJSON(@acc))');
+      params.push(['acc', sql.NVarChar(sql.MAX), JSON.stringify(f.accountIds.filter(Number.isInteger))]);
+    }
+    const res = await this.q(`SELECT s.StageType, e.CurrencyCode${dims.map((d) => `, ${d.select}`).join('')}, COUNT(*) AS Cnt, SUM(e.Amount) AS Amount
+      FROM crm.Opportunities e JOIN crm.PipelineStages s ON s.StageId = e.StageId ${dims.map((d) => d.join ?? '').join(' ')}
+      WHERE ${where.join(' AND ')} GROUP BY s.StageType, e.CurrencyCode${dims.map((d) => `, ${d.group}`).join('')}`, params);
+    return this.rows(res).map((r) => ({
+      stageType: r.StageType as AggRow['stageType'], stageId: (r.StageId as number | undefined) ?? null, ownerId: (r.OwnerId as number | undefined) ?? null, ownerName: (r.OwnerName as string | undefined) ?? null,
+      leadSource: (r.LeadSource as string | null | undefined) ?? null, month: (r.Month as string | undefined) ?? null, accountId: (r.AccountId as number | undefined) ?? null,
+      currency: String(r.CurrencyCode).trim(), count: Number(r.Cnt), amount: Number(r.Amount),
+    }));
+  }
+
+  async fxRates(base: string): Promise<FxRateRow[]> {
+    const res = await this.q(`SELECT CurrencyCode, CONVERT(char(7), RateMonth, 23) AS Month, Rate FROM crm.FxRates WHERE BaseCurrency = @b`, [['b', sql.Char(3), base]]);
+    return this.rows(res).map((r) => ({ currency: String(r.CurrencyCode).trim(), month: String(r.Month), rate: Number(r.Rate) }));
+  }
+
+  async activityCounts(today: string): Promise<{ overdue: number; today: number; next7: number }> {
+    const res = await this.q(`SELECT ISNULL(SUM(CASE WHEN DueDate < @t THEN 1 ELSE 0 END), 0) AS Overdue, ISNULL(SUM(CASE WHEN DueDate = @t THEN 1 ELSE 0 END), 0) AS Today,
+        ISNULL(SUM(CASE WHEN DueDate > @t AND DueDate <= DATEADD(day, 7, CAST(@t AS date)) THEN 1 ELSE 0 END), 0) AS Next7
+      FROM crm.Activities WHERE IsDone = 0 AND ActivityType <> 'note' AND DueDate IS NOT NULL`, [['t', sql.VarChar(10), today]]);
+    const r = this.rows(res)[0];
+    return { overdue: Number(r?.Overdue ?? 0), today: Number(r?.Today ?? 0), next7: Number(r?.Next7 ?? 0) };
+  }
+
+  async activitiesByType(range: { from: string; to: string }, ownerId?: number): Promise<Array<{ type: string; count: number }>> {
+    const res = await this.q(`SELECT ActivityType, COUNT(*) AS Cnt FROM crm.Activities
+      WHERE COALESCE(DueDate, CAST(CreatedAt AS date)) BETWEEN @from AND @to ${ownerId ? 'AND OwnerId = @o' : ''} GROUP BY ActivityType`,
+    [['from', sql.VarChar(10), range.from], ['to', sql.VarChar(10), range.to], ...(ownerId ? ([['o', sql.Int, ownerId]] as Param[]) : [])]);
+    return this.rows(res).map((r) => ({ type: String(r.ActivityType), count: Number(r.Cnt) }));
   }
 
   private valueParams(entity: EntityKey, values: Values): Param[] {

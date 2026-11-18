@@ -5,6 +5,7 @@ import type { CrmStore, EntityKey, Lookups, OwnerOption, Repo, Row, Values } fro
 import { validateEntity, type Errors } from '../domain/validators';
 import { ConflictError, EditConflictError, ForbiddenError, NotFoundError } from '../errors';
 import { makeFormatter, todayIn } from '../services/format';
+import { convertRows, exclusionNote, makeConverter } from '../services/fx';
 import { canDelete, cellsFor, describeHistory, columnsFor, detailRows, errorList, filterFields, formFields, formValuesFromRow, pageHref, recordName, relatedTo, TYPE_LABEL, type FormEnv } from './crmViews';
 
 const REF_FIELDS: Array<[string, EntityKey, string]> = [
@@ -72,6 +73,19 @@ function mount(router: Router, store: CrmStore, def: EntityDef): void {
       const today = todayIn(lk.settings.timezone);
       const q = parseListQuery(def, req.query as Record<string, unknown>, today);
       const [result, owners] = await Promise.all([repo.list(key, q), repo.owners()]);
+      if (key === 'accounts' && result.rows.length > 0) {
+        // Open pipeline per account in the base currency, at the current month's rate (ADR-0005); unconvertible deals are called out.
+        const [aggs, rates] = await Promise.all([repo.oppAggregates({ types: ['open'], accountIds: result.rows.map((r) => Number(r.Id)), groupBy: ['account'] }), repo.fxRates(lk.settings.baseCurrency)]);
+        const conv = makeConverter(lk.settings.baseCurrency, rates);
+        const fmt = makeFormatter(lk.settings);
+        for (const r of result.rows) {
+          const mine = aggs.filter((a) => a.accountId === Number(r.Id));
+          if (mine.length === 0) continue;
+          const c = convertRows(mine, conv, () => today.slice(0, 7));
+          const note = exclusionNote(c);
+          r.OpenPipeline = `${c.total > 0 || !note ? fmt.money(c.total, lk.settings.baseCurrency) : ''}${note ? `${c.total > 0 ? ' + ' : ''}${note.replace(' excluded (no FX rate for', ' not converted (no rate:').replace(/\)$/, ')')}` : ''}`;
+        }
+      }
       return { lk, q, ...result, owners, today };
     });
     const f = makeFormatter(out.lk.settings);
@@ -136,7 +150,7 @@ function mount(router: Router, store: CrmStore, def: EntityDef): void {
 
   /** Validates input, owner choice and referenced records (all visible under RLS) inside the same transaction. */
   async function prepare(repo: Repo, req: Request, lk: Lookups, env: FormEnv, body: Record<string, unknown>, current: Row | null): Promise<{ values: Values; errors: Errors }> {
-    const { values, errors } = validateEntity(key, body, lk);
+    const { values, errors } = validateEntity(key, body, lk, current);
     const ownerId = Number(str(body.OwnerId));
     if (!errors.OwnerId) {
       const inList = env.owners.some((o: OwnerOption) => o.id === ownerId);

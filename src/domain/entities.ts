@@ -53,7 +53,7 @@ export const ENTITIES: Record<EntityKey, EntityDef> = {
     sorts: { name: { sql: 'e.Name', field: 'Name' }, account: { sql: 'a.Name', field: 'AccountName' }, stage: { sql: 's.SortOrder', field: 'StageSort' }, amount: { sql: 'e.Amount', field: 'Amount' }, close: { sql: 'e.CloseDate', field: 'CloseDate' }, owner: { sql: 'uo.DisplayName', field: 'OwnerName' } },
     defaultSort: 'close', defaultDir: 'asc',
     search: [{ sql: 'e.Name', field: 'Name' }, { sql: 'a.Name', field: 'AccountName' }],
-    filters: [{ key: 'stage', kind: 'int' }, { key: 'owner', kind: 'int' }, { key: 'from', kind: 'date' }, { key: 'to', kind: 'date' }, { key: 'status', kind: 'enum', values: ['open', 'won', 'lost', 'all'], default: 'open' }, { key: 'account', kind: 'int' }, { key: 'contact', kind: 'int' }],
+    filters: [{ key: 'stage', kind: 'int' }, { key: 'owner', kind: 'int' }, { key: 'from', kind: 'date' }, { key: 'to', kind: 'date' }, { key: 'status', kind: 'enum', values: ['open', 'won', 'lost', 'closed', 'all'], default: 'open' }, { key: 'account', kind: 'int' }, { key: 'contact', kind: 'int' }],
   },
   activities: {
     key: 'activities', table: 'crm.Activities', pk: 'ActivityId', path: '/activities', singular: 'activity', plural: 'Activities', auditType: 'activity', labelCol: 'Subject',
@@ -62,7 +62,7 @@ export const ENTITIES: Record<EntityKey, EntityDef> = {
     sorts: { type: { sql: 'e.ActivityType', field: 'ActivityType' }, subject: { sql: 'e.Subject', field: 'Subject' }, due: { sql: 'e.DueDate', field: 'DueDate' }, owner: { sql: 'uo.DisplayName', field: 'OwnerName' } },
     defaultSort: 'due', defaultDir: 'asc',
     search: [{ sql: 'e.Subject', field: 'Subject' }],
-    filters: [{ key: 'type', kind: 'enum', values: ['call', 'meeting', 'task', 'note'] }, { key: 'status', kind: 'enum', values: ['open', 'done', 'all'], default: 'open' }, { key: 'due', kind: 'enum', values: ['overdue', 'today', 'week', 'any'], default: 'any' }, { key: 'owner', kind: 'int' }, { key: 'account', kind: 'int' }, { key: 'contact', kind: 'int' }, { key: 'opportunity', kind: 'int' }],
+    filters: [{ key: 'type', kind: 'enum', values: ['call', 'meeting', 'task', 'note', 'actionable'] }, { key: 'status', kind: 'enum', values: ['open', 'done', 'all'], default: 'open' }, { key: 'due', kind: 'enum', values: ['overdue', 'today', 'week', 'due', 'any'], default: 'any' }, { key: 'owner', kind: 'int' }, { key: 'account', kind: 'int' }, { key: 'contact', kind: 'int' }, { key: 'opportunity', kind: 'int' }],
   },
 };
 export const ENTITY_LIST: EntityDef[] = Object.values(ENTITIES);

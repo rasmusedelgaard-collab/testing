@@ -1,6 +1,6 @@
 import { ConflictError, ForbiddenError } from '../errors';
 import { ENTITIES } from '../domain/entities';
-import type { CrmStore, EntityKey, HistoryRow, ListQuery, Lookups, Meta, OwnerOption, PicklistValue, RefOption, Repo, Row, Settings, Stage, UpdateResult, Value, Values } from '../domain/types';
+import type { AggRow, CrmStore, EntityKey, FxRateRow, HistoryRow, OppAggFilter, ListQuery, Lookups, Meta, OwnerOption, PicklistValue, RefOption, Repo, Row, Settings, Stage, UpdateResult, Value, Values } from '../domain/types';
 import { createRow, deleteRow, updateRows, type AuditRow } from '../services/audit';
 import type { RlsContext } from './withRlsContext';
 import type { FxRate, LogoInfo } from '../domain/adminTypes';
@@ -149,14 +149,15 @@ export class MemoryRepo implements Repo {
         case 'opportunities.contact': if (r.PrimaryContactId !== n) return false; break;
         case 'opportunities.from': if (String(r.CloseDate) < v) return false; break;
         case 'opportunities.to': if (String(r.CloseDate) > v) return false; break;
-        case 'opportunities.status': if (v !== 'all' && r.StageType !== v) return false; break;
-        case 'activities.type': if (r.ActivityType !== v) return false; break;
+        case 'opportunities.status': if (v !== 'all' && (v === 'closed' ? r.StageType === 'open' : r.StageType !== v)) return false; break;
+        case 'activities.type': if (v === 'actionable' ? r.ActivityType === 'note' : r.ActivityType !== v) return false; break;
         case 'activities.contact': if (r.ContactId !== n) return false; break;
         case 'activities.opportunity': if (r.OpportunityId !== n) return false; break;
         case 'activities.status': if ((v === 'open' && r.IsDone) || (v === 'done' && !r.IsDone)) return false; break;
         case 'activities.due': {
           const due = r.DueDate as string | null;
           if (v === 'overdue' && (r.IsDone || !due || due >= q.today)) return false;
+          if (v === 'due' && (r.IsDone || !due || due > q.today)) return false;
           if (v === 'today' && due !== q.today) return false;
           if (v === 'week') { const end = new Date(`${q.today}T00:00:00Z`); end.setUTCDate(end.getUTCDate() + 6); if (!due || due < q.today || due > end.toISOString().slice(0, 10)) return false; }
           break;
@@ -190,6 +191,50 @@ export class MemoryRepo implements Repo {
     const owner = (f: string | null, v: string | null) => (f === 'OwnerId' && v ? (this.user(Number(v))?.name ?? v) : v);
     return this.s.audit.filter((a) => a.entityType === type && a.entityId === id).reverse()
       .map((a) => ({ at: a.at, by: this.user(a.changedBy)?.name ?? '', action: a.action, field: a.fieldName, oldValue: owner(a.fieldName, a.oldValue), newValue: owner(a.fieldName, a.newValue) }));
+  }
+
+  async oppAggregates(f: OppAggFilter): Promise<AggRow[]> {
+    const groups = new Map<string, AggRow>();
+    for (const raw of this.s.data.opportunities) {
+      if (!this.canSee(raw)) continue;
+      const o = this.decorate('opportunities', raw);
+      const type = o.StageType as AggRow['stageType'];
+      const close = String(o.CloseDate);
+      if (!f.types.includes(type) || (f.from && close < f.from) || (f.to && close > f.to) || (f.ownerId && o.OwnerId !== f.ownerId) || (f.accountIds && !f.accountIds.includes(Number(o.AccountId)))) continue;
+      const g = f.groupBy;
+      const row: AggRow = {
+        stageType: type, stageId: g.includes('stage') ? Number(o.StageId) : null, ownerId: g.includes('owner') ? Number(o.OwnerId) : null, ownerName: g.includes('owner') ? String(o.OwnerName) : null,
+        leadSource: g.includes('leadSource') ? ((o.LeadSourceLabel as string | null) ?? null) : null, month: g.includes('month') ? close.slice(0, 7) : null, accountId: g.includes('account') ? Number(o.AccountId) : null,
+        currency: String(o.CurrencyCode), count: 0, amount: 0,
+      };
+      const key = JSON.stringify([row.stageType, row.stageId, row.ownerId, row.leadSource, row.month, row.accountId, row.currency]);
+      const cur = groups.get(key) ?? row;
+      cur.count += 1;
+      cur.amount += Number(o.Amount);
+      groups.set(key, cur);
+    }
+    return [...groups.values()];
+  }
+  async fxRates(base: string): Promise<FxRateRow[]> {
+    return this.s.fx.filter((f) => f.base === base).map((f) => ({ currency: f.currency, month: f.month, rate: f.rate }));
+  }
+  async activityCounts(today: string) {
+    const end = new Date(`${today}T00:00:00Z`);
+    end.setUTCDate(end.getUTCDate() + 7);
+    const endStr = end.toISOString().slice(0, 10);
+    const rows = this.s.data.activities.filter((a) => this.canSee(a) && !a.IsDone && a.ActivityType !== 'note' && a.DueDate);
+    const due = (a: Raw) => String(a.DueDate);
+    return { overdue: rows.filter((a) => due(a) < today).length, today: rows.filter((a) => due(a) === today).length, next7: rows.filter((a) => due(a) > today && due(a) <= endStr).length };
+  }
+  async activitiesByType(range: { from: string; to: string }, ownerId?: number) {
+    const counts = new Map<string, number>();
+    for (const a of this.s.data.activities) {
+      if (!this.canSee(a) || (ownerId && a.OwnerId !== ownerId)) continue;
+      const d = (a.DueDate as string | null) ?? String(a.CreatedAt).slice(0, 10);
+      if (d < range.from || d > range.to) continue;
+      counts.set(String(a.ActivityType), (counts.get(String(a.ActivityType)) ?? 0) + 1);
+    }
+    return [...counts].map(([type, count]) => ({ type, count }));
   }
 
   private teamOf(ownerId: unknown) { return this.user(ownerId)?.teamId ?? null; }

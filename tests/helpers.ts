@@ -1,6 +1,7 @@
 import session from 'express-session';
 import request from 'supertest';
 import { createApp, type AppDeps } from '../src/app';
+import { createMemoryStore } from '../src/db/memoryStore';
 import { loadConfig } from '../src/config';
 
 export const GUID = '11111111-2222-4333-8444-555555555555';
@@ -41,7 +42,7 @@ export function testAccessConfig(extra: NodeJS.ProcessEnv = {}) {
 
 export function makeApp(deps: Omit<AppDeps, 'sessionStore'> & { sessionStore?: session.MemoryStore }) {
   const store = deps.sessionStore ?? new session.MemoryStore();
-  return { app: createApp({ isUserActive: async () => true, ...deps, sessionStore: store }), store };
+  return { app: createApp({ isUserActive: async () => true, store: createMemoryStore(), ...deps, sessionStore: store }), store };
 }
 
 export function csrfFrom(html: string): string {

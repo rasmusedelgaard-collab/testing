@@ -37,7 +37,7 @@ export function relatedTo(r: Row): Cell {
 
 export function columnsFor(entity: EntityKey): Column[] {
   switch (entity) {
-    case 'accounts': return [{ label: 'Name', sort: 'name' }, { label: 'Industry', sort: 'industry' }, { label: 'City', sort: 'city' }, { label: 'Owner', sort: 'owner' }];
+    case 'accounts': return [{ label: 'Name', sort: 'name' }, { label: 'Industry', sort: 'industry' }, { label: 'City', sort: 'city' }, { label: 'Owner', sort: 'owner' }, { label: 'Open pipeline' }];
     case 'contacts': return [{ label: 'Name', sort: 'name' }, { label: 'Account', sort: 'account' }, { label: 'Title', sort: 'title' }, { label: 'Email', sort: 'email' }, { label: 'Phone' }, { label: 'Owner', sort: 'owner' }];
     case 'opportunities': return [{ label: 'Name', sort: 'name' }, { label: 'Account', sort: 'account' }, { label: 'Stage', sort: 'stage' }, { label: 'Amount', sort: 'amount' }, { label: 'Close date', sort: 'close' }, { label: 'Owner', sort: 'owner' }];
     case 'activities': return [{ label: 'Done' }, { label: 'Type', sort: 'type' }, { label: 'Subject', sort: 'subject' }, { label: 'Related to' }, { label: 'Due date', sort: 'due' }, { label: 'Owner', sort: 'owner' }];
@@ -48,7 +48,7 @@ export function cellsFor(entity: EntityKey, r: Row, f: Formatter, today: string,
   const path = ENTITIES[entity].path;
   const link = `${path}/${r.Id}`;
   switch (entity) {
-    case 'accounts': return [{ text: s(r.Name), href: link }, { text: s(r.IndustryLabel) }, { text: s(r.City) }, { text: s(r.OwnerName) }];
+    case 'accounts': return [{ text: s(r.Name), href: link }, { text: s(r.IndustryLabel) }, { text: s(r.City) }, { text: s(r.OwnerName) }, { text: s(r.OpenPipeline) || '–', right: true }];
     case 'contacts': return [{ text: recordName(entity, r), href: link }, { text: s(r.AccountName), href: r.AccountId ? `/accounts/${r.AccountId}` : undefined }, { text: s(r.JobTitle) }, { text: s(r.Email) }, { text: s(r.Phone) }, { text: s(r.OwnerName) }];
     case 'opportunities': {
       const past = r.StageType === 'open' && s(r.CloseDate) < today;
@@ -104,10 +104,10 @@ export function filterFields(entity: EntityKey, q: ListQuery, lk: Lookups, owner
     case 'accounts': return [ownerF, f('industry', 'Industry', picks('industry'))];
     case 'contacts': return [ownerF];
     case 'opportunities': return [f('stage', 'Stage', lk.stages.map((st) => ({ value: String(st.id), label: st.name }))), ownerF,
-      { name: 'status', label: 'Status', value: q.filters.status ?? 'open', options: ['open', 'won', 'lost', 'all'].map((v) => ({ value: v, label: cap(v) })) }];
-    case 'activities': return [f('type', 'Type', Object.entries(TYPE_LABEL).map(([value, label]) => ({ value, label }))), ownerF,
+      { name: 'status', label: 'Status', value: q.filters.status ?? 'open', options: ['open', 'won', 'lost', 'closed', 'all'].map((v) => ({ value: v, label: cap(v) })) }];
+    case 'activities': return [f('type', 'Type', [...Object.entries(TYPE_LABEL).map(([value, label]) => ({ value, label })), { value: 'actionable', label: 'Call, meeting or task' }]), ownerF,
       { name: 'status', label: 'Status', value: q.filters.status ?? 'open', options: ['open', 'done', 'all'].map((v) => ({ value: v, label: cap(v) })) },
-      { name: 'due', label: 'Due', value: q.filters.due ?? 'any', options: [{ value: 'any', label: 'Any' }, { value: 'overdue', label: 'Overdue' }, { value: 'today', label: 'Today' }, { value: 'week', label: 'This week' }] }];
+      { name: 'due', label: 'Due', value: q.filters.due ?? 'any', options: [{ value: 'any', label: 'Any' }, { value: 'due', label: 'Due or overdue' }, { value: 'overdue', label: 'Overdue' }, { value: 'today', label: 'Today' }, { value: 'week', label: 'This week' }] }];
   }
 }
 
@@ -167,7 +167,7 @@ export function formFields(entity: EntityKey, values: Record<string, string>, er
         select('PrimaryContactId', 'Primary contact', opt(env.refs.contacts)),
         { ...base('StageId', req('Stage'), 'select', { required: true, options: env.lookups.stages.map((st) => ({ value: String(st.id), label: `${st.name} (${st.probability}%)`, selected: String(st.id) === stageValue })) }) },
         base('Amount', req('Amount'), 'text', { required: true, inputmode: 'decimal' }),
-        base('CurrencyCode', req('Currency'), 'select', { required: true, options: env.lookups.settings.enabledCurrencies.map((c) => ({ value: c, label: c, selected: c === (values.CurrencyCode ?? '') })) }),
+        base('CurrencyCode', req('Currency'), 'select', { required: true, options: [...env.lookups.settings.enabledCurrencies, ...((values.CurrencyCode ?? '') && !env.lookups.settings.enabledCurrencies.includes(values.CurrencyCode ?? '') ? [values.CurrencyCode ?? ''] : [])].map((c) => ({ value: c, label: env.lookups.settings.enabledCurrencies.includes(c) ? c : `${c} (disabled)`, selected: c === (values.CurrencyCode ?? '') })) }),
         base('CloseDate', req('Close date'), 'date', { required: true }),
         select('LeadSourceValueId', 'Lead source', picks('lead_source', values.LeadSourceValueId ?? '')),
         select('LostReasonValueId', 'Lost reason (required if the stage is Closed lost)', picks('lost_reason', values.LostReasonValueId ?? '')),
