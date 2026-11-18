@@ -614,26 +614,26 @@ CREATE SECURITY POLICY sec.CrmRowPolicy
   ADD FILTER PREDICATE sec.fn_RowAccess(OwnerId, TeamId)      ON crm.Accounts,
   ADD BLOCK  PREDICATE sec.fn_RowWriteTarget(OwnerId, TeamId) ON crm.Accounts AFTER INSERT,
   ADD BLOCK  PREDICATE sec.fn_RowWriteTarget(OwnerId, TeamId) ON crm.Accounts AFTER UPDATE,
-  ADD BLOCK  PREDICATE sec.fn_RowModify(OwnerId, TeamId)      ON crm.Accounts BEFORE UPDATE,
-  ADD BLOCK  PREDICATE sec.fn_RowModify(OwnerId, TeamId)      ON crm.Accounts BEFORE DELETE,
+  ADD BLOCK  PREDICATE sec.fn_RowUpdate(OwnerId, TeamId)      ON crm.Accounts BEFORE UPDATE,
+  ADD BLOCK  PREDICATE sec.fn_RowDelete(OwnerId, TeamId)      ON crm.Accounts BEFORE DELETE,
 
   ADD FILTER PREDICATE sec.fn_RowAccess(OwnerId, TeamId)      ON crm.Contacts,
   ADD BLOCK  PREDICATE sec.fn_RowWriteTarget(OwnerId, TeamId) ON crm.Contacts AFTER INSERT,
   ADD BLOCK  PREDICATE sec.fn_RowWriteTarget(OwnerId, TeamId) ON crm.Contacts AFTER UPDATE,
-  ADD BLOCK  PREDICATE sec.fn_RowModify(OwnerId, TeamId)      ON crm.Contacts BEFORE UPDATE,
-  ADD BLOCK  PREDICATE sec.fn_RowModify(OwnerId, TeamId)      ON crm.Contacts BEFORE DELETE,
+  ADD BLOCK  PREDICATE sec.fn_RowUpdate(OwnerId, TeamId)      ON crm.Contacts BEFORE UPDATE,
+  ADD BLOCK  PREDICATE sec.fn_RowDelete(OwnerId, TeamId)      ON crm.Contacts BEFORE DELETE,
 
   ADD FILTER PREDICATE sec.fn_RowAccess(OwnerId, TeamId)      ON crm.Opportunities,
   ADD BLOCK  PREDICATE sec.fn_RowWriteTarget(OwnerId, TeamId) ON crm.Opportunities AFTER INSERT,
   ADD BLOCK  PREDICATE sec.fn_RowWriteTarget(OwnerId, TeamId) ON crm.Opportunities AFTER UPDATE,
-  ADD BLOCK  PREDICATE sec.fn_RowModify(OwnerId, TeamId)      ON crm.Opportunities BEFORE UPDATE,
-  ADD BLOCK  PREDICATE sec.fn_RowModify(OwnerId, TeamId)      ON crm.Opportunities BEFORE DELETE,
+  ADD BLOCK  PREDICATE sec.fn_RowUpdate(OwnerId, TeamId)      ON crm.Opportunities BEFORE UPDATE,
+  ADD BLOCK  PREDICATE sec.fn_RowDelete(OwnerId, TeamId)      ON crm.Opportunities BEFORE DELETE,
 
   ADD FILTER PREDICATE sec.fn_RowAccess(OwnerId, TeamId)      ON crm.Activities,
   ADD BLOCK  PREDICATE sec.fn_RowWriteTarget(OwnerId, TeamId) ON crm.Activities AFTER INSERT,
   ADD BLOCK  PREDICATE sec.fn_RowWriteTarget(OwnerId, TeamId) ON crm.Activities AFTER UPDATE,
-  ADD BLOCK  PREDICATE sec.fn_RowModify(OwnerId, TeamId)      ON crm.Activities BEFORE UPDATE,
-  ADD BLOCK  PREDICATE sec.fn_RowModify(OwnerId, TeamId)      ON crm.Activities BEFORE DELETE,
+  ADD BLOCK  PREDICATE sec.fn_RowUpdate(OwnerId, TeamId)      ON crm.Activities BEFORE UPDATE,
+  ADD BLOCK  PREDICATE sec.fn_RowDelete(OwnerId, TeamId)      ON crm.Activities BEFORE DELETE,
 
   -- AuditLog is append-only: crm_app has no UPDATE/DELETE grant, so only the insert is guarded
   ADD FILTER PREDICATE sec.fn_RowAccess(OwnerId, TeamId)                ON crm.AuditLog,
@@ -678,26 +678,33 @@ Notes:
   - The app cannot write `crm.Users` directly (procedure only).
   - `crm.Picklists` is read-only for the app.
 - A FILTER predicate also limits UPDATE and DELETE to visible rows. So a hidden row reports `@@ROWCOUNT = 0` and the app returns 404. A blocked write raises error 33504. The app maps that to 403 "You don't have access to this page."
+  - `fn_RowUpdate` is therefore defence in depth today (it equals the read rule). `fn_RowDelete` is the one that bites: in `team` mode a team-mate's row is visible, so a User's DELETE of it raises 33504 and gets 403. The UI hides the Delete button when the user is not the owner, a Manager or Admin (UI spec), but the database is the enforcement.
 - Admin write enforcement is layered:
   1. Route `requireRole('Admin')` gives a 403 page.
   2. `fn_AdminWrite` raises error 33504 even if a route check is missed.
   3. Grants: no DELETE on Settings or PicklistValues.
 
 ### 5.5 RLS integration test (`db/tests/rls-integration.sql`)
-Run as a `WITHOUT LOGIN` test user that is a member of `crm_app_role`, using `EXECUTE AS USER`. Set context with `@read_only = 0` (test only) between cases, or use one batch per case. The tests seed 2 teams, 4 users (A1 Admin, M1 Manager team 1, U1 and U2 User team 1, U3 User team 2) and one record per owner.
+Run as a `WITHOUT LOGIN` test user that is a member of `crm_app_role`, using `EXECUTE AS USER`. Set context with `@read_only = 0` (test only) between cases, or use one batch per case. The tests seed 2 teams (each with an `EntraGroupId`), 5 users (A1 Admin, M1 Manager team 1, U1 and U2 User team 1, U4 User team 1 with `IsActive = 0`, U3 User team 2) and one record per owner in each entity table. "Team mode" means `visibility.mode = 'team'`, set as A1 before the case.
 
 Required assertions:
 1. No context returns 0 rows on every entity table, AuditLog, FxRates, PipelineStages and PicklistValues.
-2. U1 private: sees own rows only. U1 team: sees U1 + U2 rows, not U3 rows.
+2. U1 private: sees own rows only. U1 team: sees U1 + U2 + U4 rows, not U3 rows.
 3. M1: sees team 1 rows. A1: sees all.
-4. U1 team mode: an UPDATE or DELETE of U2's row fails with 33504.
-5. U1: INSERT with Owner U3 or TeamId 2 fails. INSERT with Owner U2 (same team) succeeds.
-6. U1: an UPDATE that changes TeamId to 2 fails.
-7. M1: DELETE of U2's row succeeds. DELETE of U3's row affects 0 rows.
-8. Non-admin: INSERT or UPDATE on Settings, FxRates, PipelineStages, PicklistValues, Teams or BrandingAssets fails with 33504. Admin succeeds.
-9. AuditLog INSERT with `ChangedBy` other than self fails.
-10. `crm_app_role` cannot run `ALTER SECURITY POLICY`, `SELECT` on `dbo.SchemaVersions`, or `INSERT` on `crm.Users`.
-11. Calling `sp_set_session_context 'UserId'` twice with `@read_only = 1` fails on the second call (error 15664).
+4. **U1 private mode:** an UPDATE of U2's row affects 0 rows (filtered). A DELETE of U2's row affects 0 rows.
+5. **U1 team mode, update allowed:** an UPDATE of U2's row that changes a business field (e.g. Opportunity `Amount`, Account `Name`) succeeds, and `ModifiedBy` = U1.
+6. **U1 team mode, delete blocked:** a DELETE of U2's row fails with 33504, and the row still exists.
+7. **U1 team mode, no team change:** an UPDATE of U2's row (and of U1's own row) that sets `TeamId = 2` fails with 33504.
+8. **U1 team mode, owner reassignment:** UPDATE of U2's row with `OwnerId = U1` succeeds, and setting it back to `OwnerId = U2` succeeds; with `OwnerId = U3` fails with 33504; with `OwnerId = U4` (inactive team-mate) fails with 33504.
+9. **U1 team mode, other team:** an UPDATE or DELETE of U3's row affects 0 rows.
+10. U1 (either mode): INSERT with Owner U3 or TeamId 2 fails. INSERT with Owner U2 (active, same team) succeeds. INSERT with Owner U4 (inactive) fails.
+11. M1: UPDATE and DELETE of U2's row succeed. UPDATE/DELETE of U3's row affects 0 rows. UPDATE setting `TeamId = 2` fails.
+12. A1: UPDATE moving U2's row to team 2 with Owner U3 succeeds (only Admin can move across teams).
+13. A user with no team (context `TeamId` NULL) in team mode: sees, updates and deletes own rows only; another NULL-team user's rows are invisible.
+14. Non-admin: INSERT or UPDATE on Settings, FxRates, PipelineStages, PicklistValues, Teams or BrandingAssets fails with 33504. Admin succeeds.
+15. AuditLog INSERT with `ChangedBy` other than self fails. U1 in team mode can insert an audit row for U2's record (`OwnerId = U2`, `TeamId = 1`, `ChangedBy = U1`).
+16. `crm_app_role` cannot run `ALTER SECURITY POLICY`, `SELECT` on `dbo.SchemaVersions`, or `INSERT` on `crm.Users`.
+17. Calling `sp_set_session_context 'UserId'` twice with `@read_only = 1` fails on the second call (error 15664).
 
 ## 6. Database principals and grants (migration `003_roles_grants.sql`)
 
@@ -755,6 +762,8 @@ Two pools are created in `src/db/pool.ts`. Both use the same managed identity.
 | `rlsPool` (`ResettingConnectionPool`, `max` = `SQL_POOL_MAX`, default 10) | `withRlsContext` only | Set per request, read-only, cleared on release |
 | `systemPool` (`max` 4) | session store, `usp_UpsertUserOnLogin`, `publicReads` (app.name, branding, logo), `/readyz` | Never set, so RLS tables return 0 rows |
 
+Both pools use `min: 0` and `idleTimeoutMillis: 30000`. Do not keep warm connections: serverless auto-pause only happens when the database has **no sessions** and no CPU for the whole delay (§8.1).
+
 **Important:** `mssql` 12.x (checked against 12.7.14) does **not** reset a connection when it is released to the pool. `ConnectionPool.release()` only hands it back to tarn. Read-only context keys would otherwise survive into the next request. The design therefore makes the reset explicit:
 
 ```ts
@@ -802,6 +811,38 @@ export async function withRlsContext<T>(ctx: RlsContext, fn: (tx: sql.Transactio
 
 **Optimistic concurrency:** edit forms carry `RowVer` as base64 in a hidden field. Updates use `UPDATE … WHERE Id = @Id AND RowVer = @RowVer`. If `@@ROWCOUNT = 0`, run `SELECT 1 WHERE Id = @Id`: a row found means a conflict (409), no row means 404.
 
+### 8.1 Serverless auto-pause: transient errors and "waking up the database"
+
+User decision (2026-11-18): production Azure SQL is **serverless with auto-pause after 60 minutes** (§12.1). The first request after about an hour idle finds the database paused. Connecting triggers a resume, which typically takes from a few seconds up to about a minute. Until then, logins fail with **error 40613** ("Database … is not currently available").
+
+**Transient error set** (`src/db/transient.ts`, pure function `isTransient(err)`, unit-tested):
+- SQL error numbers: `40613`, `40197`, `40501`, `40540`, `49918`, `49919`, `49920`, `4221`, `10928`, `10929`.
+- tedious/driver connection errors during connect: `ETIMEOUT`, `ESOCKET`, `ECONNRESET`, `ECONNCLOSED`.
+- Everything else (including 33504, 547, 51000, login/permission failures such as 18456) is **not** transient and is never retried.
+
+**Retry policy** (`src/db/retry.ts`, `withDbRetry(fn, { budgetMs: 60000 })`):
+- Exponential backoff with jitter: about 1 s, 2 s, 4 s, 8 s, then 15 s steps, stopping when the next wait would exceed a total budget of **60 s**.
+- **What is retried.** Only work that cannot have committed anything:
+  - opening/acquiring a connection, and the session-context batch in `withRlsContext` (before `fn` runs);
+  - the session store `get`/`set`/`touch`/`destroy` and `publicReads` (idempotent);
+  - `crm.usp_UpsertUserOnLogin` (idempotent MERGE).
+- **What is not retried.** Once `fn` in `withRlsContext` has started, a transient error rolls back and is **not** replayed automatically (the commit outcome could be ambiguous, and a form POST must not be applied twice). The user sees the "waking up" page and resubmits.
+- One shared "database waking" flag per instance. While it is set, further requests wait on the same wake-up attempt instead of each starting their own retry loop.
+- Each retry logs at `warn` (error number, attempt, elapsed ms). Exhausting the budget logs at `error`. App Insights gets a custom event `db.resume` with the total wake-up time, so the cold-start cost is measurable.
+
+**User-facing behaviour:**
+- The request is held while retrying (the browser shows its normal loading state). Most resumes complete inside the budget, and the user just sees a slow first page.
+- If the budget is exhausted, or a transient error occurs after `fn` started, the error handler returns **503** with `Retry-After: 15` and the friendly page **"Waking up the database"**: "The CRM has been idle and its database is starting. This usually takes under a minute. [Try again]". The "Try again" link repeats the same GET. For a failed POST the page says "Your changes were not saved. Go back and submit again." No automatic page refresh (WCAG 2.2.1). Final wording and layout belong to the UI spec.
+- The sign-in page and `/healthz` never wait on the database. `publicReads` (app name, logo) is cached in memory for 5 minutes and falls back to defaults on a transient error, so sign-in still renders while the database wakes.
+
+**Keeping auto-pause effective** (anything that touches the database resets the 60-minute timer):
+- App Service health check and Always On use `/healthz`, which has no DB call. Nothing may poll `/readyz` on a schedule; use it only for deployment slot checks.
+- The session cleanup (ADR-0004) runs opportunistically on request traffic, not on a timer.
+- Pools keep no idle connections (`min: 0`, §8).
+- No App Insights availability test may hit a page that touches the database.
+
+**Trade-off (accepted by the user 2026-11-18):** lower cost (compute is billed only while the database runs; storage always) in exchange for a cold start of up to about 60 s on the first request after an idle hour, typically the first user each morning. To switch off later: set `autoPauseDelay = -1` in Bicep (one-line change, no app change; the retry logic stays as harmless resilience). The README documents both.
+
 ## 9. Routes and role requirements
 
 "Any" means any signed-in user with a CRM role. Every POST requires a valid CSRF token. Row-level access is always enforced by RLS on top of the route check.
@@ -829,13 +870,17 @@ export async function withRlsContext<T>(ctx: RlsContext, fn: (tx: sql.Transactio
 | GET/POST | `/settings/stages` | Admin | whole-table save in one transaction |
 | GET/POST | `/settings/picklists/:code` | Admin | add / rename / reorder / deactivate |
 | GET/POST | `/settings/visibility` | Admin | `private` or `team`, with confirmation |
-| GET | `/settings/users` | Admin | read-only users and teams |
-| POST | `/settings/teams`, `/settings/teams/:id` | Admin | team name + Entra group object ID (sign-off item) |
+| GET | `/settings/users` | Admin | users (read-only, from Entra) and teams, with the "Add team" form |
+| POST | `/settings/teams`, `/settings/teams/:id` | Admin | "Add team" / edit team: name (1–80 chars) + Entra group object ID (validated as a GUID, unique). Audited (`EntityType = 'team'`). Approved 2026-11-18 (ADR-0003) |
 | (test only) | `/__test/login` | n/a | mounted only when `NODE_ENV=test` and `WEBSITE_SITE_NAME` is unset; the process refuses to start otherwise if `AUTH_TEST_BYPASS=1` |
 
 `:id` is validated as a positive int by zod. An invalid value returns 404, not 400.
 
 **Ownership hand-off.** If a create or update leaves a record the user can no longer see, redirect to the list with "Saved and assigned to {name}." This happens, for example, when a User assigns a record to a team-mate in `private` mode.
+
+**Owner picker.** For non-Admins it lists only the caller and active members of the caller's team (the same rule `fn_RowWriteTarget` enforces, §5.2). The route validates the chosen owner against that list before writing; RLS is the backstop (33504 → 403).
+
+**Delete button.** Shown only when the caller is Admin, the owner, or a Manager of the record's team. In `team` mode a User editing a team-mate's record sees Edit but not Delete.
 
 **Entity references.** Before insert or update, verify that referenced entities (`AccountId`, `ContactId`, `OpportunityId`) are visible under RLS. A hidden or unknown ID gives "Choose an account from the list." Foreign keys are checked without RLS, so this check stops users probing IDs.
 
@@ -890,8 +935,8 @@ export async function withRlsContext<T>(ctx: RlsContext, fn: (tx: sql.Transactio
 | Resource group | `rg-crm-<env>` |
 | App Service plan | Linux, B1 (dev/test), P0v3 (prod) |
 | Web App | Node 22 LTS, HTTPS only, minimum TLS 1.2, FTP and basic auth disabled, Always On (prod), health check `/healthz`, system-assigned managed identity, Key Vault references in app settings |
-| Azure SQL logical server | **Entra-only authentication** (SQL auth disabled), Entra admin = group "CRM SQL Admins", minimum TLS 1.2, auditing to Log Analytics, "Allow Azure services" on for v1 (see risks) |
-| Azure SQL Database | General Purpose serverless Gen5, 1–2 vCores, auto-pause 60 min in dev/test and **off** in prod (avoids a cold start of about 1 min), PITR 7–35 days, LTR optional |
+| Azure SQL logical server | **Entra-only authentication** (SQL auth disabled), Entra admin = group "CRM SQL Admins", minimum TLS 1.2, auditing to Log Analytics. **Public endpoint** with the firewall rule "Allow Azure services and resources to access this server" on, and no other firewall rules (user decision 2026-11-18). Entra-only auth means a reachable endpoint still requires a valid Entra token for a principal that is a database user. Private endpoint/VNet integration is a later hardening option. |
+| Azure SQL Database | General Purpose serverless Gen5, 1–2 vCores, **auto-pause after 60 min in all environments, including prod** (user decision 2026-11-18; cold-start trade-off and retry design in §8.1), PITR 7–35 days. Avoid features that block auto-pause (e.g. geo-replication/failover groups); check LTR against current Microsoft guidance before enabling it. |
 | Key Vault | RBAC mode. Web App managed identity has *Key Vault Secrets User*. Secrets: `entra-client-secret`, `session-secret` |
 | Log Analytics + Application Insights | workspace-based; 30–90 day retention |
 
@@ -918,15 +963,20 @@ export async function withRlsContext<T>(ctx: RlsContext, fn: (tx: sql.Transactio
 - If none of these is present, show `/no-access`. No DB write and no session user.
 - Unknown role values are ignored.
 
-**Team:** the intersection of the `groups` claim with `crm.Teams.EntraGroupId`. With no match, `TeamId` is NULL. If the `groups` claim is missing because of overage (`_claim_names`), `TeamId` is NULL and an error is logged.
+**Team (user decision 2026-11-18, ADR-0003):** a team is an Entra security group.
+- Each team group is assigned to the enterprise app, so it appears in the `groups` claim, which is limited to **groups assigned to the application**.
+- At login, `TeamId` is the intersection of the `groups` claim with active `crm.Teams.EntraGroupId` values (§4.2). Several matches: the lowest `TeamId` wins and a warning is logged.
+- With no match, `TeamId` is NULL (own records only).
+- **Overage** (`_claim_names` contains `groups`, or `hasgroups` is true): the app does **not** call Graph. `TeamId` is NULL (fail closed) and an error is logged with the `oid`, so an Admin can fix the group assignment.
+- Admins create teams in Settings > Users & teams > "Add team" (name + group object ID). Membership changes in Entra take effect at the user's next sign-in.
 
 ## 13. Deviations from the approved plan
 
 | # | Plan | This design | Reason |
 |---|---|---|---|
 | 1 | "The pool's `sp_reset_connection` clears the context on release" | An explicit `ResettingConnectionPool.release()` calls tedious `Connection.reset()`, and the context batch starts with a stale-context guard | `mssql` 12.x does not reset connections on release (checked in the source). Without this, read-only keys from one user's request would persist on the pooled connection. |
-| 2 | One predicate `sec.fn_RowAccess` for filter and block | Three predicates: read (`fn_RowAccess`), modify-existing (`fn_RowModify`, BEFORE UPDATE/DELETE) and resulting-row (`fn_RowWriteTarget`, AFTER INSERT/UPDATE) | Without these, a User in `team` mode could edit or delete team-mates' records. That contradicts the UX decision "delete is allowed for owner, Manager, Admin". It also stops records being assigned outside the team. |
+| 2 | One predicate `sec.fn_RowAccess` for filter and block | Four predicates: read (`fn_RowAccess`, FILTER), update-existing (`fn_RowUpdate`, BEFORE UPDATE), delete-existing (`fn_RowDelete`, BEFORE DELETE) and resulting-row (`fn_RowWriteTarget`, AFTER INSERT/UPDATE) | User decision 2026-11-18: in `team` mode Users may read and update team-mates' records but not delete them ("delete is allowed for owner, Manager, Admin"), and nobody but Admin may move records across teams or assign them outside the team. |
 | 3 | Session table `app.Sessions` via a library store | Custom store (about 100 lines) on `systemPool` | ADR-0004: `connect-mssql-v2` pins `mssql` ^11 (a second driver copy) and recommends `db_ddladmin`. |
-| 4 | Team source not specified | Teams map to Entra groups (`crm.Teams.EntraGroupId`), resolved at login, plus a small Admin team form | Keeps "membership is managed in Entra ID" (UI spec 3.8). Needs product owner and UX sign-off. |
+| 4 | Team source not specified | Teams map to Entra security groups (`crm.Teams.EntraGroupId`), resolved at login, plus a small Admin "Add team" form | Keeps "membership is managed in Entra ID" (UI spec 3.8). Approved by the user 2026-11-18. |
 | 5 | Settings/FX "writable by Admin" | Config tables have an `int` surrogate key so one `fn_AdminWrite(@RowId int)` binds to every table. Settings and BrandingAssets have no FILTER. | Settings is read by the predicate and by the public sign-in page. |
 | 6 | Audit fields: Amount, Stage, Currency, Owner | Adds CloseDate, plus create/delete rows and config changes | Win rate and the period KPIs depend on CloseDate. Deletes must be audited (UX decision). |

@@ -1,6 +1,6 @@
 # ADR-0002: Row-Level Security in Azure SQL driven by SESSION_CONTEXT
 
-- **Status:** Proposed. The core approach (RLS with SESSION_CONTEXT, the visibility rules, fail closed) is the product owner's decision in the plan. Three sub-decisions below need sign-off (marked **[sign-off]**).
+- **Status:** Accepted (user-approved 2026-11-18). The core approach (RLS with SESSION_CONTEXT, the visibility rules, fail closed) is the product owner's decision in the plan. The sub-decisions S1–S3 below were decided by the user in the 2nd round on 2026-11-18; S1 was changed from the original recommendation (team mode now allows update).
 - **Date:** 2026-11-18
 - **One-way door:** **Partly.**
   - Putting authorisation in the database is costly to undo. Every query and test assumes it.
@@ -11,6 +11,7 @@
   - Admin sees everything.
   - Manager sees own and own-team records.
   - User sees own records, or own-team records when Admin sets visibility to `team`.
+  - In `team` mode a User may also **update** team-mates' records, but not delete them and not move them to another team (user decision 2026-11-18).
 - Enforcement must hold even if an app query forgets a `WHERE` clause.
 - Constraints:
   - The app connects as **one** managed identity (`crm_app`), not as each end user.
