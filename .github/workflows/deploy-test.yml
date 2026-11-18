@@ -1,23 +1,19 @@
-name: Deploy to test (MonsterASP)
+name: Node DB tasks on test (manual)
 
-# verify -> build package (ubuntu) -> [optional migrate] -> Web Deploy to MonsterASP (windows).
-# Secrets and variables live in the GitHub Environment `test` (Settings > Environments > test); see docs/deploy/monsterasp.md.
-# crm.env is written from those secrets on the Windows runner after the package was verified, and is never uploaded as an artifact.
+# The Node app is NO LONGER deployed to MonsterASP (the site is switching to .NET 10, see ADR-0007 and
+# deploy-dotnet-test.yml). The Node build/deploy jobs were removed; only the manual DB jobs remain:
+#   migrate  = db:migrate + db:seed:test via the Node runner
+#   rls_test = db/tests/rls-integration.sql via the Node runner
+# Secrets and variables live in the GitHub Environment `test`.
 on:
-  push:
-    branches: [claude/tender-darwin-4quuzo]
   workflow_dispatch:
     inputs:
       run_migrations:
-        description: Also run db:migrate and db:seed:test before deploying (needs the DB to accept GitHub runner IPs)
+        description: Run db:migrate and db:seed:test (needs the DB to accept GitHub runner IPs)
         type: boolean
         default: false
       run_rls_test:
         description: Run db/tests/rls-integration.sql against the test database (rolls back; fails on any FAIL row)
-        type: boolean
-        default: false
-      debug_iisnode:
-        description: DEBUG ONLY - deploy with iisnode logging and detailed errors enabled, and print more smoke-test output
         type: boolean
         default: false
 
@@ -42,26 +38,6 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
-
-  build:
-    needs: verify
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      # package.mjs fails here if the package contains .env*, crm.env, source maps, src/ or tests/.
-      - run: npm run package
-      - uses: actions/upload-artifact@v4
-        with:
-          name: package
-          path: package/
-          if-no-files-found: error
-          retention-days: 7
 
   migrate:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_migrations }}
@@ -112,220 +88,3 @@ jobs:
           DB_AUTH_MODE: sql-password
           DB_CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }}
           DB_TRUST_SERVER_CERT: ${{ vars.DB_TRUST_SERVER_CERT || 'false' }}
-
-  deploy:
-    # Run after a successful build; migrate may be skipped, but if it ran it must have succeeded.
-    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.migrate.result == 'success' || needs.migrate.result == 'skipped') }}
-    needs: [build, migrate]
-    runs-on: windows-latest
-    timeout-minutes: 30
-    environment: test
-    defaults:
-      run:
-        shell: pwsh
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: package
-          path: package
-
-      - name: Validate secrets (format only, values never printed)
-        env:
-          MONSTERASP_WEBDEPLOY_SERVER: ${{ secrets.MONSTERASP_WEBDEPLOY_SERVER }}
-          MONSTERASP_WEBDEPLOY_SITE: ${{ secrets.MONSTERASP_WEBDEPLOY_SITE }}
-          MONSTERASP_WEBDEPLOY_USER: ${{ secrets.MONSTERASP_WEBDEPLOY_USER }}
-          MONSTERASP_WEBDEPLOY_PASSWORD: ${{ secrets.MONSTERASP_WEBDEPLOY_PASSWORD }}
-          DB_CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }}
-          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
-          TEST_ACCESS_CODE: ${{ secrets.TEST_ACCESS_CODE }}
-        run: |
-          $bad = @()
-          foreach ($n in 'MONSTERASP_WEBDEPLOY_SERVER','MONSTERASP_WEBDEPLOY_SITE','MONSTERASP_WEBDEPLOY_USER','MONSTERASP_WEBDEPLOY_PASSWORD','DB_CONNECTION_STRING','SESSION_SECRET','TEST_ACCESS_CODE') {
-            $v = [Environment]::GetEnvironmentVariable($n)
-            if ([string]::IsNullOrEmpty($v)) { $bad += "${n}: not set"; continue }
-            # Connection strings use ';' and '=', and may legitimately contain commas; every other secret must not.
-            if ($n -ne 'DB_CONNECTION_STRING' -and $v -match ',') { $bad += "${n}: contains a comma" }
-            if ($v -match '[\r\n]') { $bad += "${n}: contains a line break" }
-            if ($v -ne $v.Trim()) { $bad += "${n}: has leading or trailing whitespace" }
-          }
-          if ($bad.Count -gt 0) {
-            $bad | ForEach-Object { Write-Host "::error::$_" }
-            throw 'Secret validation failed (see errors above; values are not shown). Fix in Settings > Environments > test.'
-          }
-          Write-Host 'Secret format OK'
-
-      - name: Write crm.env from secrets
-        env:
-          DB_CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }}
-          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
-          TEST_ACCESS_CODE: ${{ secrets.TEST_ACCESS_CODE }}
-          TEST_ADMIN_NAME: ${{ vars.TEST_ADMIN_NAME }}
-          TEST_ADMIN_EMAIL: ${{ vars.TEST_ADMIN_EMAIL }}
-          SITE_URL: ${{ vars.SITE_URL || 'https://crmtest.runasp.net' }}
-          TRUST_PROXY: ${{ vars.TRUST_PROXY || '1' }}
-          DB_TRUST_SERVER_CERT: ${{ vars.DB_TRUST_SERVER_CERT || 'false' }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          foreach ($n in 'DB_CONNECTION_STRING','SESSION_SECRET','TEST_ACCESS_CODE') {
-            if ([string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($n))) { throw "Secret $n is not set in Environment 'test'" }
-          }
-          $lines = @(
-            'NODE_ENV=production',
-            'AUTH_MODE=test-access-code',
-            "REDIRECT_URI=$($env:SITE_URL.TrimEnd('/'))/auth/redirect",
-            "TRUST_PROXY=$env:TRUST_PROXY",
-            'LOG_LEVEL=info',
-            'DB_AUTH_MODE=sql-password',
-            "DB_CONNECTION_STRING=$env:DB_CONNECTION_STRING",
-            "DB_TRUST_SERVER_CERT=$env:DB_TRUST_SERVER_CERT",
-            "SESSION_SECRET=$env:SESSION_SECRET",
-            "TEST_ACCESS_CODE=$env:TEST_ACCESS_CODE"
-          )
-          # Optional named test Admin (plain variables, not secrets).
-          if ($env:TEST_ADMIN_NAME -and $env:TEST_ADMIN_EMAIL) {
-            $lines += "TEST_ADMIN_NAME=$env:TEST_ADMIN_NAME"
-            $lines += "TEST_ADMIN_EMAIL=$env:TEST_ADMIN_EMAIL"
-          }
-          $path = Join-Path (Resolve-Path package) 'crm.env'
-          [System.IO.File]::WriteAllText($path, (($lines -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
-          Write-Host 'crm.env written (values not shown)'
-
-      - name: Preflight - package contents (names only)
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $missing = @()
-          foreach ($f in 'web.config','iisnode-entry.js','dist/server.js','crm.env','package.json','node_modules') {
-            $present = Test-Path (Join-Path package $f)
-            Write-Host ("{0,-18} {1}" -f $f, $(if ($present) { 'present' } else { 'MISSING' }))
-            if (-not $present) { $missing += $f }
-          }
-          if ($missing.Count -gt 0) { throw "Package is incomplete, missing: $($missing -join ', ')" }
-
-      - name: DEBUG - enable iisnode logging and detailed errors in packaged web.config
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_iisnode }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $p = Join-Path package 'web.config'
-          $x = Get-Content -Raw $p
-          $y = $x.Replace('loggingEnabled="false"', 'loggingEnabled="true"').Replace('devErrorsEnabled="false"', 'devErrorsEnabled="true"').Replace('<httpErrors existingResponse="PassThrough" />', '<httpErrors errorMode="Detailed" existingResponse="PassThrough" />')
-          if ($y -eq $x) { throw 'web.config debug rewrite changed nothing' }
-          Set-Content -Path $p -Value $y -NoNewline -Encoding utf8
-          Write-Host 'DEBUG web.config in package: loggingEnabled=true, devErrorsEnabled=true, httpErrors Detailed. Redeploy without debug_iisnode to revert.'
-
-      - name: Locate or install Web Deploy
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $candidates = @(
-            "${env:ProgramFiles}\IIS\Microsoft Web Deploy V3\msdeploy.exe",
-            "${env:ProgramFiles(x86)}\IIS\Microsoft Web Deploy V3\msdeploy.exe"
-          )
-          $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $exe) {
-            choco install webdeploy --version 3.6.0 -y --no-progress | Out-Host
-            $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-          }
-          if (-not $exe) { throw 'msdeploy.exe not found after install' }
-          "MSDEPLOY=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "msdeploy: $exe"
-
-      - name: Web Deploy to MonsterASP
-        env:
-          WD_SERVER: ${{ secrets.MONSTERASP_WEBDEPLOY_SERVER }}
-          WD_SITE: ${{ secrets.MONSTERASP_WEBDEPLOY_SITE }}
-          WD_USER: ${{ secrets.MONSTERASP_WEBDEPLOY_USER }}
-          WD_PASSWORD: ${{ secrets.MONSTERASP_WEBDEPLOY_PASSWORD }}
-          WD_ALLOW_UNTRUSTED: ${{ vars.MONSTERASP_WEBDEPLOY_ALLOW_UNTRUSTED || 'false' }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          foreach ($n in 'WD_SERVER','WD_SITE','WD_USER','WD_PASSWORD') {
-            if ([string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($n))) { throw "Web Deploy secret for $n is not set in Environment 'test'" }
-          }
-          Write-Host "::add-mask::$env:WD_PASSWORD"
-          # Accept either "siteXXXX.siteasp.net" or "siteXXXX.siteasp.net:8172"
-          $server = ($env:WD_SERVER -replace '^https?://','' -replace '/.*$','')
-          if ($server -notmatch ':\d+$') { $server = "${server}:8172" }
-          $src = (Resolve-Path package).Path
-          $dest = "contentPath=$($env:WD_SITE),computerName=https://$server/msdeploy.axd?site=$($env:WD_SITE),userName=$($env:WD_USER),password=$($env:WD_PASSWORD),authType=Basic"
-          $msArgs = @(
-            '-verb:sync',
-            "-source:contentPath=$src",
-            "-dest:$dest",
-            '-enableRule:AppOffline',
-            # Keep the host's iisnode log folder (and its contents) instead of deleting it as "extra" remote files.
-            '-skip:objectName=dirPath,absolutePath=.*\\iisnode$',
-            '-skip:objectName=filePath,absolutePath=.*\\iisnode\\.*',
-            '-retryAttempts:3',
-            '-retryInterval:5000'
-          )
-          if ($env:WD_ALLOW_UNTRUSTED -eq 'true') { $msArgs += '-allowUntrusted' }
-          & $env:MSDEPLOY @msArgs
-          if ($LASTEXITCODE -ne 0) { throw "msdeploy failed with exit code $LASTEXITCODE" }
-
-      - name: Diagnostic - where did Web Deploy put the files (top level only)
-        # Does not fail the job. Lists remote entries so we can see whether web.config sits at the site root.
-        continue-on-error: true
-        env:
-          WD_SERVER: ${{ secrets.MONSTERASP_WEBDEPLOY_SERVER }}
-          WD_SITE: ${{ secrets.MONSTERASP_WEBDEPLOY_SITE }}
-          WD_USER: ${{ secrets.MONSTERASP_WEBDEPLOY_USER }}
-          WD_PASSWORD: ${{ secrets.MONSTERASP_WEBDEPLOY_PASSWORD }}
-          WD_ALLOW_UNTRUSTED: ${{ vars.MONSTERASP_WEBDEPLOY_ALLOW_UNTRUSTED || 'false' }}
-        run: |
-          Write-Host "::add-mask::$env:WD_PASSWORD"
-          $server = ($env:WD_SERVER -replace '^https?://','' -replace '/.*$','')
-          if ($server -notmatch ':\d+$') { $server = "${server}:8172" }
-          $src = "contentPath=$($env:WD_SITE),computerName=https://$server/msdeploy.axd?site=$($env:WD_SITE),userName=$($env:WD_USER),password=$($env:WD_PASSWORD),authType=Basic"
-          $msArgs = @('-verb:dump', "-source:$src")
-          if ($env:WD_ALLOW_UNTRUSTED -eq 'true') { $msArgs += '-allowUntrusted' }
-          $out = & $env:MSDEPLOY @msArgs 2>&1 | ForEach-Object { "$_" }
-          Write-Host "msdeploy dump exit code: $LASTEXITCODE; $($out.Count) lines"
-          # Drop the huge node_modules listing and the credentials-bearing lines; show the rest (capped).
-          $out | Where-Object { $_ -notmatch 'node_modules' -and $_ -notmatch 'password=' } | Select-Object -First 80 | ForEach-Object { Write-Host $_ }
-          Write-Host '--- top-level entries (first path segment, counts) ---'
-          $out | ForEach-Object { if ($_ -match '(?i)(?:absolutePath|path)="?[^"]*?[\\/]([^\\/"]+)[\\/"]') { $Matches[1] } } | Group-Object | Sort-Object Count -Descending | Select-Object -First 25 | ForEach-Object { Write-Host ("{0,6}  {1}" -f $_.Count, $_.Name) }
-
-      - name: Smoke test
-        env:
-          SITE_URL: ${{ vars.SITE_URL || 'https://crmtest.runasp.net' }}
-          DEBUG_IISNODE: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_iisnode && 'true' || 'false' }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $base = $env:SITE_URL.TrimEnd('/')
-          $debug = $env:DEBUG_IISNODE -eq 'true'
-          $max = if ($debug) { 1500 } else { 300 }
-          Write-Host "pwsh $($PSVersionTable.PSVersion)"
-          # Returns @{ Code; Body } and prints the real outcome: status, Server/X-Powered-By, first 300 chars (1500 in debug) of body (tags stripped).
-          function Probe([string]$url) {
-            try {
-              $r = Invoke-WebRequest -Uri $url -SkipHttpErrorCheck -MaximumRedirection 0 -TimeoutSec 20
-              $body = [string]$r.Content
-              $plain = ($body -replace '(?s)<(script|style)[^>]*>.*?</\1>', ' ' -replace '<[^>]+>', ' ' -replace '\s+', ' ').Trim()
-              if ($plain.Length -gt $max) { $plain = $plain.Substring(0, $max) }
-              $srv = ($r.Headers['Server'] -join ','); $xp = ($r.Headers['X-Powered-By'] -join ','); $loc = ($r.Headers['Location'] -join ',')
-              Write-Host "  GET $url -> HTTP $([int]$r.StatusCode); Server=[$srv] X-Powered-By=[$xp] Location=[$loc]"
-              Write-Host "  body: $plain"
-              return @{ Code = [int]$r.StatusCode; Body = $body.Trim() }
-            } catch {
-              $e = $_.Exception
-              Write-Host "  GET $url -> EXCEPTION $($e.GetType().FullName): $($e.Message)"
-              if ($e.InnerException) { Write-Host "  inner: $($e.InnerException.GetType().FullName): $($e.InnerException.Message)" }
-              return @{ Code = 0; Body = '' }
-            }
-          }
-          # The app pool needs time to restart after app_offline.htm is removed: retry /healthz for up to ~2 minutes.
-          $ok = $false
-          for ($i = 1; $i -le 12; $i++) {
-            Write-Host "healthz attempt ${i}:"
-            $res = Probe "$base/healthz"
-            if ($res.Code -eq 200 -and $res.Body -eq 'ok') { $ok = $true; break }
-            Start-Sleep -Seconds 10
-          }
-          if (-not $ok -and $debug) {
-            $plainBase = $base -replace '^https://', 'http://'
-            Write-Host "DEBUG: also probing plain HTTP ($plainBase)"
-            foreach ($path in '/healthz', '/signin', '/') { Write-Host "http $path :"; $null = Probe "$plainBase$path" }
-          }
-          if (-not $ok) { throw 'Smoke test failed: /healthz did not return 200 "ok" within 2 minutes' }
-          $res = Probe "$base/signin"
-          if ($res.Code -ne 200) { throw "Smoke test failed: /signin returned HTTP $($res.Code)" }
-          Write-Host 'Smoke test passed'
