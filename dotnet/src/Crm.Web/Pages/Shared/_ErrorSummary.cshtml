@@ -1,0 +1,8 @@
+@model IReadOnlyList<(string Field, string Message)>
+@if (Model.Count > 0)
+{
+<div class="error-summary" role="alert" tabindex="-1" id="error-summary">
+  <h2>Fix @Model.Count problem@(Model.Count == 1 ? "" : "s") to save</h2>
+  <ul>@foreach (var e in Model){<li>@if (e.Field.Length > 0){<a href="#f-@e.Field">@e.Message</a>}else{@e.Message}</li>}</ul>
+</div>
+}

@@ -1,0 +1,101 @@
+@using System.Security.Claims
+@using Crm.Web.Config
+@using Crm.Web.Data
+@inject CrmConfig Config
+@inject BrandingCache Branding
+@{
+    var branding = await Branding.GetAsync(Context.RequestAborted);
+    var themeVersion = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(branding.AccentColor)))[..8];
+    var user = CrmPrincipal.ToSessionUser(User);
+    var activeNav = ViewData["ActiveNav"] as string ?? "";
+    var settingsNav = ViewData["SettingsNav"] as string ?? "";
+    var scripts = ViewData["Scripts"] as string[] ?? [];
+    var title = ViewData["Title"] as string ?? "";
+    var flash = TempData["Flash"] as string;
+    var flashKind = TempData["FlashKind"] as string;
+}
+<!DOCTYPE html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>@title – @branding.AppName</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="/css/theme.css?v=@themeVersion">
+  <script src="/js/boot.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to main content</a>
+@if (Config.IsTestAccess)
+{
+<div class="env-banner" role="note"><strong>TEST ENVIRONMENT — test data only</strong></div>
+}
+<header class="topbar">
+  @if (user is not null)
+  {
+  <button type="button" class="menu-button" id="menu-button" aria-expanded="false" aria-controls="main-nav">Menu</button>
+  }
+  <a class="brand" href="/">@if (branding.LogoSha is not null){<img class="logo" src="/branding/logo?v=@branding.LogoSha[..12]" alt="" height="32"> }@branding.AppName</a>
+  @if (user is not null)
+  {
+  var initials = string.Concat(user.Name.Split(' ').Select(p => p.Length == 0 ? "" : char.ConvertFromUtf32(char.ConvertToUtf32(p, 0))).Take(2)).ToUpperInvariant();
+  <form class="search" action="/search" method="get" role="search">
+    <label class="visually-hidden" for="q">Search all records</label>
+    <input id="q" name="q" type="search" placeholder="Search all records..." autocomplete="off">
+  </form>
+  <details class="menu new-menu">
+    <summary>+ New</summary>
+    <ul>
+      <li><a href="/accounts/new">Account</a></li>
+      <li><a href="/contacts/new">Contact</a></li>
+      <li><a href="/opportunities/new">Opportunity</a></li>
+      <li><a href="/activities/new">Activity</a></li>
+    </ul>
+  </details>
+  <details class="menu user-menu">
+    <summary aria-label="@initials – account menu for @user.Name"><span class="avatar" aria-hidden="true">@initials</span></summary>
+    <div class="menu-panel">
+      <p class="user-name">@user.Name</p>
+      @if (!string.IsNullOrEmpty(user.Email)){<p class="muted">@user.Email</p>}
+      <p><span class="badge">Role: @user.Role</span></p>
+      <form method="post" asp-page="/Auth/Signout">
+        <button type="submit" class="button secondary">Sign out</button>
+      </form>
+    </div>
+  </details>
+  }
+</header>
+<div class="shell@(user is not null ? " with-nav" : "")">
+@if (user is not null)
+{
+  var items = new[] { ("dashboard", "/", "Dashboard"), ("accounts", "/accounts", "Accounts"), ("contacts", "/contacts", "Contacts"), ("opportunities", "/opportunities", "Opportunities"), ("activities", "/activities", "Activities"), ("analytics", "/analytics", "Analytics") };
+  <nav id="main-nav" class="nav" aria-label="Main">
+    <ul>
+      @foreach (var (key, href, label) in items)
+      {
+      <li><a href="@href" aria-current="@(activeNav == key ? "page" : null)">@label</a></li>
+      }
+    </ul>
+    @if (user.Role == CrmRole.Admin)
+    {
+    <ul class="nav-settings">
+      <li><a href="/settings/general" aria-current="@(activeNav == "settings" ? "page" : null)">Settings</a></li>
+    </ul>
+    }
+  </nav>
+}
+  <main id="main" tabindex="-1">
+@if (!string.IsNullOrEmpty(flash))
+{
+<p class="flash@(flashKind == "error" ? " flash-error" : "")" role="@(flashKind == "error" ? "alert" : "status")">@flash</p>
+}
+@RenderBody()
+  </main>
+</div>
+<script src="/js/app.js" defer></script>
+@foreach (var src in scripts)
+{
+<script src="@src" defer></script>
+}
+</body>
+</html>

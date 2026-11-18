@@ -1,0 +1,47 @@
+@page "/auth/test-login"
+@model TestLoginModel
+@{ ViewData["Title"] = Model.ShowPicker ? "Choose a test user" : "Test sign-in"; }
+<div class="center-card">
+@if (Model.ShowPicker)
+{
+  <h1>Choose a test user</h1>
+  @if (Model.Users.Count == 0)
+  {
+  <p role="alert" class="error">No test users found. Run <code>dotnet Crm.Web.dll seed-test</code> first.</p>
+  }
+  else
+  {
+  <form method="post" asp-page="/Auth/TestLoginUser">
+    <input type="hidden" name="returnTo" value="@Model.ReturnTo">
+    <fieldset>
+      <legend>Sign in as</legend>
+      @for (var i = 0; i < Model.Users.Count; i++)
+      {
+      var u = Model.Users[i];
+      <label><input type="radio" name="oid" value="@u.Oid" checked="@(i == 0)"> @u.Name (@u.Role, @(u.TeamName ?? "no team"))</label>
+      }
+    </fieldset>
+    <button type="submit" class="button primary">Sign in</button>
+  </form>
+  }
+}
+else
+{
+  <h1>Test sign-in</h1>
+  @if (Model.Locked)
+  {
+  <p role="alert" class="error">Too many incorrect attempts. Wait 15 minutes and try again.</p>
+  }
+  else
+  {
+  @if (Model.Error is not null){<p role="alert" class="error">@Model.Error</p>}
+  <p>Enter the shared test access code.</p>
+  <form method="post" asp-page="/Auth/TestLogin">
+    <input type="hidden" name="returnTo" value="@Model.ReturnTo">
+    <label for="code">Access code (required)</label>
+    <input id="code" name="code" type="password" autocomplete="off" required>
+    <button type="submit" class="button primary">Continue</button>
+  </form>
+  }
+}
+</div>

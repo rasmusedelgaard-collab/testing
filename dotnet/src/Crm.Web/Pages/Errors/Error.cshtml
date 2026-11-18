@@ -1,0 +1,32 @@
+@page "/error/{code:int?}"
+@model ErrorModel
+@{ ViewData["Title"] = Model.PageTitle; }
+@if (Model.Kind == ErrorKind.Waking)
+{
+<div class="center-card" id="wake" data-post="@(Model.IsPost ? "true" : "false")">
+  <h1>Waking up the database</h1>
+  <p>The CRM pauses its database when no one has used it for a while. It's starting up again, which can take up to a minute.</p>
+  <p class="js-only">This page will continue by itself.</p>
+  <p class="no-js-only">Wait a minute, then choose Try again.</p>
+  @if (Model.IsPost){<p><strong>Your changes weren't saved.</strong> Go back to the form to try again.</p>}
+  <div class="indeterminate" aria-hidden="true"></div>
+  <p id="wake-status" role="status">Still waking up.</p>
+  <p id="wake-giveup" role="alert" hidden>This is taking longer than usual. Try again, or contact your administrator if this continues. Reference: @Model.Reference</p>
+  @if (Model.IsPost){<a class="button primary" id="wake-back" href="/">Go back</a>}else{<a class="button primary" id="wake-retry" href="">Try again now</a>}
+</div>
+<script src="/js/wake.js" defer></script>
+}
+else if (Model.Kind == ErrorKind.Conflict)
+{
+<h1>Someone else changed this record</h1>
+<p>Someone else changed this record while you were editing. Review their changes, then save again. Your edits were not saved.</p>
+<p class="muted">Reference: @Model.Reference</p>
+<p><a class="button primary" href="@Model.RecordPath">Show the current version</a></p>
+}
+else
+{
+<h1>@Model.Heading</h1>
+<p>@Model.Message</p>
+<p class="muted">Reference: @Model.Reference</p>
+<p><a class="button secondary" href="/">Go to dashboard</a></p>
+}
