@@ -5,6 +5,7 @@ using Crm.Web.Infrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Crm.Tests.Http;
@@ -19,6 +20,23 @@ public sealed class FakeBranding : BrandingCache
     public override Task<BrandingValues> GetAsync(CancellationToken ct) => Task.FromResult(BrandingValues.Default);
 
     public override Task<LogoData?> GetLogoAsync(CancellationToken ct) => Task.FromResult<LogoData?>(null);
+}
+
+/// <summary>Writes error-level server logs (with exceptions) into the current test's output, so failures show their cause.</summary>
+public sealed class TestOutputLoggerProvider : ILoggerProvider, ILogger
+{
+    public ILogger CreateLogger(string categoryName) => this;
+
+    public void Dispose()
+    {
+    }
+
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+    public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Error;
+
+    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+        TestContext.Current.TestOutputHelper?.WriteLine($"[server {logLevel}] {formatter(state, exception)} {exception}");
 }
 
 public sealed class CrmFactory : WebApplicationFactory<Program>
@@ -56,6 +74,7 @@ public sealed class CrmFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+        builder.ConfigureLogging(l => l.AddProvider(new TestOutputLoggerProvider()));
         foreach (var (k, v) in _settings)
         {
             if (v is not null) { builder.UseSetting(k, v); }
