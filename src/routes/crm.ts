@@ -159,8 +159,7 @@ function mount(router: Router, store: CrmStore, def: EntityDef): void {
   const rawValues = (body: Record<string, unknown>): Record<string, string> => Object.fromEntries(Object.entries(body).map(([k, v]) => [k, str(v)]));
 
   // ---------- detail ----------
-  router.get(`${base}/:id`, async (req, res) => {
-    const id = parseId(req.params.id);
+  async function showDetail(req: Request, res: Response, id: number, extra: { lostError?: string } = {}) {
     const tabParam = str(req.query.tab);
     const out = await store.run(ctxOf(req), async (repo) => {
       const row = await repo.get(key, id);
@@ -189,16 +188,17 @@ function mount(router: Router, store: CrmStore, def: EntityDef): void {
       newLabel: active.key === 'activities' ? 'Log activity' : `New ${ENTITIES[active.key].singular}`,
     } : null;
     const row = out.row;
-    res.render('pages/entity-detail', {
-      title: recordName(key, row), activeNav: key, def, row, name: recordName(key, row), details: detailRows(key, row, f), canDelete: canDelete(user, row),
+    res.status(extra.lostError ? 422 : 200).render('pages/entity-detail', {
+      title: `${cap(def.singular)} · ${recordName(key, row)}`, activeNav: key, def, row, name: recordName(key, row), details: detailRows(key, row, f), canDelete: canDelete(user, row),
       tabs: tabs.map((t) => ({ ...t, href: `${detailPath}?tab=${t.key}`, active: t.key === active?.key })), tabTable,
       modified: { by: String(row.ModifiedByName ?? ''), at: f.dateTime(String(row.ModifiedAt)), createdBy: String(row.CreatedByName ?? ''), createdAt: f.dateTime(String(row.CreatedAt)), edited: row.ModifiedAt !== row.CreatedAt || row.ModifiedBy !== row.CreatedBy },
-      stageActions: key === 'opportunities' && row.StageType === 'open' ? { rowVer: String(row.RowVer), lostReasons: (out.lk.picklists.lost_reason ?? []).filter((p) => p.active) } : null,
+      stageActions: key === 'opportunities' && row.StageType === 'open' ? { rowVer: String(row.RowVer), lostReasons: (out.lk.picklists.lost_reason ?? []).filter((p) => p.active), lostError: extra.lostError ?? '' } : null,
       doneAction: key === 'activities' ? { action: `${detailPath}/${row.IsDone ? 'undone' : 'done'}`, label: row.IsDone ? 'Mark as not done' : 'Mark as done', returnTo: detailPath } : null,
       history: out.history.map((h) => ({ at: f.dateTime(h.at), by: h.by, text: describeHistory(h, f), owner: h.field === 'OwnerId' })),
       related: key === 'activities' ? relatedTo(row) : null, typeLabel: TYPE_LABEL[String(row.ActivityType)] ?? '',
     });
-  });
+  }
+  router.get(`${base}/:id`, (req, res) => showDetail(req, res, parseId(req.params.id)));
 
   // ---------- edit ----------
   router.get(`${base}/:id/edit`, async (req, res) => {
@@ -272,31 +272,40 @@ function mount(router: Router, store: CrmStore, def: EntityDef): void {
     res.redirect(303, base);
   });
 
-  // ---------- opportunity: won / lost ----------
+  // ---------- opportunity: won / lost (with a confirmation step) ----------
   if (key === 'opportunities') {
     for (const outcome of ['won', 'lost'] as const) {
       router.post(`${base}/:id/${outcome}`, async (req, res) => {
         const id = parseId(req.params.id);
         const body = req.body as Record<string, unknown>;
+        const confirmed = str(body.confirm) === '1';
+        const rowVer = str(body.rowVer);
         const out = await store.run(ctxOf(req), async (repo) => {
           const row = await repo.get(key, id);
           if (!row) return { kind: 'notfound' as const };
-          if (!/^0x[0-9A-Fa-f]{16}$/.test(str(body.rowVer))) return { kind: 'conflict' as const }; // the action must carry the RowVer of the page it was clicked on
+          if (!/^0x[0-9A-Fa-f]{16}$/.test(rowVer)) return { kind: 'conflict' as const }; // the action must carry the RowVer of the page it was clicked on
           const lk = await repo.lookups();
           const stage = lk.stages.find((s) => s.type === outcome);
           if (!stage) return { kind: 'error' as const, message: `No ${outcome} stage is configured.` };
           const lostReason = Number(str(body.lostReason));
-          if (outcome === 'lost' && !(lk.picklists.lost_reason ?? []).some((p) => p.active && p.id === lostReason)) return { kind: 'error' as const, message: 'Choose why this was lost.' };
-          const values: Values = Object.fromEntries(def.columns.map((c) => [c.name, row[c.name] ?? null]));
+          const reason = (lk.picklists.lost_reason ?? []).find((p) => p.active && p.id === lostReason);
+          if (outcome === 'lost' && !reason) return { kind: 'lostError' as const };
           const today = todayIn(lk.settings.timezone);
-          Object.assign(values, { StageId: stage.id, LostReasonValueId: outcome === 'lost' ? lostReason : null, OwnerId: row.OwnerId });
           const moved = String(row.CloseDate) > today;
+          if (!confirmed) return { kind: 'confirm' as const, name: recordName(key, row), stage: stage.name, moved, reason: reason?.label ?? '' };
+          const values: Values = Object.fromEntries(def.columns.map((c) => [c.name, row[c.name] ?? null]));
+          Object.assign(values, { StageId: stage.id, LostReasonValueId: outcome === 'lost' ? lostReason : null, OwnerId: row.OwnerId });
           if (moved) values.CloseDate = today;
-          const result = await repo.update(key, id, values, str(body.rowVer), metaOf(req));
+          const result = await repo.update(key, id, values, rowVer, metaOf(req));
           return result === 'ok' ? { kind: 'ok' as const, moved } : { kind: result };
         });
         if (out.kind === 'notfound') throw new NotFoundError();
         if (out.kind === 'conflict') throw new EditConflictError(`${base}/${id}`);
+        if (out.kind === 'lostError') return showDetail(req, res, id, { lostError: 'Choose why this was lost.' });
+        if (out.kind === 'confirm') {
+          const msg = `Mark ${out.name} as ${outcome}? The stage changes to ${out.stage}${outcome === 'lost' ? ` (reason: ${out.reason})` : ''}.${out.moved ? ' The close date will be set to today.' : ''}`;
+          return res.render('pages/confirm', { title: `Mark as ${outcome}`, activeNav: key, message: msg, action: `${base}/${id}/${outcome}`, fields: [{ name: 'rowVer', value: rowVer }, { name: 'lostReason', value: str(body.lostReason) }, { name: 'confirm', value: '1' }], label: `Mark as ${outcome}`, danger: false, cancel: `${base}/${id}` });
+        }
         if (out.kind === 'error') flash(req, out.message, 'error');
         else flash(req, `Opportunity marked as ${outcome}.${out.moved ? ' Close date set to today.' : ''}`);
         res.redirect(303, `${base}/${id}`);

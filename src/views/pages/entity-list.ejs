@@ -4,7 +4,7 @@
   <a class="button primary" href="<%= def.path %>/new">New <%= def.singular %></a>
 </div>
 <form class="filters" method="get" action="<%= def.path %>">
-  <div class="field"><label for="q">Search</label><input id="q" name="q" type="search" value="<%= q.q %>" maxlength="100"></div>
+  <div class="field"><label for="f-q">Search</label><input id="f-q" name="q" type="search" value="<%= q.q %>" maxlength="100"></div>
   <% filters.forEach((f) => { %>
   <div class="field"><label for="f-<%= f.name %>"><%= f.label %></label>
     <select id="f-<%= f.name %>" name="<%= f.name %>">
@@ -36,12 +36,12 @@
   <tbody>
   <% rows.forEach((r) => { %>
   <tr>
-    <% r.cells.forEach((c) => { %>
-    <td<%- c.right ? ' class="num"' : '' %>>
+    <% r.cells.forEach((c, ci) => { %>
+    <td data-label="<%= columns[ci].label %>"<%- c.right ? ' class="num"' : '' %>>
       <% if (c.doneForm) { %>
       <form method="post" action="<%= c.doneForm.action %>" class="inline-form">
         <%- csrfField() %><input type="hidden" name="returnTo" value="<%= c.doneForm.returnTo %>">
-        <button type="submit" class="button link" aria-label="<%= c.doneForm.label %>"><%= c.doneForm.checked ? '☑ Done' : '☐ Mark done' %></button>
+        <button type="submit" class="button link"><%= c.doneForm.checked ? '☑ Done' : '☐ Mark done' %><span class="visually-hidden">: <%= c.doneForm.context %></span></button>
       </form>
       <% } else if (c.href) { %><a href="<%= c.href %>"><%= c.text %></a><% } else { %><%= c.text %><% } %>
       <% if (c.note) { %><br><span class="badge warn"><%= c.note %></span><% } %>

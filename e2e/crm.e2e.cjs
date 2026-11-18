@@ -236,8 +236,9 @@ async function step(name, fn) {
     await step('Opportunity: Mark as lost needs a reason; Mark as won closes it and moves it out of the Open list', async () => {
       await A.goto(base + '/opportunities/2');
       await A.getByRole('button', { name: 'Mark as lost' }).click();
-      assert.match(await flash(A), /Choose why this was lost\./);
+      assert.match(await A.locator('#e-lostReason').textContent(), /Choose why this was lost\./);
       await A.getByRole('button', { name: 'Mark as won' }).click();
+      await A.getByRole('button', { name: 'Mark as won' }).click(); // confirmation step
       assert.match(await flash(A), /marked as won/i);
       await A.goto(base + '/opportunities');
       assert.doesNotMatch(await A.locator('table').textContent(), /Tool rollout/);

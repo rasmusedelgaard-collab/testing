@@ -23,12 +23,14 @@ export function makeFormatter(s: Pick<Settings, 'localeCode' | 'timezone'>): For
     tz = 'UTC';
   }
   const dateFmt = new Intl.DateTimeFormat(locale, { timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' });
-  const dateTimeFmt = new Intl.DateTimeFormat(locale, { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const dateTzFmt = new Intl.DateTimeFormat(locale, { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+  // 24h "14:02" for da-DK and en-GB (en-GB gives the colon form); en-US keeps its native 12h clock.
+  const timeFmt = new Intl.DateTimeFormat(locale === 'en-US' ? 'en-US' : 'en-GB', { timeZone: tz, hour: locale === 'en-US' ? 'numeric' : '2-digit', minute: '2-digit', hourCycle: locale === 'en-US' ? 'h12' : 'h23' });
   return {
     money: (amount, currency) => `${currency} ${new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)}`,
     // Date-only values are calendar dates: format them in UTC so they never shift a day.
     date: (iso) => (iso && /^\d{4}-\d{2}-\d{2}/.test(iso) ? dateFmt.format(new Date(`${iso.slice(0, 10)}T00:00:00Z`)) : ''),
-    dateTime: (iso) => (iso ? dateTimeFmt.format(new Date(iso)) : ''),
+    dateTime: (iso) => (iso ? `${dateTzFmt.format(new Date(iso))} ${timeFmt.format(new Date(iso))}` : ''),
     amountInput: (amount) => new Intl.NumberFormat(locale, { useGrouping: false, minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(amount),
   };
 }

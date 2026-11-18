@@ -36,7 +36,8 @@
     </ul>
   </details>
   <details class="menu user-menu">
-    <summary aria-label="Account menu for <%= user.name %>"><span class="avatar" aria-hidden="true"><%= user.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase() %></span></summary>
+    <% const initials = user.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase(); %>
+    <summary aria-label="<%= initials %> – account menu for <%= user.name %>"><span class="avatar" aria-hidden="true"><%= initials %></span></summary>
     <div class="menu-panel">
       <p class="user-name"><%= user.name %></p>
       <% if (user.email) { %><p class="muted"><%= user.email %></p><% } %>

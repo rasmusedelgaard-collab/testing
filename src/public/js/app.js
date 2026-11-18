@@ -17,3 +17,14 @@
     }
   });
 })();
+
+// Focus management after a page load (WCAG 2.4.3 / 3.3.1): failed submit -> error summary or first invalid field;
+// successful action -> the flash message (so it is announced and keyboard users start next to the result).
+(function () {
+  var target = document.getElementById('error-summary');
+  if (!target) target = document.querySelector('main [aria-invalid="true"]');
+  if (!target) target = document.querySelector('main .flash');
+  if (!target) return;
+  if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+  target.focus();
+})();

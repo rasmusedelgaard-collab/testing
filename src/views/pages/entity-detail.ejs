@@ -1,5 +1,5 @@
 <%- include('../partials/head') %>
-<nav aria-label="Breadcrumb" class="breadcrumb"><a href="<%= def.path %>"><%= def.plural %></a> / <%= name %></nav>
+<nav aria-label="Breadcrumb" class="breadcrumb"><a href="<%= def.path %>"><%= def.plural %></a> / <span aria-current="page"><%= name %></span></nav>
 <div class="page-header">
   <h1><%= name %></h1>
   <div class="actions">
@@ -25,8 +25,9 @@
   <h2 id="stage-h">Close this opportunity</h2>
   <form method="post" action="<%= def.path %>/<%= row.Id %>/won" class="inline-form"><%- csrfField() %><input type="hidden" name="rowVer" value="<%= stageActions.rowVer %>"><button type="submit" class="button secondary">Mark as won</button></form>
   <form method="post" action="<%= def.path %>/<%= row.Id %>/lost" class="inline-form"><%- csrfField() %><input type="hidden" name="rowVer" value="<%= stageActions.rowVer %>">
-    <label for="lostReason">Lost reason</label>
-    <select id="lostReason" name="lostReason"><option value="">— choose —</option><% stageActions.lostReasons.forEach((p) => { %><option value="<%= p.id %>"><%= p.label %></option><% }) %></select>
+    <label for="lostReason">Lost reason (required to mark as lost)</label>
+    <% if (stageActions.lostError) { %><span class="field-error" id="e-lostReason"><span aria-hidden="true">⚠ </span><%= stageActions.lostError %></span><% } %>
+    <select id="lostReason" name="lostReason"<%- stageActions.lostError ? ' aria-invalid="true" aria-describedby="e-lostReason"' : '' %>><option value="">— choose —</option><% stageActions.lostReasons.forEach((p) => { %><option value="<%= p.id %>"><%= p.label %></option><% }) %></select>
     <button type="submit" class="button secondary">Mark as lost</button></form>
 </section>
 <% } %>
@@ -42,8 +43,8 @@
   <div class="table-wrap"><table class="data">
     <caption class="visually-hidden"><%= tabTable.title %></caption>
     <thead><tr><% tabTable.columns.forEach((c) => { %><th scope="col"><%= c %></th><% }) %></tr></thead>
-    <tbody><% tabTable.rows.forEach((r) => { %><tr><% r.cells.forEach((c) => { %><td<%- c.right ? ' class="num"' : '' %>>
-      <% if (c.doneForm) { %><form method="post" action="<%= c.doneForm.action %>" class="inline-form"><%- csrfField() %><input type="hidden" name="returnTo" value="<%= c.doneForm.returnTo %>"><button type="submit" class="button link" aria-label="<%= c.doneForm.label %>"><%= c.doneForm.checked ? '☑ Done' : '☐ Mark done' %></button></form>
+    <tbody><% tabTable.rows.forEach((r) => { %><tr><% r.cells.forEach((c, ci) => { %><td data-label="<%= tabTable.columns[ci] %>"<%- c.right ? ' class="num"' : '' %>>
+      <% if (c.doneForm) { %><form method="post" action="<%= c.doneForm.action %>" class="inline-form"><%- csrfField() %><input type="hidden" name="returnTo" value="<%= c.doneForm.returnTo %>"><button type="submit" class="button link"><%= c.doneForm.checked ? '☑ Done' : '☐ Mark done' %><span class="visually-hidden">: <%= c.doneForm.context %></span></button></form>
       <% } else if (c.href) { %><a href="<%= c.href %>"><%= c.text %></a><% } else { %><%= c.text %><% } %>
       <% if (c.note) { %><br><span class="badge warn"><%= c.note %></span><% } %></td><% }) %></tr><% }) %></tbody>
   </table></div>

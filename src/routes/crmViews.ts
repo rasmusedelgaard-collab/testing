@@ -5,7 +5,7 @@ import type { Formatter } from '../services/format';
 import type { Role } from '../auth/types';
 
 /** Pure view-model builders: everything the EJS templates need, already formatted and escaped-safe (templates escape). */
-export interface Cell { text: string; href?: string; right?: boolean; note?: string; doneForm?: { action: string; label: string; checked: boolean; returnTo: string } }
+export interface Cell { text: string; href?: string; right?: boolean; note?: string; doneForm?: { action: string; context: string; checked: boolean; returnTo: string } }
 export interface Column { label: string; sort?: string }
 export interface Option { value: string; label: string; selected?: boolean }
 export interface FormField {
@@ -57,7 +57,7 @@ export function cellsFor(entity: EntityKey, r: Row, f: Formatter, today: string,
     }
     case 'activities': {
       const done = Boolean(r.IsDone);
-      return [{ text: done ? 'Done' : 'Open', doneForm: { action: `${path}/${r.Id}/${done ? 'undone' : 'done'}`, label: `Mark '${s(r.Subject)}' as ${done ? 'not done' : 'done'}`, checked: done, returnTo } },
+      return [{ text: done ? 'Done' : 'Open', doneForm: { action: `${path}/${r.Id}/${done ? 'undone' : 'done'}`, context: done ? `${s(r.Subject)}, mark as not done` : s(r.Subject), checked: done, returnTo } },
         { text: TYPE_LABEL[s(r.ActivityType)] ?? s(r.ActivityType) }, { text: s(r.Subject), href: link }, relatedTo(r),
         { text: f.date(s(r.DueDate)) + (r.DueTime ? ` ${s(r.DueTime)}` : '') }, { text: s(r.OwnerName) }];
     }

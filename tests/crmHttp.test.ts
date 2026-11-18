@@ -69,7 +69,8 @@ describe('lists: RLS-shaped visibility, search, filters, sorting, paging', () =>
   it('activities default to Open and the done checkbox is a POST form with a descriptive name', async () => {
     const { agent } = await session('Admin');
     const html = (await agent.get('/activities')).text;
-    expect(html).toContain("aria-label=\"Mark &#39;Call Acme&#39; as done\"");
+    expect(html).toContain('☐ Mark done<span class="visually-hidden">: Call Acme</span>');
+    expect(html).not.toContain('aria-label="Mark');
   });
 });
 
@@ -203,16 +204,24 @@ describe('opportunities', () => {
   const verOf = async (agent: ReturnType<typeof request.agent>, id: number) => /name="rowVer" value="([^"]+)"/.exec((await agent.get(`/opportunities/${id}`)).text)![1]!;
   it('Mark as won sets the won stage and today as close date when it was in the future; lost needs a reason', async () => {
     const { agent, post, state } = await session('User');
-    const res = await post('/opportunities/1/won', { rowVer: await verOf(agent, 1) });
+    const rv = await verOf(agent, 1);
+    const ask = await post('/opportunities/1/won', { rowVer: rv });
+    expect(ask.status).toBe(200);
+    expect(ask.text).toContain('Mark Renewal 2027 as won? The stage changes to Closed won. The close date will be set to today.');
+    expect(state.data.opportunities[0]!.StageId).toBe(3); // nothing changes until confirmed
+    const res = await post('/opportunities/1/won', { rowVer: rv, confirm: '1' });
     expect(res.status).toBe(303);
     const row = state.data.opportunities[0]!;
     expect(row.StageId).toBe(5);
     expect(row.ClosedAt).toBeTruthy();
     expect((await agent.get('/opportunities/1')).text).toContain('marked as won');
     const s2 = await session('User');
-    await s2.post('/opportunities/1/lost', { rowVer: await verOf(s2.agent, 1) });
+    const noReason = await s2.post('/opportunities/1/lost', { rowVer: await verOf(s2.agent, 1), confirm: '1' });
+    expect(noReason.status).toBe(422);
+    expect(noReason.text).toContain('id="e-lostReason"');
+    expect(noReason.text).toContain('aria-invalid="true" aria-describedby="e-lostReason"');
     expect(s2.state.data.opportunities[0]!.StageId).toBe(3);
-    await s2.post('/opportunities/1/lost', { lostReason: '300', rowVer: await verOf(s2.agent, 1) });
+    await s2.post('/opportunities/1/lost', { lostReason: '300', rowVer: await verOf(s2.agent, 1), confirm: '1' });
     expect(s2.state.data.opportunities[0]).toMatchObject({ StageId: 6, LostReasonValueId: 300 });
   });
   it('won/lost without a RowVer, or with a stale one, give the 409 conflict page and change nothing (N4)', async () => {
@@ -221,8 +230,8 @@ describe('opportunities', () => {
     expect((await post('/opportunities/1/won', {})).status).toBe(409);
     expect((await post('/opportunities/1/lost', { lostReason: '300' })).status).toBe(409);
     expect(state.data.opportunities[0]!.StageId).toBe(3);
-    await post('/opportunities/1/won', { rowVer: stale });
-    expect((await post('/opportunities/1/lost', { lostReason: '300', rowVer: stale })).status).toBe(409);
+    await post('/opportunities/1/won', { rowVer: stale, confirm: '1' });
+    expect((await post('/opportunities/1/lost', { lostReason: '300', rowVer: stale, confirm: '1' })).status).toBe(409);
   });
 });
 
@@ -346,5 +355,48 @@ describe('history timeline (owner changes are explicit)', () => {
     const rowVer = /name="rowVer" value="([^"]+)"/.exec((await agent.get('/opportunities/1/edit')).text)![1]!;
     await post('/opportunities/1', { rowVer, Name: 'Renewal 2027', AccountId: '1', StageId: '3', Amount: '120.000,00', CurrencyCode: 'DKK', CloseDate: '2027-01-05', OwnerId: '3' });
     expect((await agent.get('/opportunities/1')).text).toContain('Close date changed from 15.12.2026 to 05.01.2027');
+  });
+});
+
+describe('UX review fixes (increment 2)', () => {
+  it('H2: the list search field has its own id and label; the top-bar search keeps its own', async () => {
+    const { agent } = await session('Admin');
+    const html = (await agent.get('/accounts')).text;
+    expect(html).toContain('<label for="f-q">Search</label><input id="f-q" name="q"');
+    expect(html.match(/id="q"/g)).toHaveLength(1);
+  });
+  it('M9: the account menu name starts with the visible initials', async () => {
+    const { agent } = await session('Admin');
+    expect((await agent.get('/')).text).toContain('aria-label="DA – account menu for Demo Admin"');
+  });
+  it('H3: related-record Mark done buttons carry visible text plus hidden context', async () => {
+    const { agent } = await session('Manager');
+    const html = (await agent.get('/accounts/1?tab=activities')).text;
+    expect(html).toContain('☐ Mark done<span class="visually-hidden">: Call Acme</span>');
+  });
+  it('M7: table cells carry data-label for the card layout', async () => {
+    const { agent } = await session('Admin');
+    const html = (await agent.get('/opportunities')).text;
+    expect(html).toContain('<td data-label="Amount" class="num">');
+  });
+  it('H1/M1: the client script focuses the error summary, the first invalid field, or the flash', async () => {
+    const { agent } = await session('Admin');
+    const js = (await agent.get('/js/app.js')).text;
+    expect(js).toContain("getElementById('error-summary')");
+    expect(js).toContain('[aria-invalid="true"]');
+    expect(js).toContain('main .flash');
+  });
+  it('L4: date-times read "18.11.2026 14:02" in da-DK', async () => {
+    const { agent, state } = await session('Admin');
+    state.data.accounts[0]!.ModifiedAt = '2026-11-18T13:02:00.000Z';
+    state.data.accounts[0]!.ModifiedBy = 2;
+    expect((await agent.get('/accounts/1')).text).toContain('Last modified by Demo Manager, 18.11.2026 14:02');
+  });
+  it('M4: won/lost need a confirmation page before anything changes', async () => {
+    const { agent, post, state } = await session('User');
+    const rv = /name="rowVer" value="([^"]+)"/.exec((await agent.get('/opportunities/1')).text)![1]!;
+    const ask = await post('/opportunities/1/lost', { rowVer: rv, lostReason: '300' });
+    expect(ask.text).toContain('Mark Renewal 2027 as lost? The stage changes to Closed lost (reason: Price).');
+    expect(state.data.opportunities[0]!.StageId).toBe(3);
   });
 });
