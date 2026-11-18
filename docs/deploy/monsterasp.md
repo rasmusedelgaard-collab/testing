@@ -59,9 +59,10 @@ package at deploy time. `crm.env` is never in git, never in a downloadable artif
     ```
     sqlcmd -S db81053.databaseasp.net -d db81053 -U db81053 -P '<database password>' -b -i db/tests/rls-integration.sql
     ```
+    *Or from GitHub:* Actions > Run workflow with **run_rls_test** ticked; the job `rls_test` prints every case and fails on any FAIL (also available locally as `npm run db:run-sql -- db/tests/rls-integration.sql` with the `DB_*` env set).
     The script creates its own temporary `WITHOUT LOGIN` user in `crm_app_role`, impersonates it, and rolls everything back; you run nothing extra. Read the result table at the end: **every row must say PASS**. Any FAIL, error or non-zero `sqlcmd` exit means do not use the site; send the full output to the developer. (First run ever: a syntax slip in the script is possible.)
 11. **Post-deploy checks.**
-    - https://crmtest.runasp.net/healthz shows `ok`.
+    - The workflow's last step (smoke test) already checks `/healthz` (200, `ok`, retried for 2 minutes) and `/signin` (200); also open https://crmtest.runasp.net/healthz yourself.
     - Open the home page, enter the access code, choose a test user; the "TEST ENVIRONMENT" banner shows.
     - Sign in as an Admin test user and open **Settings > Users & teams**: the line "Your connection: IP ... (X-Forwarded-For hops trusted: 1)" must show **your real public IP**, not an internal 10.x/127.x address. If it shows an internal address, change variable `TRUST_PROXY` (try 2) and re-run the workflow. A wrong value makes the sign-in rate limit block everybody at once.
 

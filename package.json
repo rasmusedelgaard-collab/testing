@@ -18,6 +18,7 @@
     "e2e": "node e2e/demo.e2e.cjs && node e2e/crm.e2e.cjs && node e2e/settings.e2e.cjs && node e2e/dashboard.e2e.cjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
+    "db:run-sql": "tsx --env-file-if-exists=.env scripts/runSqlFile.ts",
     "db:seed:test": "tsx --env-file-if-exists=.env scripts/migrate.ts seed-test"
   },
   "dependencies": {

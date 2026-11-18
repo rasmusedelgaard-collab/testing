@@ -12,6 +12,10 @@ on:
         description: Also run db:migrate and db:seed:test before deploying (needs the DB to accept GitHub runner IPs)
         type: boolean
         default: false
+      run_rls_test:
+        description: Run db/tests/rls-integration.sql against the test database (rolls back; fails on any FAIL row)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -84,6 +88,26 @@ jobs:
           DB_TRUST_SERVER_CERT: ${{ vars.DB_TRUST_SERVER_CERT || 'false' }}
           TEST_ADMIN_NAME: ${{ vars.TEST_ADMIN_NAME }}
           TEST_ADMIN_EMAIL: ${{ vars.TEST_ADMIN_EMAIL }}
+
+  rls_test:
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.run_rls_test && needs.verify.result == 'success' && (needs.migrate.result == 'success' || needs.migrate.result == 'skipped') }}
+    needs: [verify, migrate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Run RLS integration test
+        run: npm run db:run-sql -- db/tests/rls-integration.sql
+        env:
+          DB_AUTH_MODE: sql-password
+          DB_CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }}
+          DB_TRUST_SERVER_CERT: ${{ vars.DB_TRUST_SERVER_CERT || 'false' }}
 
   deploy:
     # Run after a successful build; migrate may be skipped, but if it ran it must have succeeded.
@@ -210,3 +234,31 @@ jobs:
           if ($env:WD_ALLOW_UNTRUSTED -eq 'true') { $msArgs += '-allowUntrusted' }
           & $env:MSDEPLOY @msArgs
           if ($LASTEXITCODE -ne 0) { throw "msdeploy failed with exit code $LASTEXITCODE" }
+
+      - name: Smoke test (status codes only)
+        env:
+          SITE_URL: ${{ vars.SITE_URL || 'https://crmtest.runasp.net' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = $env:SITE_URL.TrimEnd('/')
+          function Get-Status([string]$url) {
+            try { return [int](Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 20 -MaximumRedirection 0).StatusCode }
+            catch { if ($_.Exception.Response) { return [int]$_.Exception.Response.StatusCode } else { return 0 } }
+          }
+          # The app pool needs time to restart after app_offline.htm is removed: retry /healthz for up to ~2 minutes.
+          $ok = $false
+          for ($i = 1; $i -le 12; $i++) {
+            $code = Get-Status "$base/healthz"
+            Write-Host "healthz attempt ${i}: HTTP $code"
+            if ($code -eq 200) {
+              $body = (Invoke-WebRequest -Uri "$base/healthz" -UseBasicParsing -TimeoutSec 20).Content.Trim()
+              if ($body -eq 'ok') { $ok = $true; break }
+              Write-Host 'healthz returned 200 but body is not "ok"'
+            }
+            Start-Sleep -Seconds 10
+          }
+          if (-not $ok) { throw 'Smoke test failed: /healthz did not return 200 "ok" within 2 minutes' }
+          $code = Get-Status "$base/signin"
+          Write-Host "signin: HTTP $code"
+          if ($code -ne 200) { throw "Smoke test failed: /signin returned HTTP $code" }
+          Write-Host 'Smoke test passed'
