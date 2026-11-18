@@ -5,6 +5,7 @@ import type { DbConfig } from '../config';
 export function buildSqlConfig(db: DbConfig, opts: { max: number; min?: number }): SqlConfig {
   const base: SqlConfig = {
     server: db.server,
+    ...(db.port ? { port: db.port } : {}),
     database: db.database,
     options: { encrypt: true, trustServerCertificate: db.trustServerCertificate },
     // min 0: no warm connections, so a serverless database can auto-pause (overview 8).

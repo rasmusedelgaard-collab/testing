@@ -8,7 +8,8 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import sql from 'mssql';
-import { ConfigError, loadDbConfig } from '../src/config';
+import { ConfigError, loadDbConfig, loadTestAdmin } from '../src/config';
+import { TEST_ADMIN_UPSERT_SQL, testAdminParams } from './testAdminSeed';
 import { buildSqlConfig } from '../src/db/sqlConfig';
 import { checksum, parseMigrationName, splitBatches } from './sqlBatches';
 
@@ -82,6 +83,12 @@ async function seedTest(pool: sql.ConnectionPool): Promise<void> {
   const text = await readFile(path.join(root, 'db', 'seed', 'test-users.sql'), 'utf8');
   await runBatches(pool, splitBatches(text));
   console.log('Seeded test users and teams.');
+  const admin = loadTestAdmin(process.env); // optional: TEST_ADMIN_NAME + TEST_ADMIN_EMAIL
+  if (admin) {
+    const p = testAdminParams(admin);
+    await pool.request().input('oid', sql.UniqueIdentifier, p.oid).input('name', sql.NVarChar(200), p.name).input('email', sql.NVarChar(254), p.email).query(TEST_ADMIN_UPSERT_SQL);
+    console.log('Seeded the named test Admin (see TEST_ADMIN_*; the test-login picker offers this user).');
+  }
 }
 
 async function main() {

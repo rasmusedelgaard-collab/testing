@@ -1,6 +1,9 @@
 import sql from 'mssql';
+import { TEST_OID_PREFIX } from '../testUsers';
 import { systemQuery } from './system';
 import type { Role } from './withRlsContext';
+
+const RESERVED_OID = /^00000000-0000-4000-8000-[0-9a-f]{12}$/i;
 
 export interface TestUserRow {
   userId: number;
@@ -28,9 +31,9 @@ interface Raw {
   TeamName: string | null;
 }
 
-const SELECT = `SELECT u.UserId, CONVERT(char(36), u.EntraOid) AS EntraOid, u.DisplayName, u.Email, u.Role, u.TeamId, t.Name AS TeamName
-  FROM crm.Users u LEFT JOIN crm.Teams t ON t.TeamId = u.TeamId
-  WHERE u.IsActive = 1 AND u.EntraOid IN (SELECT TRY_CAST([value] AS uniqueidentifier) FROM OPENJSON(@oids))`;
+const BASE = `SELECT u.UserId, CONVERT(char(36), u.EntraOid) AS EntraOid, u.DisplayName, u.Email, u.Role, u.TeamId, t.Name AS TeamName
+  FROM crm.Users u LEFT JOIN crm.Teams t ON t.TeamId = u.TeamId WHERE u.IsActive = 1`;
+const RESERVED = `LOWER(CONVERT(char(36), u.EntraOid)) LIKE '${TEST_OID_PREFIX}%'`;
 
 const map = (r: Raw): TestUserRow => ({
   userId: r.UserId,
@@ -44,12 +47,16 @@ const map = (r: Raw): TestUserRow => ({
 
 export const testUserRepo: TestUserRepo = {
   async list(oids) {
-    const rows = await systemQuery<Raw>(`${SELECT} ORDER BY u.UserId`, [{ name: 'oids', type: sql.NVarChar(sql.MAX), value: JSON.stringify(oids) }]);
+    // The seeded users plus any active user in the reserved test-oid range (the optional named Admin). Real Entra
+    // object ids are random GUIDs and never fall in that range, so no real account can ever be offered here.
+    const rows = await systemQuery<Raw>(`${BASE} AND (u.EntraOid IN (SELECT TRY_CAST([value] AS uniqueidentifier) FROM OPENJSON(@oids)) OR ${RESERVED}) ORDER BY u.UserId`, [{ name: 'oids', type: sql.NVarChar(sql.MAX), value: JSON.stringify(oids) }]);
     return rows.map(map);
   },
   async find(oid, allowedOids) {
-    if (!allowedOids.includes(oid)) return null;
-    const rows = await this.list([oid]);
-    return rows[0] ?? null;
+    // Only a listed seed user or a reserved-range oid can be looked up; the query re-checks the range in SQL.
+    if (!allowedOids.includes(oid) && !RESERVED_OID.test(oid)) return null;
+    const rows = await systemQuery<Raw>(`${BASE} AND u.EntraOid = TRY_CAST(@oid AS uniqueidentifier) AND (u.EntraOid IN (SELECT TRY_CAST([value] AS uniqueidentifier) FROM OPENJSON(@oids)) OR ${RESERVED})`, [
+      { name: 'oid', type: sql.VarChar(36), value: oid }, { name: 'oids', type: sql.NVarChar(sql.MAX), value: JSON.stringify(allowedOids) }]);
+    return rows[0] ? map(rows[0]) : null;
   },
 };

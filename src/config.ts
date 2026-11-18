@@ -1,5 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
+import { ConnectionStringError, parseConnectionString } from './db/connectionString';
+import { testAdminOid } from './testUsers';
 
 /**
  * The only place that reads process.env (besides scripts/ and the PORT lookup in server.ts via config).
@@ -22,15 +24,31 @@ export type DbAuthMode = (typeof DB_AUTH_MODES)[number];
 
 const dbSchema = z
   .object({
-    DB_SERVER: z.string().min(1),
-    DB_NAME: z.string().min(1),
+    DB_SERVER: z.string().min(1).optional(),
+    DB_NAME: z.string().min(1).optional(),
     DB_AUTH_MODE: z.enum(DB_AUTH_MODES),
+    /** ADO.NET style string, as an alternative to DB_SERVER/DB_NAME/DB_USER/DB_PASSWORD (sql-password only). Never logged. */
+    DB_CONNECTION_STRING: z.string().min(1).optional(),
     DB_USER: z.string().min(1).optional(),
     DB_PASSWORD: z.string().min(1).optional(),
     DB_TRUST_SERVER_CERT: bool.default(false),
     SQL_POOL_MAX: intInRange(1, 100).default(10),
   })
   .superRefine((v, ctx) => {
+    if (v.DB_CONNECTION_STRING !== undefined) {
+      if (v.DB_AUTH_MODE !== 'sql-password') ctx.addIssue({ code: 'custom', path: ['DB_CONNECTION_STRING'], message: 'only allowed when DB_AUTH_MODE=sql-password' });
+      for (const k of ['DB_SERVER', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'] as const) {
+        if (v[k] !== undefined) ctx.addIssue({ code: 'custom', path: [k], message: 'must not be set together with DB_CONNECTION_STRING (use one or the other)' });
+      }
+      try {
+        parseConnectionString(v.DB_CONNECTION_STRING);
+      } catch (e) {
+        ctx.addIssue({ code: 'custom', path: ['DB_CONNECTION_STRING'], message: `invalid: ${e instanceof ConnectionStringError ? e.message : 'could not be parsed'}` });
+      }
+      return;
+    }
+    if (!v.DB_SERVER) ctx.addIssue({ code: 'custom', path: ['DB_SERVER'], message: 'required (or set DB_CONNECTION_STRING)' });
+    if (!v.DB_NAME) ctx.addIssue({ code: 'custom', path: ['DB_NAME'], message: 'required (or set DB_CONNECTION_STRING)' });
     if (v.DB_AUTH_MODE === 'sql-password') {
       if (!v.DB_USER) ctx.addIssue({ code: 'custom', path: ['DB_USER'], message: 'required when DB_AUTH_MODE=sql-password' });
       if (!v.DB_PASSWORD) ctx.addIssue({ code: 'custom', path: ['DB_PASSWORD'], message: 'required when DB_AUTH_MODE=sql-password' });
@@ -39,6 +57,24 @@ const dbSchema = z
       if (v.DB_PASSWORD) ctx.addIssue({ code: 'custom', path: ['DB_PASSWORD'], message: 'only allowed when DB_AUTH_MODE=sql-password' });
     }
   });
+
+export interface TestAdmin { name: string; email: string; oid: string }
+
+/**
+ * Optional named Admin for the interim test site, added when seeding (db:seed:test) and offered by the test-login picker.
+ * Both variables or neither. Not stored in the repo; no password exists anywhere (access is via the shared test code).
+ */
+export function loadTestAdmin(env: NodeJS.ProcessEnv): TestAdmin | null {
+  const name = env.TEST_ADMIN_NAME?.trim();
+  const email = env.TEST_ADMIN_EMAIL?.trim().toLowerCase();
+  if (!name && !email) return null;
+  const issues: string[] = [];
+  if (!name || !email) issues.push('TEST_ADMIN_NAME and TEST_ADMIN_EMAIL must be set together');
+  if (name && (name.length > 200 || [...name].some((c) => c.charCodeAt(0) < 32))) issues.push('TEST_ADMIN_NAME: 1-200 characters, no control characters');
+  if (email && !/^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/.test(email)) issues.push('TEST_ADMIN_EMAIL: must look like name@example.com');
+  if (issues.length > 0) throw new ConfigError(issues);
+  return { name: name as string, email: email as string, oid: testAdminOid(email as string) };
+}
 
 export const AUTH_MODES = ['entra', 'test-access-code'] as const;
 export type AuthMode = (typeof AUTH_MODES)[number];
@@ -49,6 +85,7 @@ export interface DbConfig {
   authMode: DbAuthMode;
   user?: string;
   password?: string;
+  port?: number;
   trustServerCertificate: boolean;
   poolMax: number;
 }
@@ -61,6 +98,7 @@ export interface AppConfig {
   /** 'entra' (normal) or 'test-access-code' (interim hosted test site: shared code + seeded DB users). */
   authMode: AuthMode;
   testAccessCode: string | null;
+  testAdmin: TestAdmin | null;
   /** Number of reverse proxies in front of the app (express 'trust proxy'). 0 = none. */
   trustProxy: number;
   port: string;
@@ -111,9 +149,13 @@ export function loadDbConfig(env: NodeJS.ProcessEnv): DbConfig {
   const parsed = dbSchema.safeParse(env);
   if (!parsed.success) throw new ConfigError(formatIssues(parsed.error));
   const v = parsed.data;
+  if (v.DB_CONNECTION_STRING !== undefined) {
+    const c = parseConnectionString(v.DB_CONNECTION_STRING); // already validated by the schema
+    return { server: c.server, port: c.port, database: c.database, authMode: 'sql-password', user: c.user, password: c.password, trustServerCertificate: v.DB_TRUST_SERVER_CERT || c.trustServerCertificate, poolMax: v.SQL_POOL_MAX };
+  }
   return {
-    server: v.DB_SERVER,
-    database: v.DB_NAME,
+    server: v.DB_SERVER as string,
+    database: v.DB_NAME as string,
     authMode: v.DB_AUTH_MODE,
     user: v.DB_USER,
     password: v.DB_PASSWORD,
@@ -189,6 +231,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     else if (new Set(code).size < 10) issues.push('TEST_ACCESS_CODE: too repetitive (use at least 10 different characters)');
   }
 
+  let testAdminValue: TestAdmin | null = null;
+  try {
+    testAdminValue = loadTestAdmin(env);
+    if (testAdminValue && !testAccess) issues.push('TEST_ADMIN_NAME/TEST_ADMIN_EMAIL: only allowed with AUTH_MODE=test-access-code');
+  } catch (e) {
+    issues.push(...(e as ConfigError).issues);
+  }
+
   let db: DbConfig | null = null;
   if (!demoMode) {
     if (!testAccess) {
@@ -209,6 +259,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     demoMode,
     authMode: v.AUTH_MODE,
     trustProxy: v.TRUST_PROXY ?? (secureCookies ? 1 : 0),
+    testAdmin: testAdminValue,
     testAccessCode: testAccess ? (v.TEST_ACCESS_CODE ?? null) : null,
     port: v.PORT,
     logLevel: v.LOG_LEVEL,

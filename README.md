@@ -52,12 +52,14 @@ All are validated at startup by `src/config.ts`; the process exits with a list o
 | `TEST_ACCESS_CODE` | test-access-code | At least 24 characters and 10 different ones, shared by testers. Needs an https `REDIRECT_URI` in production (secure cookies, HSTS) |
 | `SESSION_SECRET` | yes (not demo) | At least 32 characters; comma-separated list for rotation |
 | `SESSION_IDLE_MINUTES` / `SESSION_ABSOLUTE_HOURS` | no | Defaults 60 / 10 |
-| `DB_SERVER`, `DB_NAME` | yes (not demo) | |
+| `DB_SERVER`, `DB_NAME` | yes (not demo), unless `DB_CONNECTION_STRING` is used | |
+| `DB_CONNECTION_STRING` | alternative | `sql-password` only. ADO.NET style `Server=host[,port];Database=db;User Id=u;Password=p;[TrustServerCertificate=True]`, quoted values allowed. Strictly parsed (unknown keys, `Encrypt=False`, integrated security refused), never logged. Setting it together with `DB_SERVER`/`DB_NAME`/`DB_USER`/`DB_PASSWORD` is an error. Refused when live, like `sql-password` |
 | `DB_AUTH_MODE` | yes (not demo) | `managed-identity` (Azure App Service), `default-azure` (local dev, Azure CLI login), `sql-password` |
 | `DB_USER`, `DB_PASSWORD` | sql-password only | Rejected for the other modes. Never commit them |
 | `DB_TRUST_SERVER_CERT` | no | `true` only for hosts with a self-signed SQL certificate |
 | `SQL_POOL_MAX` | no | Size of the RLS pool, default 10 |
 | `TRUST_PROXY` | no | Reverse proxies in front of the app (0-5). Default 1 when the site is https, else 0. Wrong values break client IPs (rate limits) |
+| `TEST_ADMIN_NAME`, `TEST_ADMIN_EMAIL` | no | Both or neither (empty = unset). `npm run db:seed:test` upserts an active, team-less Admin with a deterministic object id in the reserved test range (`00000000-0000-4000-8000-…`); the test-login picker offers every active user in that range. Only valid with `AUTH_MODE=test-access-code`. No password: access is through the shared test code |
 | `LIVE` | no | `true` marks a live environment: `AUTH_MODE=test-access-code`, `DB_AUTH_MODE=sql-password` and demo mode are then refused. `WEBSITE_INSTANCE_ID` (Azure App Service) has the same effect. `WEBSITE_SITE_NAME` is deliberately not used for the new refusals because it is unconfirmed whether the MonsterASP host sets it |
 | `LOG_LEVEL` | no | `info` default |
 

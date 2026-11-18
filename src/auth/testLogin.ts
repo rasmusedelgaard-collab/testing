@@ -47,6 +47,8 @@ export function createTestLoginRouter(deps: TestLoginDeps): Router {
   const limiter = deps.limiter ?? new AttemptLimiter();
   const globalLimiter = deps.globalLimiter ?? new AttemptLimiter(50);
   const GLOBAL = 'all';
+  // The repository additionally offers/accepts active DB users in the reserved test-oid range (testUsers.ts), e.g. the named Admin.
+  const allowedOids: readonly string[] = TEST_USER_OIDS;
   // Never one shared 'unknown' bucket: without an address, key on the session so one anonymous client cannot lock everyone out.
   const keyOf = (req: Request) => req.ip ?? `session:${req.sessionID}`;
   const lockedFor = (req: Request) => limiter.isLocked(keyOf(req)) || globalLimiter.isLocked(GLOBAL);
@@ -62,7 +64,7 @@ export function createTestLoginRouter(deps: TestLoginDeps): Router {
   });
 
   const renderPicker = async (req: Request, res: Response) => {
-    const users = await deps.repo.list(TEST_USER_OIDS);
+    const users = await deps.repo.list(allowedOids);
     res.render('pages/test-login-user', { title: 'Choose a test user', users, returnTo: safeReturnTo(req.body?.returnTo ?? req.query.returnTo) });
   };
 
@@ -99,7 +101,7 @@ export function createTestLoginRouter(deps: TestLoginDeps): Router {
       return res.redirect(303, '/auth/test-login');
     }
     const oid = typeof req.body?.oid === 'string' ? req.body.oid.toLowerCase() : '';
-    const row = await deps.repo.find(oid, TEST_USER_OIDS);
+    const row = await deps.repo.find(oid, allowedOids);
     if (!row) throw new ForbiddenError('That test user is not available.');
     const returnTo = safeReturnTo(req.body?.returnTo);
     await establishSession(req, {
