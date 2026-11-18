@@ -22,8 +22,8 @@ package at deploy time. `crm.env` is never in git, never in a downloadable artif
    | `MONSTERASP_WEBDEPLOY_SERVER` | `publishUrl` host, e.g. `siteXXXX.siteasp.net` (`:8172` optional) |
    | `MONSTERASP_WEBDEPLOY_SITE` | `msdeploySite` |
    | `MONSTERASP_WEBDEPLOY_USER` | `userName` |
-   | `MONSTERASP_WEBDEPLOY_PASSWORD` | `userPWD` (a password containing a comma may break Web Deploy; ask MonsterASP to reset it if so) |
-   | `DB_PASSWORD` | the password MonsterASP gave you for database `db81053` |
+   | `MONSTERASP_WEBDEPLOY_PASSWORD` | `userPWD` (a password containing a comma may break Web Deploy and is rejected by the workflow's check; ask MonsterASP to reset it if so) |
+   | `DB_CONNECTION_STRING` | `Server=db81053.databaseasp.net;Database=db81053;User Id=db81053;Password=<database password>;Encrypt=True;TrustServerCertificate=False;` (single line, no spaces around it; the password is the one MonsterASP gave you; use the exact string, a trailing `;` is fine) |
    | `SESSION_SECRET` | generated value (below) |
    | `TEST_ACCESS_CODE` | generated value (below); this is what testers type, share it only with testers |
 
@@ -32,7 +32,7 @@ package at deploy time. `crm.env` is never in git, never in a downloadable artif
    node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
    ```
 5. **Optional Environment variables** (Settings > Environments > test > Variables). Defaults in brackets, so normally add none:
-   `DB_SERVER` [db81053.databaseasp.net], `DB_NAME` [db81053], `DB_USER` [db81053], `SITE_URL` [https://crmtest.runasp.net], `TRUST_PROXY` [1],
+   `TEST_ADMIN_NAME` and `TEST_ADMIN_EMAIL` [unset; your name and email to get a named Admin test user in addition to the standard test users; set both or neither; plain variables, not secrets], `SITE_URL` [https://crmtest.runasp.net], `TRUST_PROXY` [1],
    `DB_TRUST_SERVER_CERT` [false; set `true` only if the DB connection fails with a certificate error], `MONSTERASP_WEBDEPLOY_ALLOW_UNTRUSTED` [false; set `true` only if the deploy fails with a certificate/trust error].
 6. **Allow database access.** In the MonsterASP panel (database section) add your PC's public IP (see https://ifconfig.me) to the allowed list, for step 8.
 7. **Run the workflow.** GitHub > Actions > "Deploy to test (MonsterASP)" > Run workflow. Wait for all jobs to go green. (Later every push to the branch does this automatically.)
@@ -42,8 +42,10 @@ package at deploy time. `crm.env` is never in git, never in a downloadable artif
    export DB_AUTH_MODE=sql-password DB_SERVER=db81053.databaseasp.net DB_NAME=db81053 DB_USER=db81053
    export DB_PASSWORD='<database password>'
    npm run db:migrate
+   # optional named Admin: export TEST_ADMIN_NAME='Your Name' TEST_ADMIN_EMAIL='you@example.com'
    npm run db:seed:test
    ```
+   (On your PC you may instead set the single variable `DB_CONNECTION_STRING` to the same string as the secret and leave out `DB_SERVER`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`; never set both forms together. If you set `TEST_ADMIN_NAME`/`TEST_ADMIN_EMAIL` for the seed, also add them as variables in step 5 so the site knows the same user.)
    Windows PowerShell: `$env:DB_AUTH_MODE='sql-password'; $env:DB_SERVER='db81053.databaseasp.net'; $env:DB_NAME='db81053'; $env:DB_USER='db81053'; $env:DB_PASSWORD='<database password>'`.
    Success: `apply 001` to `004`, `Security policies CrmRowPolicy and CrmConfigPolicy are enabled.`, `Seeded test users and teams.`
    *Alternative from GitHub:* Run workflow with **run_migrations** ticked. It runs the same two commands on a GitHub server before deploying, but GitHub's server IPs change on every run and are almost certainly blocked by MonsterASP's database firewall, so expect it to fail; use your PC.
@@ -88,7 +90,7 @@ Logs: set `loggingEnabled="true"` in `web.config` on the host (file manager), re
 
 ## Test-only gaps (accepted)
 
-- **App runs as the database owner** (host gives one login). RLS still filters the app's queries, but the owner can switch policies off. The RLS test proves the policies with a low-privilege user. If the host later allows a second login, create it with `db/manual/create-app-user.sql` and change `DB_USER` and the `DB_PASSWORD` secret. Must not carry over to Azure.
+- **App runs as the database owner** (host gives one login). RLS still filters the app's queries, but the owner can switch policies off. The RLS test proves the policies with a low-privilege user. If the host later allows a second login, create it with `db/manual/create-app-user.sql` and change the user and password inside the `DB_CONNECTION_STRING` secret. Must not carry over to Azure.
 - **Test data only.** Everything is disposable.
 - **Secrets are readable on the host** (`crm.env` in the site folder) by anyone with panel/FTP access, and by repo admins via the Environment. Rotate `TEST_ACCESS_CODE` (edit the secret, re-run the workflow) when a tester leaves; max 5 wrong tries per 15 minutes per IP. Changing `SESSION_SECRET` signs everyone out.
 - **Shared host:** no staging, limited logs, backups per the host plan. Actions are pinned to major tags, not commit SHAs. The Web Deploy step is untested until the first real run.

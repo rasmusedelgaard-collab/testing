@@ -74,20 +74,16 @@ jobs:
         run: npm run db:migrate
         env:
           DB_AUTH_MODE: sql-password
-          DB_SERVER: ${{ vars.DB_SERVER || 'db81053.databaseasp.net' }}
-          DB_NAME: ${{ vars.DB_NAME || 'db81053' }}
-          DB_USER: ${{ vars.DB_USER || 'db81053' }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }}
           DB_TRUST_SERVER_CERT: ${{ vars.DB_TRUST_SERVER_CERT || 'false' }}
       - name: Seed test users
         run: npm run db:seed:test
         env:
           DB_AUTH_MODE: sql-password
-          DB_SERVER: ${{ vars.DB_SERVER || 'db81053.databaseasp.net' }}
-          DB_NAME: ${{ vars.DB_NAME || 'db81053' }}
-          DB_USER: ${{ vars.DB_USER || 'db81053' }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }}
           DB_TRUST_SERVER_CERT: ${{ vars.DB_TRUST_SERVER_CERT || 'false' }}
+          TEST_ADMIN_NAME: ${{ vars.TEST_ADMIN_NAME }}
+          TEST_ADMIN_EMAIL: ${{ vars.TEST_ADMIN_EMAIL }}
 
   deploy:
     # Run after a successful build; migrate may be skipped, but if it ran it must have succeeded.
@@ -111,15 +107,16 @@ jobs:
           MONSTERASP_WEBDEPLOY_SITE: ${{ secrets.MONSTERASP_WEBDEPLOY_SITE }}
           MONSTERASP_WEBDEPLOY_USER: ${{ secrets.MONSTERASP_WEBDEPLOY_USER }}
           MONSTERASP_WEBDEPLOY_PASSWORD: ${{ secrets.MONSTERASP_WEBDEPLOY_PASSWORD }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }}
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
           TEST_ACCESS_CODE: ${{ secrets.TEST_ACCESS_CODE }}
         run: |
           $bad = @()
-          foreach ($n in 'MONSTERASP_WEBDEPLOY_SERVER','MONSTERASP_WEBDEPLOY_SITE','MONSTERASP_WEBDEPLOY_USER','MONSTERASP_WEBDEPLOY_PASSWORD','DB_PASSWORD','SESSION_SECRET','TEST_ACCESS_CODE') {
+          foreach ($n in 'MONSTERASP_WEBDEPLOY_SERVER','MONSTERASP_WEBDEPLOY_SITE','MONSTERASP_WEBDEPLOY_USER','MONSTERASP_WEBDEPLOY_PASSWORD','DB_CONNECTION_STRING','SESSION_SECRET','TEST_ACCESS_CODE') {
             $v = [Environment]::GetEnvironmentVariable($n)
             if ([string]::IsNullOrEmpty($v)) { $bad += "${n}: not set"; continue }
-            if ($v -match ',') { $bad += "${n}: contains a comma" }
+            # Connection strings use ';' and '=', and may legitimately contain commas; every other secret must not.
+            if ($n -ne 'DB_CONNECTION_STRING' -and $v -match ',') { $bad += "${n}: contains a comma" }
             if ($v -match '[\r\n]') { $bad += "${n}: contains a line break" }
             if ($v -ne $v.Trim()) { $bad += "${n}: has leading or trailing whitespace" }
           }
@@ -131,18 +128,17 @@ jobs:
 
       - name: Write crm.env from secrets
         env:
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }}
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
           TEST_ACCESS_CODE: ${{ secrets.TEST_ACCESS_CODE }}
-          DB_SERVER: ${{ vars.DB_SERVER || 'db81053.databaseasp.net' }}
-          DB_NAME: ${{ vars.DB_NAME || 'db81053' }}
-          DB_USER: ${{ vars.DB_USER || 'db81053' }}
+          TEST_ADMIN_NAME: ${{ vars.TEST_ADMIN_NAME }}
+          TEST_ADMIN_EMAIL: ${{ vars.TEST_ADMIN_EMAIL }}
           SITE_URL: ${{ vars.SITE_URL || 'https://crmtest.runasp.net' }}
           TRUST_PROXY: ${{ vars.TRUST_PROXY || '1' }}
           DB_TRUST_SERVER_CERT: ${{ vars.DB_TRUST_SERVER_CERT || 'false' }}
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($n in 'DB_PASSWORD','SESSION_SECRET','TEST_ACCESS_CODE') {
+          foreach ($n in 'DB_CONNECTION_STRING','SESSION_SECRET','TEST_ACCESS_CODE') {
             if ([string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($n))) { throw "Secret $n is not set in Environment 'test'" }
           }
           $lines = @(
@@ -152,14 +148,16 @@ jobs:
             "TRUST_PROXY=$env:TRUST_PROXY",
             'LOG_LEVEL=info',
             'DB_AUTH_MODE=sql-password',
-            "DB_SERVER=$env:DB_SERVER",
-            "DB_NAME=$env:DB_NAME",
-            "DB_USER=$env:DB_USER",
+            "DB_CONNECTION_STRING=$env:DB_CONNECTION_STRING",
             "DB_TRUST_SERVER_CERT=$env:DB_TRUST_SERVER_CERT",
-            "DB_PASSWORD=$env:DB_PASSWORD",
             "SESSION_SECRET=$env:SESSION_SECRET",
             "TEST_ACCESS_CODE=$env:TEST_ACCESS_CODE"
           )
+          # Optional named test Admin (plain variables, not secrets).
+          if ($env:TEST_ADMIN_NAME -and $env:TEST_ADMIN_EMAIL) {
+            $lines += "TEST_ADMIN_NAME=$env:TEST_ADMIN_NAME"
+            $lines += "TEST_ADMIN_EMAIL=$env:TEST_ADMIN_EMAIL"
+          }
           $path = Join-Path (Resolve-Path package) 'crm.env'
           [System.IO.File]::WriteAllText($path, (($lines -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
           Write-Host 'crm.env written (values not shown)'
