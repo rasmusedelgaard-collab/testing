@@ -38,9 +38,10 @@ Option A, with the table `app.Sessions (Sid varchar(128) PK, Data nvarchar(max),
   - `secret`: `SESSION_SECRET`, split on commas for rotation.
   - `resave: false`, `saveUninitialized: false`, `rolling: true`
   - `cookie: { secure: true, httpOnly: true, sameSite: 'lax', path: '/', maxAge: SESSION_IDLE_MINUTES }`
-  - `app.set('trust proxy', 1)`
+  - `app.set('trust proxy', config.trustProxy)`: `TRUST_PROXY` (0–5), default 1 over https, 0 otherwise (overview §10)
   - Absolute timeout: middleware compares `session.user.authAt` with `SESSION_ABSOLUTE_HOURS`, then destroys the session and redirects to "Your session has ended".
-- **Contents:** keep them minimal: `user {userId, oid, name, email, role, teamId, authAt}`, `csrfToken`, transient `auth {state, nonce, pkceVerifier, returnTo}` (deleted after the callback) and flash messages. **No tokens.**
+  - Active re-check: `requireAuth` re-reads `crm.Users.IsActive` (on `systemPool`) when `session.user.activeCheckedAt` is older than 5 minutes; a deactivated user's session is destroyed and redirected to `/signin?reason=disabled` (overview §3.2).
+- **Contents:** keep them minimal: `user {userId, oid, name, email, role, teamId, authAt, activeCheckedAt}`, `csrfToken`, transient `auth {state, nonce, pkceVerifier, returnTo}` (deleted after the callback) and flash messages. **No tokens.**
 - **Local dev and test:** `MemoryStore` is allowed only when `NODE_ENV !== 'production'`. Config validation enforces this.
 
 ## Consequences

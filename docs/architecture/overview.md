@@ -1,6 +1,6 @@
 # Internal CRM: Architecture Overview (v1)
 
-Status: Approved for build (user decisions 2nd round, 2026-11-18) · Owner: Architect · Related: [ADR-0001](../adr/0001-stack.md) to [ADR-0005](../adr/0005-fx-rates.md), [UI spec](../ux/ui-spec.md)
+Status: Approved for build (user decisions 2nd round, 2026-11-18) · Owner: Architect · Related: [ADR-0001](../adr/0001-stack.md) to [ADR-0006](../adr/0006-test-access-code-login.md), [UI spec](../ux/ui-spec.md)
 
 This is the build reference. Where it conflicts with the plan, this document and the ADRs take precedence. Section 13 lists the deviations.
 
@@ -68,7 +68,7 @@ flowchart LR
 | `src/services/*` | KPI maths, FX conversion, audit row building. Pure functions where possible, so they can be unit-tested. | Import `mssql` |
 | `src/routes/*` | Validate input (zod), call services and repositories, render | Contain SQL |
 
-**Guardrail (increment 1 acceptance criterion):** an ESLint `no-restricted-imports` rule allows `src/db/pool.ts` to be imported only by `src/db/withRlsContext.ts`, `src/auth/sessionStore.ts`, `src/auth/userSync.ts` and `src/db/publicReads.ts`. A unit test greps `src/` for `new sql.Request(` and `.query(` outside `src/db/`.
+**Guardrail (increment 1 acceptance criterion, tightened after the security review):** an ESLint `no-restricted-imports` rule allows `src/db/pool.ts` to be imported only by `src/db/withRlsContext.ts` (RLS tables) and `src/db/system.ts` (`systemQuery`: sessions, login upsert, `IsActive` re-check, public reads, `/readyz`). `tests/importRestrictions.test.ts` backs this up by scanning `src/` for pool and `mssql` imports in every form (static `from`, re-exports, dynamic `import()`, `require()`, with or without a `.js`/`.ts` suffix), for `getRlsPool`/`getSystemPool` references outside their single owner, and for `new sql.Request(`, `.query(` and `.batch(` outside `src/db/`.
 
 ## 3. Request flows
 
@@ -94,10 +94,17 @@ sequenceDiagram
   E-->>A: id_token claims (oid, tid, name, email, roles, groups)
   A->>A: tid == ENTRA_TENANT_ID, nonce matches, role = highest(roles) or no-access
   A->>D: EXEC crm.usp_UpsertUserOnLogin (systemPool)
-  D-->>A: UserId, TeamId
-  A->>A: session.regenerate(); session.user = {userId, oid, name, email, role, teamId, authAt}; new csrfToken
-  A-->>U: 302 /accounts (returnTo validated: starts with "/" and not "//")
+  alt user row exists with IsActive = 0
+    D-->>A: THROW 50011 'User is deactivated' (no write)
+    A-->>U: 303 /no-access (warning logged with oid; no session user)
+  else active or new user
+    D-->>A: UserId, TeamId
+    A->>A: session.regenerate(); session.user = {userId, oid, name, email, role, teamId, authAt, activeCheckedAt = authAt}; new csrfToken
+    A-->>U: 303 /accounts (returnTo validated: starts with "/" and not "//")
+  end
 ```
+
+Sign-in never reactivates a deactivated user (security fix L1). Only an administrator can set `IsActive = 1` again, directly in the database. All `/auth/*` routes are rate limited (§10).
 
 ### 3.2 Authenticated request (auth → session → withRlsContext → query)
 
@@ -112,7 +119,8 @@ sequenceDiagram
   participant D as Azure SQL
   U->>M: GET /opportunities/42 (cookie __Host-crm.sid)
   M->>M: load session (systemPool → app.Sessions), idle/absolute timeout check
-  M->>M: requireAuth → req.rls = {userId, role, teamId}; POST → CSRF check
+  M->>M: requireAuth: absolute timeout; IsActive re-check if last check > 5 min (systemPool)
+  M->>M: req.rls = {userId, role, teamId}; Cache-Control: no-store; POST → CSRF check
   M->>H: next()
   H->>H: zod-validate params/query
   H->>W: withRlsContext(req.rls, tx => repo.getOpportunity(tx, 42))
@@ -125,6 +133,8 @@ sequenceDiagram
   W-->>H: result
   H-->>U: 200 render, or 404 if no row (no existence leak)
 ```
+
+**IsActive re-check (security fix, `src/auth/requireRole.ts`):** `requireAuth` re-reads `crm.Users.IsActive` (`userRepo.isActive`, `systemPool`) when the session's `activeCheckedAt` is older than 5 minutes. `establishSession` sets `activeCheckedAt = authAt`, so the first re-check happens 5 minutes after sign-in. If the user has been deactivated, the session is destroyed and the browser is sent to `/signin?reason=disabled`. A deactivated user therefore loses access within 5 minutes, not at the end of the 10-hour absolute timeout. The check is skipped in demo mode, which has no database.
 
 ## 4. Data model (schema `crm`)
 
@@ -256,7 +266,7 @@ CREATE TABLE crm.FxRates (                         -- ADR-0005
   ModifiedAt   datetime2(3)  NOT NULL CONSTRAINT DF_FxRates_ModifiedAt DEFAULT SYSUTCDATETIME(),
   RowVer       rowversion    NOT NULL,
   CONSTRAINT CK_FxRates_NotBase CHECK (CurrencyCode <> BaseCurrency),
-  CONSTRAINT CK_FxRates_Codes   CHECK (BaseCurrency LIKE '[A-Z][A-Z][A-Z]' AND CurrencyCode LIKE '[A-Z][A-Z][A-Z]'),
+  CONSTRAINT CK_FxRates_Codes   CHECK (BaseCurrency COLLATE Latin1_General_BIN LIKE '[A-Z][A-Z][A-Z]' AND CurrencyCode COLLATE Latin1_General_BIN LIKE '[A-Z][A-Z][A-Z]'),
   CONSTRAINT UQ_FxRates UNIQUE (BaseCurrency, CurrencyCode, RateMonth)
 );
 
@@ -323,7 +333,7 @@ CREATE TABLE crm.Opportunities (
   PrimaryContactId  int           NULL     CONSTRAINT FK_Opps_Contact REFERENCES crm.Contacts(ContactId),
   StageId           int           NOT NULL CONSTRAINT FK_Opps_Stage   REFERENCES crm.PipelineStages(StageId),
   Amount            decimal(19,2) NOT NULL CONSTRAINT CK_Opps_Amount CHECK (Amount >= 0),
-  CurrencyCode      char(3)       NOT NULL CONSTRAINT CK_Opps_Currency CHECK (CurrencyCode LIKE '[A-Z][A-Z][A-Z]'),
+  CurrencyCode      char(3)       NOT NULL CONSTRAINT CK_Opps_Currency CHECK (CurrencyCode COLLATE Latin1_General_BIN LIKE '[A-Z][A-Z][A-Z]'),
   CloseDate         date          NOT NULL,
   LeadSourceValueId int           NULL CONSTRAINT FK_Opps_LeadSource REFERENCES crm.PicklistValues(ValueId),
   LostReasonValueId int           NULL CONSTRAINT FK_Opps_LostReason REFERENCES crm.PicklistValues(ValueId),
@@ -397,6 +407,8 @@ CREATE TABLE app.Sessions (                         -- ADR-0004; deliberately ou
 CREATE INDEX IX_Sessions_ExpiresAt ON app.Sessions(ExpiresAt);
 ```
 
+**Currency code checks are collation-safe.** `CK_Opps_Currency` and `CK_FxRates_Codes` apply `COLLATE Latin1_General_BIN` before `LIKE '[A-Z][A-Z][A-Z]'`. Under the default case-insensitive database collation, `[A-Z]` would also accept lower-case letters (and, in some collations, accented ones). The binary collation accepts only upper-case ASCII A–Z, so the database enforces the ISO 4217 format regardless of the server or database collation.
+
 ### 4.2 Login upsert procedure (also in `001_schema.sql`)
 
 `crm_app` has no INSERT or UPDATE on `crm.Users`. Login writes go through this procedure. Both the procedure and the table are owned by dbo, so ownership chaining lets the procedure write.
@@ -411,6 +423,8 @@ AS
 BEGIN
   SET NOCOUNT ON; SET XACT_ABORT ON;
   IF @Role NOT IN ('Admin','Manager','User') THROW 50010, 'Invalid role', 1;
+  -- A deactivated user stays deactivated: login never reactivates (only an administrator does, in the database).
+  IF EXISTS (SELECT 1 FROM crm.Users WHERE EntraOid = @EntraOid AND IsActive = 0) THROW 50011, 'User is deactivated', 1;
 
   DECLARE @TeamId int, @TeamMatches int, @TeamStatus varchar(10);
   SELECT @TeamMatches = COUNT(DISTINCT t.TeamId), @TeamId = MIN(t.TeamId)
@@ -428,7 +442,7 @@ BEGIN
   MERGE crm.Users WITH (HOLDLOCK) AS u
   USING (SELECT @EntraOid AS EntraOid) AS s ON u.EntraOid = s.EntraOid
   WHEN MATCHED THEN UPDATE SET DisplayName = @DisplayName, Email = @Email, Role = @Role, TeamId = @TeamId,
-       TeamStatus = @TeamStatus, TenantId = @TenantId, IsActive = 1,
+       TeamStatus = @TeamStatus, TenantId = @TenantId,
        LastSignInAt = SYSUTCDATETIME(), ModifiedAt = SYSUTCDATETIME()
   WHEN NOT MATCHED THEN INSERT (EntraOid, TenantId, DisplayName, Email, Role, TeamId, TeamStatus, LastSignInAt)
        VALUES (@EntraOid, @TenantId, @DisplayName, @Email, @Role, @TeamId, @TeamStatus, SYSUTCDATETIME());
@@ -436,6 +450,8 @@ BEGIN
   SELECT UserId, TeamId, TeamStatus, @TeamMatches AS TeamMatches FROM crm.Users WHERE EntraOid = @EntraOid;
 END
 ```
+**Deactivated users (security fix L1).** The procedure throws **50011** for a user whose row has `IsActive = 0` and writes nothing. The MERGE no longer sets `IsActive = 1`, so signing in can never reactivate a user. The Entra callback (`src/routes/auth.ts`) maps 50011 (`USER_DEACTIVATED` in `src/db/userRepo.ts`) to a warning log with the `oid` and a 303 redirect to `/no-access`; no session user is created. 50011 is not transient (§8.1) and is never retried. An active session of a user deactivated later ends at the next `requireAuth` re-check (§3.2).
+
 **Exactly one team group (user decision 2026-11-18).**
 - `TeamStatus = 'multiple'` (the groups claim contains more than one linked, active team group): `TeamId = NULL`, so the user sees own records only. The app logs a **warning** with the `oid` and the match count: "user in several team groups; no team applied". Settings > Users & teams shows the warning badge "In {n} teams — check Entra groups" (UI spec).
 - `TeamStatus = 'none'`: `TeamId = NULL`, badge "No team — sees own records only".
@@ -590,7 +606,9 @@ RETURN
                          WHERE u.UserId = @OwnerId AND u.TeamId = @TeamId AND u.IsActive = 1)));
 GO
 
--- Audit rows: ChangedBy must be the caller, and the row must be within the caller's write scope
+-- Audit rows: ChangedBy must be the caller, and the row must be within the caller's write scope.
+-- When the caller is the owner, the row's TeamId must also be the caller's team (NULL-safe: both NULL matches),
+-- so a non-Admin cannot write an audit row into another team's history by naming themselves as owner.
 CREATE FUNCTION sec.fn_AuditInsert(@ChangedBy int, @OwnerId int, @TeamId int)
 RETURNS TABLE WITH SCHEMABINDING AS
 RETURN
@@ -601,7 +619,15 @@ RETURN
   WHERE c.UserId IS NOT NULL
     AND c.Role IN (N'Admin', N'Manager', N'User')
     AND @ChangedBy = c.UserId
-    AND (c.Role = N'Admin' OR @OwnerId = c.UserId OR @TeamId = c.TeamId);
+    AND (   c.Role = N'Admin'
+         OR (@OwnerId = c.UserId AND (@TeamId = c.TeamId OR (@TeamId IS NULL AND c.TeamId IS NULL)))  -- own record: the team must match too
+         OR @TeamId = c.TeamId);
+GO
+
+-- Always false: AuditLog rows can never be updated or deleted, not even by Admin or dbo.
+CREATE FUNCTION sec.fn_Deny(@RowId bigint)
+RETURNS TABLE WITH SCHEMABINDING AS
+RETURN SELECT 1 AS ok WHERE 1 = 0;
 GO
 
 -- Config tables: any valid context may read
@@ -651,9 +677,12 @@ CREATE SECURITY POLICY sec.CrmRowPolicy
   ADD BLOCK  PREDICATE sec.fn_RowUpdate(OwnerId, TeamId)      ON crm.Activities BEFORE UPDATE,
   ADD BLOCK  PREDICATE sec.fn_RowDelete(OwnerId, TeamId)      ON crm.Activities BEFORE DELETE,
 
-  -- AuditLog is append-only: crm_app has no UPDATE/DELETE grant, so only the insert is guarded
+  -- AuditLog is append-only: no UPDATE/DELETE grant for crm_app AND an always-false block predicate,
+  -- so UPDATE and DELETE fail with 33504 even for dbo / the database owner while the policy is on.
   ADD FILTER PREDICATE sec.fn_RowAccess(OwnerId, TeamId)                ON crm.AuditLog,
-  ADD BLOCK  PREDICATE sec.fn_AuditInsert(ChangedBy, OwnerId, TeamId)   ON crm.AuditLog AFTER INSERT
+  ADD BLOCK  PREDICATE sec.fn_AuditInsert(ChangedBy, OwnerId, TeamId)   ON crm.AuditLog AFTER INSERT,
+  ADD BLOCK  PREDICATE sec.fn_Deny(AuditId)                             ON crm.AuditLog BEFORE UPDATE,
+  ADD BLOCK  PREDICATE sec.fn_Deny(AuditId)                             ON crm.AuditLog BEFORE DELETE
 WITH (STATE = ON, SCHEMABINDING = ON);
 GO
 
@@ -718,13 +747,17 @@ Required assertions:
 12. A1: UPDATE moving U2's row to team 2 with Owner U3 succeeds (only Admin can move across teams).
 13. A user with no team (context `TeamId` NULL) in team mode: sees, updates and deletes own rows only; another NULL-team user's rows are invisible.
 14. Non-admin: INSERT or UPDATE on Settings, FxRates, PipelineStages, PicklistValues, Teams or BrandingAssets fails with 33504. Admin succeeds.
-15. AuditLog INSERT with `ChangedBy` other than self fails. U1 in team mode can insert an audit row for U2's record (`OwnerId = U2`, `TeamId = 1`, `ChangedBy = U1`).
+15. AuditLog INSERT with `ChangedBy` other than self fails. U1 in team mode can insert an audit row for U2's record (`OwnerId = U2`, `TeamId = 1`, `ChangedBy = U1`). `crm_app_role` has no UPDATE grant on AuditLog.
+15b. AuditLog INSERT with `OwnerId` = caller but a `TeamId` other than the caller's team fails with 33504 (both NULL is allowed). UPDATE and DELETE on AuditLog fail with 33504 for everyone, including dbo with an Admin context (`fn_Deny`).
 16. `crm_app_role` cannot run `ALTER SECURITY POLICY`, `SELECT` on `dbo.SchemaVersions`, or `INSERT` on `crm.Users`.
 17. Calling `sp_set_session_context 'UserId'` twice with `@read_only = 1` fails on the second call (error 15664).
+18. (Case 20 in the script) Team-mode takeover then delete (§5.2) per entity: reassignment, `U` audit row, delete as owner, `D` audit row.
+19. `crm.usp_UpsertUserOnLogin` for a deactivated user throws 50011 and leaves `IsActive = 0`.
 
-## 6. Database principals and grants (migration `003_roles_grants.sql`)
+## 6. Database principals and grants (migration `003_grants.sql`)
 
 - **App identity.** The App Service system-assigned managed identity is mapped to a contained user named `crm_app`. `WITH OBJECT_ID` binds the user to the identity, so the name does not have to match the web app name.
+- **Where the code lives.** `db/migrations/003_grants.sql` creates `crm_app_role` (idempotently) and applies the grants below. The app user itself differs per environment and is **not** created by the migration: it is created once by an admin with `db/manual/create-app-user.sql` (the `CREATE USER` / `ALTER ROLE … ADD MEMBER` lines below).
 - **Deployer identity.** Migrations run as a separate deployer identity: an Entra group "CRM SQL Admins", which is the server's Entra admin, or the CI workload identity made `db_owner` in the database. The app never runs DDL.
 
 ```sql
@@ -765,7 +798,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON app.Sessions      TO crm_app_role;
 - **Who sees it:** the FILTER predicate follows the record's owner and team at the time of the change. A record detail page can show "History" from it.
 - **Tamper resistance:**
   - No UPDATE or DELETE grant.
-  - The block predicate forces `ChangedBy` = caller.
+  - `sec.fn_Deny` (always false) is a BEFORE UPDATE and BEFORE DELETE block predicate on AuditLog, so even dbo or the database owner (the interim host's app login, §12.3) gets 33504 while the policy is on. Changing that needs `ALTER SECURITY POLICY`, which is DDL and is captured by SQL auditing.
+  - The insert block predicate forces `ChangedBy` = caller, and a row the caller owns must carry the caller's team (§5.3).
   - Azure SQL Auditing (server level, to Log Analytics) records DDL and admin actions outside the app.
 - **Retention:** keep indefinitely in v1. This is an open item for the product owner (GDPR).
 
@@ -866,9 +900,10 @@ User decision (2026-11-18): production Azure SQL is **serverless with auto-pause
 | Method | Path | Role | Notes |
 |---|---|---|---|
 | GET | `/healthz` | public | liveness, no DB, body `ok` |
-| GET | `/readyz` | public | `SELECT 1` on systemPool; body `ok`/`fail` only |
-| GET | `/signin`, `/signed-out`, `/no-access` | public | static pages; branding via `publicReads` |
+| GET | `/readyz` | public | `SELECT 1` on systemPool; body `ok`/`fail` only. Result cached for 10 s (`cachedProbe`); rate limited to 30 requests per minute per client IP (429 with `Retry-After`) |
+| GET | `/signin`, `/signed-out`, `/no-access` | public | static pages; branding via `publicReads`. `/no-access` (403) is shown for no CRM app role and for deactivated users (50011) |
 | GET | `/branding/logo` | public | see §10 headers |
+| any | `/auth/*` | public | all auth routes rate limited to 120 requests per minute per client IP (429 with `Retry-After`) |
 | GET | `/auth/login` | public | `?returnTo=` (relative only) |
 | GET | `/auth/redirect` | public | Entra callback (`response_mode=query`) |
 | POST | `/auth/signout` | Any | destroys session, 302 to Entra logout, then `/signed-out` |
@@ -888,7 +923,8 @@ User decision (2026-11-18): production Azure SQL is **serverless with auto-pause
 | GET/POST | `/settings/visibility` | Admin | `private` or `team`, with confirmation |
 | GET | `/settings/users` | Admin | users (read-only, from Entra) and teams, with the "Add team" form |
 | POST | `/settings/teams`, `/settings/teams/:id` | Admin | "Add team" / edit team: name (1–80 chars) + Entra group object ID (validated as a GUID, unique). Audited (`EntityType = 'team'`). Approved 2026-11-18 (ADR-0003) |
-| (test only) | `/__test/login` | n/a | mounted only when `NODE_ENV=test` and `WEBSITE_SITE_NAME` is unset; the process refuses to start otherwise if `AUTH_TEST_BYPASS=1` |
+| GET/POST | `/auth/test-login` | public | only when `AUTH_MODE=test-access-code` (interim test host, ADR-0006): access code, then seeded-user picker |
+| (test only) | `/__test/login` | n/a | demo auth router, mounted only when `NODE_ENV=test`; config refuses `NODE_ENV=test` when `LIVE=true` or on Azure App Service (§11) |
 
 `:id` is validated as a positive int by zod. An invalid value returns 404, not 400.
 
@@ -909,7 +945,16 @@ User decision (2026-11-18): production Azure SQL is **serverless with auto-pause
 - **Session cookie:**
   - `__Host-crm.sid`, `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`.
   - Idle timeout 60 min (rolling). Absolute timeout 10 h (`authAt` check).
-  - `app.set('trust proxy', 1)` for App Service.
+  - `IsActive` re-checked against the database at most every 5 minutes (§3.2).
+- **Proxy trust:** `app.set('trust proxy', config.trustProxy)`. `TRUST_PROXY` (0–5, number of reverse-proxy hops) defaults to 1 when the site is served over https and 0 otherwise. `req.ip` (used by every rate limiter) is therefore the client address taken from `X-Forwarded-For` only for the configured number of hops; it cannot be spoofed beyond them. On the IIS/iisnode host, `enableXFF="true"` in `deploy/iis/web.config` makes iisnode add `X-Forwarded-For`, so `req.ip` is the real client and not the IIS loopback.
+- **Caching:** every authenticated response (the `authed` router in `src/app.ts`) carries `Cache-Control: no-store`, because those pages contain personal data. Static assets keep `max-age=1h`.
+- **Rate limits (in memory, per instance, fixed window; not a substitute for a WAF):**
+
+  | Scope | Limit | Code |
+  |---|---|---|
+  | `/auth/*` | 120 requests / minute / client IP | `rateLimit` in `src/middleware/rateLimit.ts` |
+  | `/readyz` | 30 requests / minute / client IP, probe result cached 10 s | `rateLimit` + `cachedProbe` |
+  | Test access code (ADR-0006 only) | 5 failed attempts / 15 min per client IP (session id if no IP), plus a global cap of 50 failed attempts / 15 min across all clients | `AttemptLimiter` in `src/auth/rateLimiter.ts` |
 - **CSRF:** synchronizer token in the session, hidden `_csrf` field, constant-time compare. It is rotated on login.
 - **Logo:**
   - Uploads: PNG validated by magic bytes. SVG is rejected if it contains `<script`, `on*=` attributes, `javascript:`, `<foreignObject` or external `href`.
@@ -924,23 +969,37 @@ User decision (2026-11-18): production Azure SQL is **serverless with auto-pause
 
 | Variable | Required | Example / default | Notes |
 |---|---|---|---|
-| `NODE_ENV` | yes | `production` | `development` / `test` / `production` |
-| `PORT` | no | `8080` | App Service sets it. Under iisnode it is a **named pipe** path (e.g. `\\.\pipe\…`), not a number: pass `process.env.PORT` to `listen()` unchanged and validate it as "integer or non-empty string" |
-| `BASE_URL` | yes | `https://crm-prod.azurewebsites.net` | builds the redirect URI and post-logout URI |
-| `ENTRA_TENANT_ID` | yes | GUID | single tenant; also checked against the `tid` claim |
-| `ENTRA_CLIENT_ID` | yes | GUID | |
-| `ENTRA_CLIENT_SECRET` | yes | Key Vault reference | `@Microsoft.KeyVault(SecretUri=…)` |
-| `SESSION_SECRET` | yes | Key Vault reference | at least 32 random bytes; supports a comma-separated list for rotation |
-| `SESSION_IDLE_MINUTES` | no | `60` | |
-| `SESSION_ABSOLUTE_HOURS` | no | `10` | |
-| `SQL_SERVER` | yes | `sql-crm-prod.database.windows.net` | |
-| `SQL_DATABASE` | yes | `sqldb-crm` | |
-| `DB_AUTH_MODE` | yes | `managed-identity` | `managed-identity` → `azure-active-directory-msi-app-service` (Azure); `default-azure` → `azure-active-directory-default` (local dev); `sql-password` → SQL login (interim MonsterASP test host only, §12.3). Config validation rejects `sql-password` when `WEBSITE_SITE_NAME` indicates Azure App Service. |
+| `NODE_ENV` | yes | `production` | `development` / `test` / `production`. `test` enables the demo auth bypass and is refused when live/Azure |
+| `PORT` | no | `8080` | App Service sets it. Under iisnode it is a **named pipe** path (e.g. `\\.\pipe\…`), not a number: passed to `listen()` unchanged; validated as a port 1–65535 or a named pipe |
+| `LIVE` | live hosts | `true` | Set `true` on the Azure live App Service and any future live host. "Live" = `LIVE=true` **or** `WEBSITE_INSTANCE_ID` set (always set by App Service). Drives the refusals below |
+| `AUTH_MODE` | no | `entra` | `entra` or `test-access-code` (ADR-0006). `test-access-code` is **refused** when live, and when `ENTRA_CLIENT_SECRET` is set |
+| `TEST_ACCESS_CODE` | only for `test-access-code` | host app setting | at least 24 characters and at least 10 distinct characters; never logged |
+| `REDIRECT_URI` | yes (except demo; except test-access-code outside production) | `https://crm-prod.azurewebsites.net/auth/redirect` | must be https in production. Its origin is the base URL for the post-logout redirect, cookies (`Secure`) and HSTS |
+| `TRUST_PROXY` | no | `1` | 0–5 proxy hops for express `trust proxy`; default 1 over https, 0 otherwise (§10) |
+| `ENTRA_TENANT_ID` | for `entra` | GUID | single tenant; also checked against the `tid` claim |
+| `ENTRA_CLIENT_ID` | for `entra` | GUID | |
+| `ENTRA_CLIENT_SECRET` | for `entra` | Key Vault reference | `@Microsoft.KeyVault(SecretUri=…)`. Must **not** be set with `AUTH_MODE=test-access-code` |
+| `SESSION_SECRET` | yes (except demo) | Key Vault reference | at least 32 characters each; comma-separated list for rotation |
+| `SESSION_IDLE_MINUTES` | no | `60` | 1–1440 |
+| `SESSION_ABSOLUTE_HOURS` | no | `10` | 1–168 |
+| `DB_SERVER` | yes (except demo) | `sql-crm-prod.database.windows.net` | |
+| `DB_NAME` | yes (except demo) | `sqldb-crm` | |
+| `DB_AUTH_MODE` | yes (except demo) | `managed-identity` | `managed-identity` → `azure-active-directory-msi-app-service` (Azure); `default-azure` → `azure-active-directory-default` (local dev); `sql-password` → SQL login (interim MonsterASP test host only, §12.3). `sql-password` is **refused** when live (`LIVE=true` or `WEBSITE_INSTANCE_ID`). |
 | `DB_USER`, `DB_PASSWORD` | only for `sql-password` | host app settings | Set in the host's control panel / app settings, **never** in the repo or `.env.example` values. Required when `DB_AUTH_MODE=sql-password`, rejected otherwise. Never logged. |
-| `SQL_POOL_MAX` | no | `10` | rlsPool size |
+| `DB_TRUST_SERVER_CERT` | no | `false` | |
+| `SQL_POOL_MAX` | no | `10` | rlsPool size, 1–100 |
 | `LOG_LEVEL` | no | `info` | |
+| `DEMO_MODE` | no | `false` | no database, no Entra. Refused with `NODE_ENV=production`, when live or on Azure (`WEBSITE_INSTANCE_ID` or `WEBSITE_SITE_NAME`), with `AUTH_MODE=test-access-code`, or when any `DB_*` variable is set |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | prod | set by infra | |
-| `AUTH_TEST_BYPASS` | no | unset | honoured only if `NODE_ENV=test`; startup fails if set in any other mode or on App Service |
+
+**Startup refusals (security fixes M1/M3, `loadConfig` in `src/config.ts`, unit-tested in `tests/config.test.ts`).** The process throws `ConfigError` and does not start when:
+- `AUTH_MODE=test-access-code` and live (`LIVE=true` or `WEBSITE_INSTANCE_ID` set);
+- `AUTH_MODE=test-access-code` and `ENTRA_CLIENT_SECRET` is set (looks like a real environment);
+- `DB_AUTH_MODE=sql-password` and live;
+- `DEMO_MODE=true` together with any of: `NODE_ENV=production`, live or Azure, `AUTH_MODE=test-access-code`, `DB_*` variables;
+- `NODE_ENV=test` and live or Azure.
+
+Live detection uses `WEBSITE_INSTANCE_ID` rather than `WEBSITE_SITE_NAME` alone, because it is unconfirmed whether the interim IIS/iisnode host sets `WEBSITE_SITE_NAME`, and that host must keep working in test mode. The demo and `NODE_ENV=test` refusals use the broader "on Azure" test (either variable).
 
 `.env` is used locally only, is git-ignored, and has a committed `.env.example` with placeholders.
 
@@ -995,10 +1054,10 @@ Sign-in on this host uses `AUTH_MODE=test-access-code` (shared access code + see
 
 | Aspect | Interim host | Design consequence |
 |---|---|---|
-| Web server | Windows / IIS with **iisnode** | `web.config` routes to the built `dist/server.js`. The app listens on `process.env.PORT` exactly as given, which under iisnode is a named pipe (§11). `trust proxy` stays at 1 (IIS is the proxy). HTTPS is enforced at the host; the `__Host-` cookie still needs `Secure`, so the test site must be served over HTTPS. |
+| Web server | Windows / IIS with **iisnode** | `web.config` routes to the built `dist/server.js`. The app listens on `process.env.PORT` exactly as given, which under iisnode is a named pipe (§11). `trust proxy` = `TRUST_PROXY` (default 1 over https; IIS is the proxy), and `enableXFF="true"` on the `iisnode` element supplies `X-Forwarded-For` so rate limits key on the real client IP (§10). HTTPS is enforced at the host; the `__Host-` cookie still needs `Secure`, so the test site must be served over HTTPS. |
 | Database | Shared hosting MSSQL (SQL Server, RLS and `SESSION_CONTEXT` supported) | Same migrations and RLS. **Not serverless**: the 40613 retry and "waking up" logic (§8.1) simply never fires there, which is harmless. |
 | DB auth | SQL logins, no Entra/managed identity | `DB_AUTH_MODE=sql-password`, `DB_USER`/`DB_PASSWORD` from the host's app settings, never in the repo. |
-| Secrets | No Key Vault | `ENTRA_CLIENT_SECRET` and `SESSION_SECRET` set as host app settings. Use a separate "CRM (test-interim)" Entra app registration whose redirect URI is the MonsterASP URL; delete it at Azure go-live. |
+| Secrets | No Key Vault | `SESSION_SECRET`, `TEST_ACCESS_CODE` and `DB_USER`/`DB_PASSWORD` set as host app settings. With `AUTH_MODE=test-access-code` the Entra variables are not used, and `ENTRA_CLIENT_SECRET` must **not** be set (config refuses to start). The "CRM (test-interim)" Entra app registration is only needed if the host is ever switched to `AUTH_MODE=entra`; delete it at Azure go-live. `LIVE` must not be set on this host. |
 | Telemetry | No App Insights required | `APPLICATIONINSIGHTS_CONNECTION_STRING` optional; pino logs go to the iisnode log files. |
 
 **Database principals on the interim host:**

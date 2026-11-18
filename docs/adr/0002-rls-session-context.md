@@ -35,7 +35,8 @@ Option A, concretely (T-SQL in [overview §5](../architecture/overview.md#5-row-
    - `fn_RowUpdate`: BEFORE UPDATE, existing row. Admin, owner, Manager of same team, or (`team` mode AND same team). Same rule as read today, kept as a separate function so the two can diverge by migration. (S1)
    - `fn_RowDelete`: BEFORE DELETE, existing row. Admin, owner, or Manager of same team only. Visibility mode never grants delete directly; a team-mode User can delete a team-mate's record only after taking it over (S1, M4).
    - `fn_RowWriteTarget`: AFTER INSERT and AFTER UPDATE, resulting row. (S2)
-   - `fn_AuditInsert`: AuditLog AFTER INSERT.
+   - `fn_AuditInsert`: AuditLog AFTER INSERT. `ChangedBy` = caller; non-Admin rows must be the caller's team, or owned by the caller **and** in the caller's team (NULL-safe: both NULL matches). Tightened after the security review so an owner-equals-caller row cannot be written into another team's history.
+   - `fn_Deny`: always false. AuditLog BEFORE UPDATE and BEFORE DELETE, so audit rows cannot be changed or removed by anyone, including dbo/the database owner, while the policy is on (security review; matters most on the interim host where the app may connect as owner).
    - `fn_HasContext`: config tables, read.
    - `fn_AdminWrite`: config tables, Admin-only writes.
 3. **Visibility mode is read inside the predicate from `crm.Settings`** (`visibility.mode`) by both `fn_RowAccess` and `fn_RowUpdate`. It is not a context key. (S3)
