@@ -4,8 +4,10 @@ Accounts, contacts, opportunities and activities on Node.js + TypeScript (Expres
 Row-Level Security, and Microsoft Entra ID sign-in. Design: [docs/architecture/overview.md](docs/architecture/overview.md),
 ADRs in [docs/adr](docs/adr), UI spec in [docs/ux/ui-spec.md](docs/ux/ui-spec.md).
 
-Status: **increment 1 (foundation)**: config, sign-in, sessions, RLS plumbing, layout, migrations. The CRM pages
-themselves arrive in later increments (nav items show a placeholder).
+Status: **increment 2 (CRM core)**: Accounts, Contacts, Opportunities and Activities (lists with search, filters,
+sorting and paging in the URL; detail pages with related records and history; create/edit with validation, optimistic
+concurrency and audit; delete rules). Dashboard, Analytics and Settings arrive in later increments (placeholders).
+In demo mode the CRM pages run on an in-memory store with seeded sample data that emulates the RLS rules.
 
 ## Quick start (demo mode, no Entra, no database)
 
@@ -48,7 +50,7 @@ All are validated at startup by `src/config.ts`; the process exits with a list o
 | `DEMO_MODE` | no | `true` = no Entra, no database. Refused in production / on App Service |
 | `REDIRECT_URI` | entra | e.g. `https://host/auth/redirect`; https required in production. Its origin is used for the post-logout redirect |
 | `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET` | entra | Single-tenant app registration (overview 12.2) |
-| `TEST_ACCESS_CODE` | test-access-code | At least 16 characters, shared by testers |
+| `TEST_ACCESS_CODE` | test-access-code | At least 24 characters and 10 different ones, shared by testers. Needs an https `REDIRECT_URI` in production (secure cookies, HSTS) |
 | `SESSION_SECRET` | yes (not demo) | At least 32 characters; comma-separated list for rotation |
 | `SESSION_IDLE_MINUTES` / `SESSION_ABSOLUTE_HOURS` | no | Defaults 60 / 10 |
 | `DB_SERVER`, `DB_NAME` | yes (not demo) | |
@@ -56,6 +58,8 @@ All are validated at startup by `src/config.ts`; the process exits with a list o
 | `DB_USER`, `DB_PASSWORD` | sql-password only | Rejected for the other modes. Never commit them |
 | `DB_TRUST_SERVER_CERT` | no | `true` only for hosts with a self-signed SQL certificate |
 | `SQL_POOL_MAX` | no | Size of the RLS pool, default 10 |
+| `TRUST_PROXY` | no | Reverse proxies in front of the app (0-5). Default 1 when the site is https, else 0. Wrong values break client IPs (rate limits) |
+| `LIVE` | no | `true` marks a live environment: `AUTH_MODE=test-access-code`, `DB_AUTH_MODE=sql-password` and demo mode are then refused. `WEBSITE_INSTANCE_ID` (Azure App Service) has the same effect. `WEBSITE_SITE_NAME` is deliberately not used for the new refusals because it is unconfirmed whether the MonsterASP host sets it |
 | `LOG_LEVEL` | no | `info` default |
 
 Secrets belong in the host's settings or Key Vault, never in the repository. `.env` is git-ignored.
