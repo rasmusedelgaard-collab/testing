@@ -25,6 +25,8 @@ public sealed class SettingsConfigTests(SqlServerFixture fx)
     {
         await using var c = new SqlConnection(SqlConnectionFactory.Build(fx.OwnerDb, "owner-cfg", 1, false, 30));
         await c.OpenAsync();
+        // The owner login is subject to RLS too: read the audit log as the Admin context (as the seed script does).
+        await SqlServerFixture.ExecAsync(c, "EXEC sp_set_session_context @key = N'UserId', @value = 0; EXEC sp_set_session_context @key = N'Role', @value = N'Admin';");
         await using var cmd = new SqlCommand("SELECT Action, FieldName, OldValue, NewValue FROM crm.AuditLog WHERE EntityType = @t AND EntityId = @i ORDER BY AuditId", c);
         cmd.Parameters.AddWithValue("@t", type);
         cmd.Parameters.AddWithValue("@i", id);
@@ -394,7 +396,7 @@ public sealed class SettingsConfigTests(SqlServerFixture fx)
         Assert.Equal(renamed, ValuesOf(await HttpHelpers.ParseAsync(await c.GetAsync(path))).Last().Label);
 
         await HttpHelpers.ExpectAsync(HttpStatusCode.NotFound, await PostAsync(c, path, path, ("action", "rename"), ("valueId", "abc"), ("label", "x")));
-        await HttpHelpers.ExpectAsync(HttpStatusCode.NotFound, await PostAsync(c, "/settings/picklists/nope", path, ("action", "add")));
+        await HttpHelpers.ExpectAsync(HttpStatusCode.NotFound, await PostAsync(c, path, "/settings/picklists/nope", ("action", "add")));
         var missing = await PostAsync(c, path, path, ("action", "rename"), ("valueId", "2147483647"), ("label", "x"));
         Assert.Contains("Value not found.", await TextAsync(missing), StringComparison.Ordinal);
         var unknown = await PostAsync(c, path, path, ("action", "explode"), ("valueId", id));

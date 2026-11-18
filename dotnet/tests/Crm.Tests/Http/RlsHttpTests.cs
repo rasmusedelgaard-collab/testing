@@ -32,6 +32,7 @@ public sealed class RlsHttpTests(SqlServerFixture fx)
     {
         var c = new SqlConnection(SqlConnectionFactory.Build(fx.OwnerDb, "owner-rls", 1, false, 30));
         await c.OpenAsync();
+        await SqlServerFixture.ExecAsync(c, "EXEC sp_set_session_context @key = N'UserId', @value = 0; EXEC sp_set_session_context @key = N'Role', @value = N'Admin';");
         return c;
     }
 
