@@ -15,6 +15,9 @@ public sealed partial class CrmRepo(RlsTx tx, RlsContext ctx)
 
     public static bool IsRowVer(string s) => RowVerPattern().IsMatch(s);
 
+    /// <summary>Why the last UpdateAsync matched no row (row version values only, never record data).</summary>
+    public string? Diagnostics { get; private set; }
+
     private static DynamicParameters P() => new();
 
     private static string EscapeLike(string s) => Regex.Replace(s, @"[\\%_\[]", m => "\\" + m.Value);
@@ -271,7 +274,8 @@ public sealed partial class CrmRepo(RlsTx tx, RlsContext ctx)
         if (r is null)
         {
             // Not updated: either someone else changed it (409) or it is gone / hidden by RLS (404).
-            var exists = await tx.QueryAsync<int>($"SELECT 1 FROM {d.Table} WHERE {d.Pk} = @id", new { id }).ConfigureAwait(false);
+            var exists = await tx.QueryAsync<string>($"SELECT CONVERT(varchar(20), RowVer, 1) FROM {d.Table} WHERE {d.Pk} = @id", new { id }).ConfigureAwait(false);
+            Diagnostics = exists.Count > 0 ? $"update matched no row: sent rowVer={rowVer} stored={exists[0]}" : null;
             return exists.Count > 0 ? UpdateResult.Conflict : UpdateResult.NotFound;
         }
         Dictionary<string, object?> Pick(string prefix) => d.AuditFields.ToDictionary(f => f, f => r[$"{prefix}_{f}"], StringComparer.Ordinal);
@@ -320,8 +324,6 @@ public sealed partial class CrmRepo(RlsTx tx, RlsContext ctx)
 
     // ---- Aggregates for KPIs, charts and the account list (RLS-filtered; amounts stay in their own currency)
 
-    private sealed record AggRaw(string StageType, string CurrencyCode, int Cnt, decimal Amount, int? StageId, int? OwnerId, string? OwnerName, string? LeadSource, string? Month, int? AccountId);
-
     private static readonly IReadOnlyDictionary<string, (string Select, string Group, string? Join)> Dim = new Dictionary<string, (string, string, string?)>(StringComparer.Ordinal)
     {
         ["stage"] = ("e.StageId AS StageId", "e.StageId", null),
@@ -351,13 +353,13 @@ public sealed partial class CrmRepo(RlsTx tx, RlsContext ctx)
             where.Add("e.AccountId IN (SELECT CAST([value] AS int) FROM OPENJSON(@acc))");
             p.Add("acc", System.Text.Json.JsonSerializer.Serialize(f.AccountIds), DbType.String, size: -1);
         }
-        var rows = await tx.QueryAsync<AggRaw>(
+        var rows = await tx.QueryRowsAsync(
             $"""
             SELECT s.StageType, e.CurrencyCode{string.Concat(dims.Select(d => ", " + d.Select))}, COUNT(*) AS Cnt, SUM(e.Amount) AS Amount
               FROM crm.Opportunities e JOIN crm.PipelineStages s ON s.StageId = e.StageId {string.Join(" ", dims.Select(d => d.Join ?? ""))}
               WHERE {string.Join(" AND ", where)} GROUP BY s.StageType, e.CurrencyCode{string.Concat(dims.Select(d => ", " + d.Group))}
             """, p).ConfigureAwait(false);
-        return rows.Select(r => new AggRow(r.StageType, r.StageId, r.OwnerId, r.OwnerName, r.LeadSource, r.Month, r.AccountId, r.CurrencyCode.Trim(), r.Cnt, r.Amount)).ToList();
+        return rows.Select(r => new AggRow(r.S("StageType"), r.IntOrNull("StageId"), r.IntOrNull("OwnerId"), r["OwnerName"] as string, r["LeadSource"] as string, r["Month"] as string, r.IntOrNull("AccountId"), r.S("CurrencyCode").Trim(), r.Int("Cnt"), r.Dec("Amount"))).ToList();
     }
 
     private sealed record FxRaw(string CurrencyCode, string Month, decimal Rate);

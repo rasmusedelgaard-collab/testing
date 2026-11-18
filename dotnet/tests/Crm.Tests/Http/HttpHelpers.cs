@@ -28,7 +28,7 @@ public static class HttpHelpers
         if (r.StatusCode != expected)
         {
             var text = Tags.Replace(await r.Content.ReadAsStringAsync(), " ");
-            Assert.Fail($"Expected {expected} but got {(int)r.StatusCode} {r.StatusCode} for {r.RequestMessage?.Method} {r.RequestMessage?.RequestUri?.PathAndQuery} location={r.Headers.Location}: {(text.Length > 600 ? text[..600] : text)}");
+            Assert.Fail($"Expected {expected} but got {(int)r.StatusCode} {r.StatusCode} for {r.RequestMessage?.Method} {r.RequestMessage?.RequestUri?.PathAndQuery} location={r.Headers.Location}: {(text.Length > 400 ? text[..400] : text)} | server log: {string.Join(" // ", TestOutputLoggerProvider.Recent.Where(l => !l.Contains("AUTH_MODE", StringComparison.Ordinal) && !l.Contains("XML encryptor", StringComparison.Ordinal)).TakeLast(4))}");
         }
     }
 

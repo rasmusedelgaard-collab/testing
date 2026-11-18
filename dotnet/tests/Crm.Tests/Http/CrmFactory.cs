@@ -25,6 +25,9 @@ public sealed class FakeBranding : BrandingCache
 /// <summary>Writes error-level server logs (with exceptions) into the current test's output, so failures show their cause.</summary>
 public sealed class TestOutputLoggerProvider : ILoggerProvider, ILogger
 {
+    /// <summary>Warnings and errors from the server side, newest last (tests in the sql collection run serially).</summary>
+    public static readonly System.Collections.Concurrent.ConcurrentQueue<string> Recent = new();
+
     public ILogger CreateLogger(string categoryName) => this;
 
     public void Dispose()
@@ -35,8 +38,13 @@ public sealed class TestOutputLoggerProvider : ILoggerProvider, ILogger
 
     public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Warning;
 
-    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-        TestContext.Current.TestOutputHelper?.WriteLine($"[server {logLevel}] {formatter(state, exception)} {exception}");
+    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+    {
+        var line = $"[server {logLevel}] {formatter(state, exception)} {exception}";
+        Recent.Enqueue(line);
+        while (Recent.Count > 20) { Recent.TryDequeue(out _); }
+        TestContext.Current.TestOutputHelper?.WriteLine(line);
+    }
 }
 
 public sealed class CrmFactory : WebApplicationFactory<Program>

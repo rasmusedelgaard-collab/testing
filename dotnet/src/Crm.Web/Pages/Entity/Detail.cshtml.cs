@@ -175,6 +175,7 @@ public sealed class DetailModel(IRlsDb rls, IRlsContextAccessor identity, TimePr
             }
             if (r != UpdateResult.Ok)
             {
+                if (repo.Diagnostics is not null) { HttpContext.RequestServices.GetRequiredService<ILogger<DetailModel>>().LogWarning("{Diagnostics}", repo.Diagnostics); }
                 return (new SaveOutcome(r == UpdateResult.Conflict ? "conflict" : "notfound", null, new Dictionary<string, string>()), recName);
             }
             var visible = await repo.GetAsync(def.Key, id) is not null;
