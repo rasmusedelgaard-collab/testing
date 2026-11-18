@@ -58,7 +58,7 @@ Option A, concretely (T-SQL in [overview §5](../architecture/overview.md#5-row-
    - The app always derives `TeamId` from the owner's `crm.Users.TeamId`.
    - `fn_RowWriteTarget` rejects rows whose owner is not self or an active member of the caller's team, or whose `TeamId` is not the caller's team. Admin is exempt.
    - Because it also runs AFTER UPDATE, `TeamId` can only change when Admin makes the change.
-   - **Owner reassignment rule (non-Admin, both visibility modes):** after an INSERT or UPDATE, `TeamId` must equal the caller's `TeamId`, and `OwnerId` must be the caller or a user with `crm.Users.TeamId` = caller's `TeamId` and `IsActive = 1`. In `team` mode this lets a User reassign a team-mate's record to themselves or to another active team-mate, never to an inactive user or someone outside the team. A record still owned by a deactivated team-mate can be updated by a non-Admin only if the same update reassigns it to an active team-mate.
+   - **Owner reassignment rule (Managers and Users alike, both visibility modes; only Admin may reassign across teams):** after an INSERT or UPDATE, `TeamId` must equal the caller's `TeamId`, and `OwnerId` must be the caller or a user with `crm.Users.TeamId` = caller's `TeamId` and `IsActive = 1`. In `team` mode this lets a User reassign a team-mate's record to themselves or to another active team-mate, never to an inactive user or someone outside the team. A record still owned by a deactivated team-mate can be updated by a non-Admin only if the same update reassigns it to an active team-mate.
 
 ### Sub-decisions (decided by the user 2026-11-18)
 | # | Decision | Outcome | Alternative not chosen |

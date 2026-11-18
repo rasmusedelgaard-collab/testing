@@ -31,6 +31,12 @@ Option A, with these libraries (all MIT or Apache-2.0; latest majors checked on 
 - **Tests and lint:** `vitest` for unit tests, `@playwright/test` for e2e, ESLint with typescript-eslint.
 - **Database migrations:** a small in-repo runner. It applies `db/migrations/NNN_*.sql` in order, splits on `GO`, and records each version and SHA-256 checksum in `dbo.SchemaVersions`. It runs as the deployer identity, never as `crm_app`.
 - **Hosting:** Azure App Service Linux (Node 22) and Azure SQL Database (serverless), in an EU region. See overview §12.
+- **Interim test hosting (user decision 2026-11-18):** until Azure go-live, the test environment runs on MonsterASP.NET (Windows/IIS with iisnode, shared MSSQL), test data only. The same build runs there because:
+  - DB auth is selected by `DB_AUTH_MODE` = `managed-identity` | `default-azure` | `sql-password` (`DB_USER`/`DB_PASSWORD` from host app settings, never in the repo);
+  - the app listens on `process.env.PORT`, which may be a named pipe under iisnode;
+  - migrations run as the DB owner login, and the app uses a separate low-privilege SQL user in `crm_app_role` if the host allows it. Otherwise connecting as the owner is a documented test-only gap (the owner could disable RLS policies).
+  - The host's database is not serverless, so the auto-pause retry logic is harmless there.
+  - Details in overview §12.3. This is reversible and temporary; it adds no production dependency.
 - **Prod SQL (user decision 2026-11-18):** serverless with **auto-pause after 60 minutes** in every environment, including prod. Public endpoint with "Allow Azure services" and Entra-only authentication. The app retries transient errors (40613 and others) with backoff up to about 60 s and shows a "Waking up the database" page if the database is still not available (overview §8.1).
 
 ## Consequences

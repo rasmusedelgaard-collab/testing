@@ -28,7 +28,7 @@
 **Team source** (decided: T1)
 | Option | Pros | Cons |
 |---|---|---|
-| **T1. Entra security group per team, mapped in `crm.Teams.EntraGroupId`; groups claim limited to "groups assigned to the application"** | Membership is managed in Entra, as the UI spec states. No overage for normal tenants. Read at every login. | Admin must register each team's group object ID once. A user in several team groups gets the lowest TeamId (and a warning in the log). |
+| **T1. Entra security group per team, mapped in `crm.Teams.EntraGroupId`; groups claim limited to "groups assigned to the application"** | Membership is managed in Entra, as the UI spec states. No overage for normal tenants. Read at every login. | Admin must register each team's group object ID once. A user must be in exactly one team group; a user in several gets no team (fail closed), a logged warning and a UI badge until Entra is fixed. |
 | T2. Admin assigns a team per user in the CRM | Simple UI | Contradicts the UI spec (users and teams are read-only, managed in Entra). A second place to maintain membership. |
 | T3. Entra `department` attribute | No groups needed | Free text, often inconsistent. Not reliably in tokens. |
 
@@ -58,7 +58,7 @@
 - **Team mapping:** option T1, approved by the user 2026-11-18.
   - **Teams are Entra security groups**, one group per team, stored as `crm.Teams.EntraGroupId` (unique).
   - **Groups claim** is configured as "Groups assigned to the application" (ID token, group IDs). Each team group must be assigned to the enterprise app.
-  - **Resolution at login:** `usp_UpsertUserOnLogin` intersects the `groups` claim with active `crm.Teams.EntraGroupId` values and stores the result as `crm.Users.TeamId`. No match gives NULL. Several matches give the lowest `TeamId` and a logged warning.
+  - **Resolution at login:** `usp_UpsertUserOnLogin` intersects the `groups` claim with active `crm.Teams.EntraGroupId` values and stores the result as `crm.Users.TeamId`. No match gives NULL. **A user must be in exactly one team group** (user decision 2026-11-18): more than one match gives `TeamId` NULL (fail closed: own records only), a logged warning with the `oid`, and `crm.Users.TeamStatus = 'multiple'`, which shows the warning badge on Settings > Users & teams. No "pick one" rule is applied, so team membership can never be guessed.
   - **Overage** (`_claim_names` contains `groups`, or `hasgroups` is true): no Graph call. `TeamId` is NULL (fail closed: own records only) and an **error** is logged with the user's `oid`.
   - **Admin "Add team" form** on Settings > Users & teams: team name and Entra group object ID (GUID, unique). Writes are Admin-only (route check plus `fn_AdminWrite`) and audited. Users and memberships stay read-only in the CRM.
 
