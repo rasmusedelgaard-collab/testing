@@ -47,10 +47,15 @@ def dml(stmt, cap_rc=True):
 def case_begin(): w("SAVE TRANSACTION sp_case;"); reset(); w("BEGIN TRY")
 def case_end():
     w("END TRY BEGIN CATCH")
-    w("  REVERT;")
+    w("  WHILE USER_NAME() = N'rlstest_app' REVERT;   -- never leave an impersonation behind: the next batch could not even start")
     w("  SELECT 'EXC' AS [Case], 'FAIL' AS Result, N'unexpected error in this case (the other cases still ran)' AS Description, CONCAT(N'err=', ERROR_NUMBER(), N' line=', ERROR_LINE(), N' ', ERROR_MESSAGE()) AS Detail;")
     w("END CATCH;")
+    w("WHILE USER_NAME() = N'rlstest_app' REVERT;")
     w("IF XACT_STATE() = 1 ROLLBACK TRANSACTION sp_case;")
+    w("ELSE IF XACT_STATE() = -1 BEGIN   -- doomed transaction: only a full rollback is possible, so the run cannot continue")
+    w("  ROLLBACK TRANSACTION;")
+    w("  SELECT 'ABORT' AS [Case], 'FAIL' AS Result, N'the transaction became uncommittable; everything was rolled back and the remaining cases cannot run' AS Description, N'' AS Detail;")
+    w("END")
     finish_case_batch()
 INT_IDS=[p[0] for p in PEOPLE]+['T1','T2','Stage','SharedAcc','PicklistId']
 GUID_IDS=['G1','G2','DemoOid']
@@ -59,13 +64,19 @@ def entity_ids():
 def finish_case_batch():
     # every case batch is self-contained: it declares its scratch variables and loads the ids it uses from #ids
     body="\n".join(out); out.clear()
+    # SQL Server variable names are case-INSENSITIVE: scratch variables must never collide with @U3, @N2, ... so they get an s_ prefix
+    body=re.sub(r'@(err|rc|n2|n|e3|e4|e5|d1|d2|d3|u3|j|o2|o)\b', r'@s_\1', body)
     used=set(re.findall(r'@(\w+)',body))
     loads=[]
     for k in INT_IDS+entity_ids():
         if k in used: loads.append(f"@{k} int = (SELECT Id FROM #ids WHERE K = '{k}')")
     for k in GUID_IDS:
         if k in used: loads.append(f"@{k} uniqueidentifier = (SELECT G FROM #ids WHERE K = '{k}')")
-    pre=["DECLARE @j nvarchar(max), @o uniqueidentifier, @err int = 0, @rc int = -1, @n int = -1, @n2 int, @e3 int, @e4 int, @e5 int, @d1 int, @d2 int, @d3 int, @u3 int;"]
+    # First statement of every case batch: drop any impersonation a previous batch leaked (a WITHOUT LOGIN user cannot touch tempdb,
+    # so even loading #ids would fail with error 916). Loop = nested EXECUTE AS levels. Guarded by the name so it can never spin.
+    pre=["WHILE USER_NAME() = N'rlstest_app' REVERT;",
+         "IF @@TRANCOUNT = 0 BEGIN SELECT 'SKIP' AS [Case], 'FAIL' AS Result, N'no open transaction (an earlier case doomed and rolled back the seed data); case not run' AS Description, N'' AS Detail; RETURN; END;"]
+    pre+=["DECLARE @s_j nvarchar(max), @s_o uniqueidentifier, @s_o2 nvarchar(40), @s_err int = 0, @s_rc int = -1, @s_n int = -1, @s_n2 int, @s_e3 int, @s_e4 int, @s_e5 int, @s_d1 int, @s_d2 int, @s_d3 int, @s_u3 int;"]
     if loads: pre.append("DECLARE "+",\n  ".join(loads)+";")
     if '@P' in body: pre.append("DECLARE @P TABLE (UserId int, TeamId int, TeamStatus varchar(10), TeamMatches int);")
     out.extend(pre); out.extend(body.split("\n")); go()
@@ -142,6 +153,7 @@ w("INSERT crm.AuditLog (EntityType, EntityId, Action, OwnerId, TeamId, ChangedBy
 w("""
 -- the test principal: exactly the app's grants
 CREATE USER rlstest_app WITHOUT LOGIN;
+GRANT CONNECT TO rlstest_app;
 ALTER ROLE crm_app_role ADD MEMBER rlstest_app;
 """)
 names=INT_IDS+entity_ids()
@@ -290,19 +302,24 @@ case_begin(); vis('team'); as_user('@U1','User','@T1')
 dml("UPDATE crm.AuditLog SET Action = 'D'")
 w("  REVERT;"); rec('15','AuditLog: no UPDATE grant (append-only)',"@err <> 0"); case_end()
 
-# ---- 16 privileges
+# ---- 16 privileges (checked through permission metadata: a failing ALTER SECURITY POLICY dooms the shared transaction)
 w("-- ---------- 16. app role cannot change security or read migration state ----------")
-case_begin(); as_user('@U1','User','@T1'); dml("ALTER SECURITY POLICY sec.CrmRowPolicy WITH (STATE = OFF)",cap_rc=False); w("  REVERT;")
-w("  SELECT @n = COUNT(*) FROM sys.security_policies WHERE name = N'CrmRowPolicy' AND is_enabled = 1;")
-rec('16','crm_app_role cannot ALTER SECURITY POLICY (policy still enabled)',"@err <> 0 AND @n = 1"); case_end()
-case_begin(); as_user('@U1','User','@T1'); dml("SELECT @n = COUNT(*) FROM dbo.SchemaVersions",cap_rc=False); w("  REVERT;")
-rec('16','crm_app_role cannot SELECT dbo.SchemaVersions (permission denied, 229)',"@err = 229"); case_end()
-case_begin(); as_user('@U1','User','@T1'); dml("INSERT crm.Users (EntraOid, TenantId, DisplayName, Role) VALUES (NEWID(), NEWID(), N'x', 'Admin')"); w("  REVERT;")
-rec('16','crm_app_role cannot INSERT crm.Users (229)',"@err = 229"); case_end()
-case_begin(); as_user('@U1','User','@T1'); dml("UPDATE crm.Users SET Role = 'Admin' WHERE UserId = @U1"); w("  REVERT;")
-rec('16','crm_app_role cannot UPDATE crm.Users (229)',"@err = 229"); case_end()
-case_begin(); as_user('@U1','User','@T1'); dml("SELECT @n = COUNT(*) FROM sec.fn_RowAccess(1, 1)",cap_rc=False); w("  REVERT;")
-rec('16','crm_app_role has no direct access to schema sec (error 229/208)',"@err <> 0"); case_end()
+PERMS=[
+ ('crm_app_role cannot ALTER SECURITY POLICY (object permission)',"HAS_PERMS_BY_NAME(N'sec.CrmRowPolicy', N'OBJECT', N'ALTER')",0),
+ ('crm_app_role has no database-level ALTER ANY SECURITY POLICY',"HAS_PERMS_BY_NAME(DB_NAME(), N'DATABASE', N'ALTER ANY SECURITY POLICY')",0),
+ ('crm_app_role cannot ALTER the other policy either',"HAS_PERMS_BY_NAME(N'sec.CrmConfigPolicy', N'OBJECT', N'ALTER')",0),
+ ('crm_app_role cannot SELECT dbo.SchemaVersions',"HAS_PERMS_BY_NAME(N'dbo.SchemaVersions', N'OBJECT', N'SELECT')",0),
+ ('crm_app_role cannot INSERT crm.Users',"HAS_PERMS_BY_NAME(N'crm.Users', N'OBJECT', N'INSERT')",0),
+ ('crm_app_role cannot UPDATE crm.Users',"HAS_PERMS_BY_NAME(N'crm.Users', N'OBJECT', N'UPDATE')",0),
+ ('crm_app_role cannot DELETE crm.Users',"HAS_PERMS_BY_NAME(N'crm.Users', N'OBJECT', N'DELETE')",0),
+ ('crm_app_role can SELECT crm.Users (control: the owner picker needs it)',"HAS_PERMS_BY_NAME(N'crm.Users', N'OBJECT', N'SELECT')",1),
+ ('crm_app_role has no access to schema sec (predicate functions)',"HAS_PERMS_BY_NAME(N'sec.fn_RowAccess', N'OBJECT', N'SELECT')",0),
+ ('crm_app_role cannot UPDATE or DELETE the append-only AuditLog',"CASE WHEN HAS_PERMS_BY_NAME(N'crm.AuditLog', N'OBJECT', N'UPDATE') = 0 AND HAS_PERMS_BY_NAME(N'crm.AuditLog', N'OBJECT', N'DELETE') = 0 THEN 0 ELSE 1 END",0),
+ ('crm_app_role cannot take ownership or control of crm',"HAS_PERMS_BY_NAME(N'crm.Accounts', N'OBJECT', N'CONTROL')",0),
+]
+for desc,expr,exp in PERMS:
+    case_begin(); w("  EXECUTE AS USER = N'rlstest_app';"); w(f"  SELECT @n = {expr};"); w("  REVERT;")
+    rec('16',desc,f"@n = {exp}","CONCAT(N'perm=', @n)"); case_end()
 
 # ---- 18..21 login upsert proc
 w("-- ---------- 18. crm.usp_UpsertUserOnLogin team resolution (exactly one team group) ----------")
@@ -313,15 +330,18 @@ for cid,desc,groups,over,exp_team,exp_status in (
   ('18d','groups overage -> TeamId NULL, status overage',"N'[]'",1,None,"'overage'"),
   ('18e','overage flag wins even if a group is present',"CONCAT(N'[\"', @G1, N'\"]')",1,None,"'overage'"),
 ):
-    case_begin(); w("  DELETE FROM @P;")
+    case_begin()
     as_user('@U1','User','@T1')
     w("  BEGIN TRY")
     w(f"    SET @j = {groups};")
-    w(f"    INSERT @P EXEC crm.usp_UpsertUserOnLogin @EntraOid = @DemoOid, @TenantId = @DemoOid, @DisplayName = N'RLSTEST login', @Email = NULL, @Role = 'User', @GroupIdsJson = @j, @GroupsOverage = {over};")
+    # The procedure runs as the app principal; its own result set is not captured (a table variable lives in tempdb, which a
+    # WITHOUT LOGIN user must not touch). The outcome is read back from crm.Users after REVERT.
+    w(f"    EXEC crm.usp_UpsertUserOnLogin @EntraOid = @DemoOid, @TenantId = @DemoOid, @DisplayName = N'RLSTEST login', @Email = NULL, @Role = 'User', @GroupIdsJson = @j, @GroupsOverage = {over};")
     w("  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;")
     w("  REVERT;")
-    team_cond = f"(SELECT TeamId FROM @P) = {exp_team}" if exp_team else "(SELECT TeamId FROM @P) IS NULL"
-    rec(cid,'usp_UpsertUserOnLogin: '+desc,f"@err = 0 AND {team_cond} AND (SELECT TeamStatus FROM @P) = {exp_status}","CONCAT(N'err=', @err, N' team=', (SELECT TeamId FROM @P), N' status=', (SELECT TeamStatus FROM @P))")
+    w("  SELECT @n = TeamId, @o2 = TeamStatus FROM crm.Users WHERE EntraOid = @DemoOid;")
+    team_cond = f"@n = {exp_team}" if exp_team else "@n IS NULL"
+    rec(cid,'usp_UpsertUserOnLogin: '+desc,f"@err = 0 AND {team_cond} AND @o2 = {exp_status}","CONCAT(N'err=', @err, N' team=', @n, N' status=', @o2)")
     case_end()
 
 # ---- L1: audit insert null-safe team check, append-only block predicates
@@ -361,9 +381,8 @@ w("-- ---------- 19. usp_UpsertUserOnLogin does not reactivate a deactivated use
 case_begin(); admin_ctx()
 w("  SELECT @o = EntraOid FROM crm.Users WHERE UserId = @U1;")
 w("  UPDATE crm.Users SET IsActive = 0 WHERE UserId = @U1;")
-w("  DELETE FROM @P;")
 w("  BEGIN TRY")
-w("    INSERT @P EXEC crm.usp_UpsertUserOnLogin @EntraOid = @o, @TenantId = @o, @DisplayName = N'RLSTEST U1', @Email = NULL, @Role = 'User', @GroupIdsJson = N'[]', @GroupsOverage = 0;")
+w("    EXEC crm.usp_UpsertUserOnLogin @EntraOid = @o, @TenantId = @o, @DisplayName = N'RLSTEST U1', @Email = NULL, @Role = 'User', @GroupIdsJson = N'[]', @GroupsOverage = 0;")
 w("  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;")
 w("  SELECT @n = IsActive FROM crm.Users WHERE UserId = @U1;")
 rec('19','deactivated user: login procedure throws 50011 and does not set IsActive = 1',"@err = 50011 AND @n = 0"); case_end()
@@ -374,12 +393,12 @@ SELECT 'ROLLBACK' AS [Info], CASE WHEN @@TRANCOUNT = 0 THEN 'transaction rolled 
 """)
 go()
 w("""-- 17. SESSION_CONTEXT read-only behaviour (runs last: it locks the UserId key for this session)
-DECLARE @err int = 0;
+DECLARE @s_err int = 0;
 BEGIN TRY
   EXEC sp_set_session_context N'UserId', 1, 1;
   EXEC sp_set_session_context N'UserId', 2, 1;
-END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
-SELECT '17' AS [Case], CASE WHEN @err <> 0 THEN 'PASS' ELSE 'FAIL' END AS Result, N'second sp_set_session_context(UserId, read_only=1) fails (expected error 15664)' AS Description, CONCAT(N'err=', @err) AS Detail;
+END TRY BEGIN CATCH SET @s_err = ERROR_NUMBER(); END CATCH;
+SELECT '17' AS [Case], CASE WHEN @s_err <> 0 THEN 'PASS' ELSE 'FAIL' END AS Result, N'second sp_set_session_context(UserId, read_only=1) fails (expected error 15664)' AS Description, CONCAT(N'err=', @s_err) AS Detail;
 """)
 go()
 open(sys.argv[1],'w').write("\nGO\n".join("\n".join(b).strip("\n") for b in batches)+"\nGO\n")

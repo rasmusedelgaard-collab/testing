@@ -10,38 +10,71 @@ import { splitBatches } from '../scripts/sqlBatches';
  */
 const script = readFileSync(path.resolve(__dirname, '../db/tests/rls-integration.sql'), 'utf8');
 const batches = splitBatches(script);
-const strip = (b: string) => b.replace(/--[^\n]*/g, '');
-const PROC_PARAMS = new Set(['@EntraOid', '@TenantId', '@DisplayName', '@Email', '@Role', '@GroupIdsJson', '@GroupsOverage']); // named parameters of crm.usp_UpsertUserOnLogin
+/** Blanks comments and string literals (keeps line structure) so variable scanning cannot be fooled by text. */
+const noComments = (b: string) => b.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, '');
+const strip = (b: string) => noComments(b).replace(/N?'(?:[^']|'')*'/g, "''");
+const PROC_PARAMS = new Set(['@entraoid', '@tenantid', '@displayname', '@email', '@role', '@groupidsjson', '@groupsoverage']); // named parameters of crm.usp_UpsertUserOnLogin
+
+interface Declared { name: string; index: number }
+/** Parses every DECLARE statement: names of the comma-separated declarations at nesting depth 0 (a TABLE (...) body has its own commas). */
+function declarations(b: string): Declared[] {
+  const found: Declared[] = [];
+  for (const m of b.matchAll(/\bDECLARE\b/gi)) {
+    let depth = 0;
+    let start = (m.index ?? 0) + m[0].length;
+    const flush = (end: number) => {
+      const part = b.slice(start, end);
+      const v = /^\s*(@\w+)/.exec(part);
+      if (v) found.push({ name: (v[1] as string).toLowerCase(), index: start + part.indexOf(v[1] as string) });
+    };
+    for (let i = start; i <= b.length; i++) {
+      const c = b[i];
+      if (c === '(') depth++;
+      else if (c === ')') depth--;
+      else if ((c === ',' && depth === 0) || c === ';' || c === undefined) {
+        flush(i);
+        if (c !== ',') break;
+        start = i + 1;
+      }
+    }
+  }
+  return found;
+}
+/** SQL Server variable names are case-insensitive, so everything is compared lower-cased. Globals (@@ROWCOUNT) are not variables. */
+const usages = (b: string) => [...b.matchAll(/(?<![@\w])@\w+/g)].map((m) => ({ name: m[0].toLowerCase(), index: m.index ?? 0 }));
+const caseBatches = batches.map((raw, i) => ({ raw, i, text: noComments(raw) })).filter((x) => x.raw.includes('SAVE TRANSACTION sp_case'));
+const REVERT_LOOP = "WHILE USER_NAME() = N'rlstest_app' REVERT;";
 
 describe('rls-integration.sql structure', () => {
   it('is a list of GO-separated batches (not one huge batch)', () => {
     expect(batches.length).toBeGreaterThan(100);
   });
 
-  it('every variable used in a batch is declared in that same batch', () => {
+  it('the declaration parser sees what it should (self-check of the guard)', () => {
+    const d = declarations('DECLARE @a int = (SELECT 1), @B uniqueidentifier;\nDECLARE @P TABLE (X int, Y int);');
+    expect(d.map((x) => x.name)).toEqual(['@a', '@b', '@p']);
+  });
+
+  it('every variable used in a batch is declared in that same batch, before its first use, and only once (case-insensitive)', () => {
     const problems: string[] = [];
     batches.forEach((raw, i) => {
       const b = strip(raw);
-      const declared = new Set<string>();
-      for (const m of b.matchAll(/DECLARE\b([^;]*);/gi)) for (const v of (m[1] as string).matchAll(/(@\w+)\s+(?:int|uniqueidentifier|nvarchar|varchar|TABLE)/gi)) declared.add(v[1] as string);
-      const used = new Set([...b.matchAll(/(?<![@\w])@\w+/g)].map((m) => m[0]));
-      for (const u of used) if (!declared.has(u) && !PROC_PARAMS.has(u)) problems.push(`batch ${i + 1}: ${u}`);
-    });
-    expect(problems).toEqual([]);
-  });
-
-  it('declared variables are declared before their first use inside the batch', () => {
-    const late: string[] = [];
-    batches.forEach((raw, i) => {
-      const b = strip(raw);
-      for (const m of b.matchAll(/DECLARE\b([^;]*);/gi)) {
-        for (const v of (m[1] as string).matchAll(/(@\w+)\s+(?:int|uniqueidentifier|nvarchar|varchar|TABLE)/gi)) {
-          const first = b.search(new RegExp(`(?<![@\\w])${v[1]}\\b`));
-          if (first < (m.index ?? 0)) late.push(`batch ${i + 1}: ${v[1]}`);
-        }
+      const decl = declarations(b);
+      const seen = new Map<string, number>();
+      for (const d of decl) {
+        if (seen.has(d.name)) problems.push(`batch ${i + 1}: ${d.name} declared twice (names are case-insensitive)`);
+        seen.set(d.name, d.index);
+      }
+      const reported = new Set<string>();
+      for (const u of usages(b)) {
+        if (PROC_PARAMS.has(u.name) && /^\s*=/.test(b.slice(u.index + u.name.length))) continue; // EXEC proc @Param = value
+        const at = seen.get(u.name);
+        if (at === undefined && !reported.has(u.name)) problems.push(`batch ${i + 1}: ${u.name} used but not declared in this batch`);
+        else if (at !== undefined && u.index < at && !reported.has(u.name)) problems.push(`batch ${i + 1}: ${u.name} used before its DECLARE`);
+        reported.add(u.name);
       }
     });
-    expect(late).toEqual([]);
+    expect(problems).toEqual([]);
   });
 
   it('no cross-batch scratch table variables are used; ids travel through the #ids temp table', () => {
@@ -51,19 +84,53 @@ describe('rls-integration.sql structure', () => {
     expect(strip(batches[1] as string)).toMatch(/INSERT #ids \(K, Id\) VALUES/);
   });
 
-  it('every case batch takes a savepoint, prints exactly one result row path, and undoes its writes', () => {
-    const cases = batches.filter((b) => b.includes('SAVE TRANSACTION sp_case'));
-    expect(cases.length).toBeGreaterThan(120);
-    for (const b of cases) {
-      expect(b).toMatch(/AS Result/);
-      expect(b).toContain('BEGIN TRY');
-      expect(b).toContain('END CATCH;');
-      expect(b).toContain('IF XACT_STATE() = 1 ROLLBACK TRANSACTION sp_case;');
+  it('every case batch takes a savepoint, prints a result row, catches errors and undoes its writes', () => {
+    expect(caseBatches.length).toBeGreaterThan(120);
+    for (const { raw, i } of caseBatches) {
+      expect(raw, `batch ${i + 1}`).toMatch(/AS Result/);
+      expect(raw, `batch ${i + 1}`).toContain('END TRY BEGIN CATCH\n');
+      expect(raw, `batch ${i + 1}`).toContain('IF XACT_STATE() = 1 ROLLBACK TRANSACTION sp_case;');
+      expect(raw, `batch ${i + 1}: doomed transaction handled`).toMatch(/ELSE IF XACT_STATE\(\) = -1 BEGIN[\s\S]*?ROLLBACK TRANSACTION;[\s\S]*?'ABORT'/);
     }
   });
 
+  it('impersonation is always reverted: guard first, in the CATCH, and before the rollback to the savepoint', () => {
+    for (const { text, i } of caseBatches) {
+      const n = `batch ${i + 1}`;
+      const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+      expect(lines[0], `${n}: first statement drops a leaked impersonation`).toBe(REVERT_LOOP);
+      // loading ids from #ids (tempdb) is impossible while impersonating, so it must come after the guard
+      expect(text.indexOf(REVERT_LOOP)).toBeLessThan(text.indexOf('#ids') === -1 ? Infinity : text.indexOf('#ids'));
+      const catchAt = text.indexOf('\nEND TRY BEGIN CATCH\n');
+      const endCatchAt = text.indexOf('\nEND CATCH;');
+      expect(catchAt, n).toBeGreaterThan(0);
+      const tryPart = text.slice(0, catchAt);
+      const catchPart = text.slice(catchAt, endCatchAt);
+      const after = text.slice(endCatchAt);
+      expect(catchPart, `${n}: CATCH reverts before anything else`).toMatch(/BEGIN CATCH\n\s*WHILE USER_NAME\(\) = N'rlstest_app' REVERT;/);
+      expect(after.indexOf(REVERT_LOOP), `${n}: revert after END CATCH`).toBeGreaterThanOrEqual(0);
+      expect(after.indexOf(REVERT_LOOP), `${n}: revert precedes the savepoint rollback`).toBeLessThan(after.indexOf('ROLLBACK TRANSACTION sp_case'));
+      // normal path: every EXECUTE AS has its own REVERT inside the TRY block
+      const executeAs = (tryPart.match(/\bEXECUTE AS USER\b/gi) ?? []).length;
+      const reverts = (tryPart.match(/\bREVERT;/g) ?? []).length - (tryPart.match(/WHILE USER_NAME\(\) = N'rlstest_app' REVERT;/g) ?? []).length;
+      expect(reverts, `${n}: REVERT count matches EXECUTE AS count`).toBe(executeAs);
+      expect(text).not.toMatch(/EXECUTE AS (?:LOGIN|USER)\s*=\s*N'(?!rlstest_app')/i);
+    }
+  });
+
+  it('a doomed or missing transaction does not cascade: case batches skip when no transaction is open', () => {
+    for (const { text, i } of caseBatches) expect(text, `batch ${i + 1}`).toContain('IF @@TRANCOUNT = 0 BEGIN SELECT');
+  });
+
+  it('the test user can connect (GRANT CONNECT in setup) and only case batches impersonate', () => {
+    expect(noComments(batches[1] as string)).toContain('GRANT CONNECT TO rlstest_app;');
+    batches.forEach((raw, i) => {
+      if (!raw.includes('SAVE TRANSACTION sp_case')) expect(strip(raw), `batch ${i + 1}`).not.toMatch(/EXECUTE AS/i);
+    });
+  });
+
   it('the whole transaction is rolled back at the end and the read-only context case runs after it', () => {
-    const last = batches.slice(-2).map(strip);
+    const last = batches.slice(-2).map(noComments);
     expect(last[0]).toContain('ROLLBACK TRANSACTION;');
     expect(last[1]).toContain('15664');
     expect(script).not.toMatch(/^\s*COMMIT/im);
