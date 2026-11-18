@@ -87,7 +87,7 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
         var r = await PostAsync(c, "/accounts/new", "/accounts", ("Name", ""), ("Website", "nope"), ("City", "Keepville"), ("OwnerId", (await UserIdAsync(UserA1)).ToString(System.Globalization.CultureInfo.InvariantCulture)));
         await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, r);
         var doc = await HttpHelpers.ParseAsync(r);
-        Assert.Equal("Fix 2 problems to save", doc.QuerySelector("#error-summary h2")!.TextContent);
+        Assert.True("Fix 2 problems to save" == doc.QuerySelector("#error-summary h2")!.TextContent, doc.QuerySelector("#error-summary")!.TextContent);
         Assert.Contains("Enter an account name.", doc.QuerySelector("#e-Name")!.TextContent, StringComparison.Ordinal);
         Assert.Equal("Keepville", doc.QuerySelector("#f-City")!.GetAttribute("value"));
         Assert.Equal("true", doc.QuerySelector("#f-Name")!.GetAttribute("aria-invalid"));
@@ -113,7 +113,9 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
         using var _2 = f2;
         await HttpHelpers.ExpectAsync(HttpStatusCode.NotFound, (await a2.GetAsync($"/accounts/{id}")));
         await HttpHelpers.ExpectAsync(HttpStatusCode.NotFound, (await a2.GetAsync($"/accounts/{id}/edit")));
-        Assert.DoesNotContain(name, await (await a2.GetAsync($"/accounts?q={name}")).Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        var hiddenList = await HttpHelpers.ParseAsync(await a2.GetAsync($"/accounts?q={name}"));
+        Assert.Null(hiddenList.QuerySelector("table.data"));
+        Assert.Contains("0 accounts found", hiddenList.QuerySelector("p[role=status]")!.TextContent, StringComparison.Ordinal);
         var (f3, adm) = await AsAsync(Admin);
         using var _3 = f3;
         await HttpHelpers.ExpectAsync(HttpStatusCode.OK, (await adm.GetAsync($"/accounts/{id}")));

@@ -88,7 +88,7 @@ public abstract class EntityPageModel(IRlsDb rls, IRlsContextAccessor identity, 
         var values = result.Values;
         if (!errors.ContainsKey("OwnerId"))
         {
-            var ownerId = values.GetValueOrDefault("OwnerId") is int o ? o : 0;
+            _ = EntityDefinitions.TryParseId(body.GetValueOrDefault("OwnerId")?.Trim(), out var ownerId);
             var inList = env.Owners.Any(x => x.Id == ownerId);
             var keepsCurrent = current is not null && current.Int("OwnerId") == ownerId;
             var admin = Ctx.Role == CrmRole.Admin;

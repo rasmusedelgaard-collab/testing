@@ -14,7 +14,7 @@ public sealed record TabInfo(string Key, string Label, int Count, string Href, b
 
 public sealed record TabTable(string Title, IReadOnlyList<string> Columns, IReadOnlyList<IReadOnlyList<Cell>> Rows, string NewHref, string NewLabel);
 
-public sealed record CloseResult(string Kind, string Message = "", bool Moved = false, ConfirmPage? Extra = null);
+public sealed record CloseResult(string Kind, string Message = "", bool Moved = false, ConfirmPage? Extra = null, object? Data = null);
 
 public sealed record HistoryLine(string At, string By, string Text, bool Owner);
 
@@ -57,37 +57,46 @@ public sealed class DetailModel(IRlsDb rls, IRlsContextAccessor identity, TimePr
 
     public bool Edited { get; private set; }
 
-    public Task<IActionResult> OnGetAsync(string? entity, int id) => ShowDetailAsync(entity ?? "", id, null);
+    public Task<IActionResult> OnGetAsync(string? entity, int id) => ShowDetailAsync(entity ?? "", id);
 
-    private async Task<IActionResult> ShowDetailAsync(string entity, int id, string? lostError)
+    private sealed record DetailData(Row Row, Lookups Lk, string Today, IReadOnlyDictionary<string, IReadOnlyList<Row>> Related, IReadOnlyList<HistoryRow> History);
+
+    /// <summary>Everything the detail view needs, read inside the request's single transaction.</summary>
+    private async Task<DetailData?> LoadDetailAsync(CrmRepo repo, int id)
+    {
+        var def = Def;
+        var row = await repo.GetAsync(def.Key, id);
+        if (row is null)
+        {
+            return null;
+        }
+        var lk = await repo.LookupsAsync();
+        var today = Today(lk.Settings);
+        async Task<IReadOnlyList<Row>> Rel(string e, string filter)
+        {
+            var filters = new Dictionary<string, string>(StringComparer.Ordinal) { [filter] = id.ToString(System.Globalization.CultureInfo.InvariantCulture) };
+            if (e is "opportunities" or "activities") { filters["status"] = "all"; }
+            var q = new ListQuery("", 1, 100, EntityDefinitions.All[e].DefaultSort, "asc", filters, today);
+            return (await repo.ListAsync(e, q)).Rows;
+        }
+        var related = new Dictionary<string, IReadOnlyList<Row>>(StringComparer.Ordinal);
+        if (def.Key == "accounts") { related["contacts"] = await Rel("contacts", "account"); related["opportunities"] = await Rel("opportunities", "account"); related["activities"] = await Rel("activities", "account"); }
+        if (def.Key == "contacts") { related["opportunities"] = await Rel("opportunities", "contact"); related["activities"] = await Rel("activities", "contact"); }
+        if (def.Key == "opportunities") { related["activities"] = await Rel("activities", "opportunity"); }
+        return new DetailData(row, lk, today, related, await repo.HistoryAsync(def.Key, id));
+    }
+
+    private async Task<IActionResult> ShowDetailAsync(string entity, int id)
     {
         SetEntity(entity);
+        var data = await RunAsync(repo => LoadDetailAsync(repo, id)) ?? throw new NotFoundException();
+        return ApplyDetail(data, id, null);
+    }
+
+    private IActionResult ApplyDetail(DetailData data, int id, string? lostError)
+    {
         var def = Def;
         var tabParam = Request.Query.TryGetValue("tab", out var tv) ? tv.ToString() : "";
-        var data = await RunAsync(async repo =>
-        {
-            var row = await repo.GetAsync(def.Key, id);
-            if (row is null)
-            {
-                return null;
-            }
-            var lk = await repo.LookupsAsync();
-            var today = Today(lk.Settings);
-            async Task<IReadOnlyList<Row>> Rel(string e, string filter)
-            {
-                var filters = new Dictionary<string, string>(StringComparer.Ordinal) { [filter] = id.ToString(System.Globalization.CultureInfo.InvariantCulture) };
-                if (e is "opportunities" or "activities") { filters["status"] = "all"; }
-                var q = new ListQuery("", 1, 100, EntityDefinitions.All[e].DefaultSort, "asc", filters, today);
-                return (await repo.ListAsync(e, q)).Rows;
-            }
-            var related = new Dictionary<string, IReadOnlyList<Row>>(StringComparer.Ordinal);
-            if (def.Key == "accounts") { related["contacts"] = await Rel("contacts", "account"); related["opportunities"] = await Rel("opportunities", "account"); related["activities"] = await Rel("activities", "account"); }
-            if (def.Key == "contacts") { related["opportunities"] = await Rel("opportunities", "contact"); related["activities"] = await Rel("activities", "contact"); }
-            if (def.Key == "opportunities") { related["activities"] = await Rel("activities", "opportunity"); }
-            var history = await repo.HistoryAsync(def.Key, id);
-            return new { Row = row, Lk = lk, Today = today, Related = related, History = history };
-        }) ?? throw new NotFoundException();
-
         var f = new Formatter(data.Lk.Settings.LocaleCode, data.Lk.Settings.Timezone);
         var row = data.Row;
         Row = row;
@@ -224,7 +233,7 @@ public sealed class DetailModel(IRlsDb rls, IRlsContextAccessor identity, TimePr
             if (stage is null) { return new CloseResult("error", $"No {outcome} stage is configured."); }
             _ = EntityDefinitions.TryParseId(lostRaw, out var lostReason);
             var reason = lk.List("lost_reason").FirstOrDefault(p => p.Active && p.Id == lostReason);
-            if (outcome == "lost" && reason is null) { return new CloseResult("lostError"); }
+            if (outcome == "lost" && reason is null) { return new CloseResult("lostError", Data: await LoadDetailAsync(repo, id)); } // same transaction: one RunAsync per request
             var today = Today(lk.Settings);
             var moved = string.CompareOrdinal(row.S("CloseDate"), today) > 0;
             if (!confirmed)
@@ -245,7 +254,7 @@ public sealed class DetailModel(IRlsDb rls, IRlsContextAccessor identity, TimePr
         {
             case "notfound": throw new NotFoundException();
             case "conflict": throw new EditConflictException($"{def.Path}/{id}");
-            case "lostError": return await ShowDetailAsync(def.Key, id, "Choose why this was lost.");
+            case "lostError": return ApplyDetail((DetailData)res.Data!, id, "Choose why this was lost.");
             case "confirm":
                 Confirm = res.Extra;
                 ViewData["Title"] = res.Extra!.Title;
