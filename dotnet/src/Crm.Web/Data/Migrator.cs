@@ -156,7 +156,7 @@ public sealed class Migrator(SqlConnectionFactory factory, TextWriter output, Te
         string text;
         try
         {
-            text = await File.ReadAllTextAsync(Path.GetFullPath(file), ct).ConfigureAwait(false);
+            text = await File.ReadAllTextAsync(ResolveFile(file), ct).ConfigureAwait(false);
         }
         catch (IOException e)
         {
@@ -199,6 +199,27 @@ public sealed class Migrator(SqlConnectionFactory factory, TextWriter output, Te
         }
         output.WriteLine("No FAIL rows.");
         return 0;
+    }
+
+    /// <summary>
+    /// A relative path is taken from the current directory; if it is not there (`dotnet run --project` starts in the project
+    /// folder), parent directories are tried, so `run-sql db/tests/x.sql` works from the repository root.
+    /// </summary>
+    internal static string ResolveFile(string file)
+    {
+        if (Path.IsPathRooted(file) || File.Exists(file))
+        {
+            return Path.GetFullPath(file);
+        }
+        for (var d = new DirectoryInfo(Directory.GetCurrentDirectory()); d is not null; d = d.Parent)
+        {
+            var candidate = Path.Combine(d.FullName, file);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+        return Path.GetFullPath(file);
     }
 
     private async Task<int> PrintRowsAsync(SqlDataReader r, CancellationToken ct)
