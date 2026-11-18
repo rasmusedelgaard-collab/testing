@@ -12,7 +12,7 @@ public enum ErrorKind { Generic, Waking, Conflict }
 /// <summary>Port of errorPages.ts + error.ejs/waking.ejs/conflict.ejs: one handler maps exceptions and status codes.</summary>
 [AllowAnonymous]
 [IgnoreAntiforgeryToken]
-public sealed class ErrorModel : PageModel
+public sealed class ErrorModel(ILogger<ErrorModel> log) : PageModel
 {
     public ErrorKind Kind { get; private set; }
     public string PageTitle { get; private set; } = "Error";
@@ -32,6 +32,11 @@ public sealed class ErrorModel : PageModel
         var original = HttpContext.Features.Get<IExceptionHandlerFeature>()?.Error;
         IsPost = !HttpMethods.IsGet(HttpContext.Request.Method);
         var status = code ?? 500;
+        if (original is AppException { InnerException: { } inner })
+        {
+            // The mapped exception hides the driver error; keep the SQL error number and message (no row values) for diagnosis.
+            log.LogWarning("request failed with {Status}: {Type} {Message}", ((AppException)original).Status, inner.GetType().Name, inner.Message);
+        }
 
         if (original is BadHttpRequestException { StatusCode: 413 })
         {

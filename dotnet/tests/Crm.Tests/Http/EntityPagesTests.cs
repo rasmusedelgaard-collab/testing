@@ -39,7 +39,7 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
         var f = new CrmFactory(fx.AppDb);
         var c = HttpHelpers.NewClient(f);
         var r = await HttpHelpers.SignInAsync(c, oid);
-        Assert.Equal(HttpStatusCode.SeeOther, r.StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, r);
         return (f, c);
     }
 
@@ -52,7 +52,7 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
     private static async Task<int> CreateAccountAsync(HttpClient c, string name, int ownerId)
     {
         var r = await PostAsync(c, "/accounts/new", "/accounts", ("Name", name), ("OwnerId", ownerId.ToString(System.Globalization.CultureInfo.InvariantCulture)), ("City", "Aarhus"));
-        Assert.Equal(HttpStatusCode.SeeOther, r.StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, r);
         var m = AccountPath().Match(r.Headers.Location!.OriginalString);
         Assert.True(m.Success, r.Headers.Location.OriginalString);
         return int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
@@ -68,7 +68,7 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
         var name = Unique("Acme");
         var id = await CreateAccountAsync(c, name, await UserIdAsync(UserA1));
         var page = await c.GetAsync($"/accounts/{id}");
-        Assert.Equal(HttpStatusCode.OK, page.StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.OK, page);
         Assert.Equal("no-store", page.Headers.CacheControl!.ToString());
         var doc = await HttpHelpers.ParseAsync(page);
         Assert.Equal("Account saved.", doc.QuerySelector(".flash")!.TextContent);
@@ -85,7 +85,7 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
         var (f, c) = await AsAsync(UserA1);
         using var _ = f;
         var r = await PostAsync(c, "/accounts/new", "/accounts", ("Name", ""), ("Website", "nope"), ("City", "Keepville"), ("OwnerId", (await UserIdAsync(UserA1)).ToString(System.Globalization.CultureInfo.InvariantCulture)));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, r.StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, r);
         var doc = await HttpHelpers.ParseAsync(r);
         Assert.Equal("Fix 2 problems to save", doc.QuerySelector("#error-summary h2")!.TextContent);
         Assert.Contains("Enter an account name.", doc.QuerySelector("#e-Name")!.TextContent, StringComparison.Ordinal);
@@ -99,7 +99,7 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
         var (f, c) = await AsAsync(UserA1);
         using var _ = f;
         var r = await c.PostAsync("/accounts", HttpHelpers.Form(("Name", "x"), ("OwnerId", "1")));
-        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.Forbidden, r);
     }
 
     [SqlFact]
@@ -111,15 +111,15 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
         var id = await CreateAccountAsync(a1, name, await UserIdAsync(UserA1));
         var (f2, a2) = await AsAsync(UserA2);
         using var _2 = f2;
-        Assert.Equal(HttpStatusCode.NotFound, (await a2.GetAsync($"/accounts/{id}")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await a2.GetAsync($"/accounts/{id}/edit")).StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.NotFound, (await a2.GetAsync($"/accounts/{id}")));
+        await HttpHelpers.ExpectAsync(HttpStatusCode.NotFound, (await a2.GetAsync($"/accounts/{id}/edit")));
         Assert.DoesNotContain(name, await (await a2.GetAsync($"/accounts?q={name}")).Content.ReadAsStringAsync(), StringComparison.Ordinal);
         var (f3, adm) = await AsAsync(Admin);
         using var _3 = f3;
-        Assert.Equal(HttpStatusCode.OK, (await adm.GetAsync($"/accounts/{id}")).StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.OK, (await adm.GetAsync($"/accounts/{id}")));
         var (f4, mgrB) = await AsAsync(ManagerB);
         using var _4 = f4;
-        Assert.Equal(HttpStatusCode.NotFound, (await mgrB.GetAsync($"/accounts/{id}")).StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.NotFound, (await mgrB.GetAsync($"/accounts/{id}")));
     }
 
     [SqlFact]
@@ -133,9 +133,9 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
         var rowVer = editDoc.QuerySelector("input[name=rowVer]")!.GetAttribute("value")!;
         var token = editDoc.QuerySelector("input[name=_csrf]")!.GetAttribute("value")!;
         var ok = await c.PostAsync($"/accounts/{id}", HttpHelpers.Form(("_csrf", token), ("rowVer", rowVer), ("Name", "Renamed"), ("OwnerId", me.ToString(System.Globalization.CultureInfo.InvariantCulture))));
-        Assert.Equal(HttpStatusCode.SeeOther, ok.StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, ok);
         var stale = await c.PostAsync($"/accounts/{id}", HttpHelpers.Form(("_csrf", token), ("rowVer", rowVer), ("Name", "Stale overwrite"), ("OwnerId", me.ToString(System.Globalization.CultureInfo.InvariantCulture))));
-        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.Conflict, stale);
         var doc = await HttpHelpers.ParseAsync(stale);
         Assert.Equal("Someone else changed this record", doc.QuerySelector("h1")!.TextContent);
         var detail = await (await c.GetAsync($"/accounts/{id}")).Content.ReadAsStringAsync();
@@ -150,7 +150,7 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
         using var _ = f;
         var other = await UserIdAsync(ManagerB);
         var r = await PostAsync(c, "/accounts/new", "/accounts", ("Name", Unique("X")), ("OwnerId", other.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, r.StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, r);
         Assert.Contains("Choose an owner from your team.", await r.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         var form = await HttpHelpers.ParseAsync(await c.GetAsync("/accounts/new"));
         var labels = form.QuerySelectorAll("#f-OwnerId option").Select(o => o.TextContent).ToList();
@@ -174,7 +174,7 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
         var r = await a1.PostAsync($"/accounts/{mine}", HttpHelpers.Form(
             ("_csrf", edit.QuerySelector("input[name=_csrf]")!.GetAttribute("value")!), ("rowVer", edit.QuerySelector("input[name=rowVer]")!.GetAttribute("value")!),
             ("Name", "Handed"), ("OwnerId", (await UserIdAsync(UserA2)).ToString(System.Globalization.CultureInfo.InvariantCulture))));
-        Assert.Equal(HttpStatusCode.SeeOther, r.StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, r);
         Assert.Equal("/accounts", r.Headers.Location!.OriginalString);
         var list = await HttpHelpers.ParseAsync(await a1.GetAsync("/accounts"));
         Assert.Contains("Saved and assigned to Test User A2.", list.QuerySelector(".flash")!.TextContent, StringComparison.Ordinal);
@@ -190,9 +190,9 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
         Assert.StartsWith("Delete ", confirm.QuerySelector("h1")!.TextContent, StringComparison.Ordinal);
         var token = confirm.QuerySelector("input[name=_csrf]")!.GetAttribute("value")!;
         var r = await c.PostAsync($"/accounts/{id}/delete", HttpHelpers.Form(("_csrf", token)));
-        Assert.Equal(HttpStatusCode.SeeOther, r.StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await c.GetAsync($"/accounts/{id}")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await c.PostAsync($"/accounts/{id}/delete", HttpHelpers.Form(("_csrf", token)))).StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, r);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.NotFound, (await c.GetAsync($"/accounts/{id}")));
+        await HttpHelpers.ExpectAsync(HttpStatusCode.NotFound, (await c.PostAsync($"/accounts/{id}/delete", HttpHelpers.Form(("_csrf", token)))));
     }
 
     [SqlFact]
@@ -205,26 +205,26 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
         var form = await HttpHelpers.ParseAsync(await c.GetAsync("/opportunities/new"));
         var stage = form.QuerySelectorAll("#f-StageId option").First().GetAttribute("value")!;
         var bad = await PostAsync(c, "/opportunities/new", "/opportunities", ("Name", "Deal"), ("AccountId", acc.ToString(System.Globalization.CultureInfo.InvariantCulture)), ("StageId", stage), ("Amount", "12.5"), ("CurrencyCode", "DKK"), ("CloseDate", "2099-12-31"), ("OwnerId", me));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, bad.StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, bad);
         Assert.Contains("Enter an amount, for example 12.500,00.", await bad.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         var good = await PostAsync(c, "/opportunities/new", "/opportunities", ("Name", "Deal"), ("AccountId", acc.ToString(System.Globalization.CultureInfo.InvariantCulture)), ("StageId", stage), ("Amount", "1.234,50"), ("CurrencyCode", "DKK"), ("CloseDate", "2099-12-31"), ("OwnerId", me));
-        Assert.Equal(HttpStatusCode.SeeOther, good.StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, good);
         var detail = await HttpHelpers.ParseAsync(await c.GetAsync(good.Headers.Location!.OriginalString));
         Assert.Contains("DKK 1.234,50", detail.QuerySelector("dl.details")!.TextContent, StringComparison.Ordinal);
         var rowVer = detail.QuerySelector("input[name=rowVer]")!.GetAttribute("value")!;
         var token = detail.QuerySelector("input[name=_csrf]")!.GetAttribute("value")!;
         var oppPath = good.Headers.Location.OriginalString;
         var confirm = await c.PostAsync(oppPath + "/won", HttpHelpers.Form(("_csrf", token), ("rowVer", rowVer)));
-        Assert.Equal(HttpStatusCode.OK, confirm.StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.OK, confirm);
         var confirmDoc = await HttpHelpers.ParseAsync(confirm);
         Assert.Contains("The close date will be set to today.", confirmDoc.QuerySelector("main p")!.TextContent, StringComparison.Ordinal);
         var token2 = confirmDoc.QuerySelector("input[name=_csrf]")!.GetAttribute("value")!;
         var done = await c.PostAsync(oppPath + "/won", HttpHelpers.Form(("_csrf", token2), ("rowVer", rowVer), ("lostReason", ""), ("confirm", "1")));
-        Assert.Equal(HttpStatusCode.SeeOther, done.StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, done);
         var after = await HttpHelpers.ParseAsync(await c.GetAsync(oppPath));
         Assert.Contains("Opportunity marked as won. Close date set to today.", after.QuerySelector(".flash")!.TextContent, StringComparison.Ordinal);
         var stale = await c.PostAsync(oppPath + "/won", HttpHelpers.Form(("_csrf", token2), ("rowVer", rowVer), ("confirm", "1")));
-        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.Conflict, stale);
     }
 
     [SqlFact]
@@ -240,7 +240,7 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
         var detail = await HttpHelpers.ParseAsync(await c.GetAsync(good.Headers.Location!.OriginalString));
         var r = await c.PostAsync(good.Headers.Location.OriginalString + "/lost", HttpHelpers.Form(
             ("_csrf", detail.QuerySelector("input[name=_csrf]")!.GetAttribute("value")!), ("rowVer", detail.QuerySelector("input[name=rowVer]")!.GetAttribute("value")!), ("lostReason", "")));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, r.StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, r);
         Assert.Contains("Choose why this was lost.", await r.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
 
@@ -252,20 +252,20 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
         var me = (await UserIdAsync(UserA1)).ToString(System.Globalization.CultureInfo.InvariantCulture);
         var acc = (await CreateAccountAsync(c, Unique("ActAcc"), await UserIdAsync(UserA1))).ToString(System.Globalization.CultureInfo.InvariantCulture);
         var none = await PostAsync(c, "/activities/new", "/activities", ("ActivityType", "call"), ("Subject", "Ring"), ("OwnerId", me));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, none.StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, none);
         Assert.Contains("Link this activity to an account, contact or opportunity.", await none.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         var ok = await PostAsync(c, "/activities/new", "/activities", ("ActivityType", "note"), ("Subject", "Memo"), ("AccountId", acc), ("DueDate", "2030-01-01"), ("OwnerId", me));
-        Assert.Equal(HttpStatusCode.SeeOther, ok.StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, ok);
         var path = ok.Headers.Location!.OriginalString;
         var detail = await HttpHelpers.ParseAsync(await c.GetAsync(path));
         var token = detail.QuerySelector("input[name=_csrf]")!.GetAttribute("value")!;
         var done = await c.PostAsync(path + "/done", HttpHelpers.Form(("_csrf", token), ("returnTo", "https://evil.example/")));
-        Assert.Equal(HttpStatusCode.SeeOther, done.StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, done);
         Assert.Equal("/activities", done.Headers.Location!.OriginalString);
         var again = await HttpHelpers.ParseAsync(await c.GetAsync(path));
         Assert.Contains("Marked as done.", again.QuerySelector(".flash")!.TextContent, StringComparison.Ordinal);
         Assert.Equal("Mark as not done", again.QuerySelector(".actions form button")!.TextContent);
-        Assert.Equal(HttpStatusCode.NotFound, (await c.PostAsync("/activities/2147483647/done", HttpHelpers.Form(("_csrf", token)))).StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.NotFound, (await c.PostAsync("/activities/2147483647/done", HttpHelpers.Form(("_csrf", token)))));
     }
 
     [SqlFact]
@@ -275,7 +275,7 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
         using var _ = f;
         foreach (var url in new[] { "/accounts?sort=Name;DROP TABLE x&dir=sideways", "/accounts?owner=abc&industry=1e5&page=-3&pageSize=7", "/opportunities?status=bogus&from=2026-02-30", "/activities?due=%27%20OR%201=1", "/contacts?q=%25_%5B" })
         {
-            Assert.Equal(HttpStatusCode.OK, (await c.GetAsync(url)).StatusCode);
+            await HttpHelpers.ExpectAsync(HttpStatusCode.OK, (await c.GetAsync(url)));
         }
     }
 
@@ -286,7 +286,7 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
         using var _ = f;
         foreach (var url in new[] { "/accounts/0", "/accounts/abc", "/accounts/99999999999", "/widgets", "/accounts/1/unknown" })
         {
-            Assert.Equal(HttpStatusCode.NotFound, (await c.GetAsync(url)).StatusCode);
+            await HttpHelpers.ExpectAsync(HttpStatusCode.NotFound, (await c.GetAsync(url)));
         }
     }
 
@@ -309,11 +309,11 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
     {
         var (f, c) = await AsAsync(ManagerA);
         using var _ = f;
-        Assert.Equal(HttpStatusCode.OK, (await c.GetAsync("/accounts")).StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.OK, (await c.GetAsync("/accounts")));
         var (f2, n) = await AsAsync("00000000-0000-4000-8000-00000000c001");
         using var _2 = f2;
-        Assert.Equal(HttpStatusCode.OK, (await n.GetAsync("/contacts")).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await n.GetAsync("/opportunities")).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await n.GetAsync("/activities")).StatusCode);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.OK, (await n.GetAsync("/contacts")));
+        await HttpHelpers.ExpectAsync(HttpStatusCode.OK, (await n.GetAsync("/opportunities")));
+        await HttpHelpers.ExpectAsync(HttpStatusCode.OK, (await n.GetAsync("/activities")));
     }
 }

@@ -20,6 +20,18 @@ public static class HttpHelpers
         return doc.QuerySelector("input[name=_csrf]")?.GetAttribute("value") ?? throw new InvalidOperationException($"No antiforgery token on {path} ({(int)r.StatusCode})");
     }
 
+    private static readonly System.Text.RegularExpressions.Regex Tags = new("<[^>]+>|\\s+", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>Asserts the status and, on mismatch, shows the page text so the cause is visible in CI logs.</summary>
+    public static async Task ExpectAsync(HttpStatusCode expected, HttpResponseMessage r)
+    {
+        if (r.StatusCode != expected)
+        {
+            var text = Tags.Replace(await r.Content.ReadAsStringAsync(), " ");
+            Assert.Fail($"Expected {expected} but got {(int)r.StatusCode} {r.StatusCode} for {r.RequestMessage?.Method} {r.RequestMessage?.RequestUri?.PathAndQuery} location={r.Headers.Location}: {(text.Length > 600 ? text[..600] : text)}");
+        }
+    }
+
     public static FormUrlEncodedContent Form(params (string, string)[] fields) =>
         new(fields.Select(f => new KeyValuePair<string, string>(f.Item1, f.Item2)));
 

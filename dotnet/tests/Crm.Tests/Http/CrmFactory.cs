@@ -33,7 +33,7 @@ public sealed class TestOutputLoggerProvider : ILoggerProvider, ILogger
 
     public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
-    public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Error;
+    public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Warning;
 
     public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
         TestContext.Current.TestOutputHelper?.WriteLine($"[server {logLevel}] {formatter(state, exception)} {exception}");
