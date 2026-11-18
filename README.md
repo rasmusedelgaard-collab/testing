@@ -29,7 +29,6 @@ unit tests use) is also demo mode and additionally enables `GET /__test/login?ro
 | `npm run build` | Compile to `dist/` and copy views and public assets |
 | `npm start` | Run the compiled app (`node dist/server.js`) |
 | `npm run package` | Build + assemble `package/` (dist, production node_modules, web.config, db scripts) for the MonsterASP deploy branch |
-| `npm run package` | Build + assemble `package/` (dist, production node_modules, web.config, db scripts) for the MonsterASP deploy branch |
 | `npm test` | Unit tests (vitest) |
 | `npm run lint` | ESLint, including the restriction on importing the DB pool |
 | `npm run typecheck` | `tsc --noEmit` (strict) |

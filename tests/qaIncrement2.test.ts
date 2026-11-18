@@ -78,8 +78,8 @@ describe('validation: summary + inline errors + input kept, for every entity', (
     expect(row).toMatchObject({ OwnerId: 3, TeamId: 1, CreatedBy: 3 });
     expect(row.Id).not.toBe(1);
   });
-  // OPEN DEFECT QA-I2-2 (Low): body-parser's 413 is not an AppError, so the handler answers 500 "Something went wrong". it.fails: remove marker once fixed.
-  it.fails('oversized body gives a clean 4xx page, not a 500 (QA-I2-2)', async () => {
+  // QA-I2-2 fixed: body-parser 413 renders the 'too large' page.
+  it('oversized body gives a clean 4xx page, not a 500 (QA-I2-2)', async () => {
     const s = await session('User');
     const res = await s.post('/accounts', { Name: 'x', OwnerId: '3', Notes: 'y'.repeat(200_000) });
     expect(res.status).toBeGreaterThanOrEqual(400);
@@ -185,7 +185,7 @@ describe('hand-off and owner choices', () => {
   // The overview 5.2 consequence: editing a record whose owner is now inactive must keep the user on the form.
   // OPEN DEFECT QA-I2-1 (Medium): the form keeps the inactive owner selectable (UI spec) and the route accepts it, but the
   // DB rule (overview 5.2) rejects it, so the user gets a bare 403 and loses the input. it.fails: remove marker once fixed.
-  it.fails('team mode: editing a team-mate record whose owner is inactive and unchanged gives a field error, not a bare 403 (QA-I2-1)', async () => {
+  it('team mode: editing a team-mate record whose owner is inactive and unchanged gives a field error, not a bare 403 (QA-I2-1)', async () => {
     const s = await session('User', 'team');
     s.state.users.find((u) => u.id === 4)!.active = false;
     const rv = await s.rowVer('/accounts/2');

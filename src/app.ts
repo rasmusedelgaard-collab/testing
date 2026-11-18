@@ -63,6 +63,7 @@ export function createApp(deps: AppDeps): Express {
   // Probe results are cached for 10 s and the endpoint is rate limited, so it cannot hammer (or keep awake) the database.
   const probe = cachedProbe(deps.ping ?? pingDatabase, 10_000);
   app.get('/readyz', rateLimit({ max: 30, windowMs: 60_000 }), async (_req, res) => {
+    if (config.demoMode && !deps.ping) return res.json({ status: 'ok', db: 'demo' }); // no database in demo mode
     const ok = await probe();
     res.status(ok ? 200 : 503).type('text/plain').send(ok ? 'ok' : 'fail');
   });

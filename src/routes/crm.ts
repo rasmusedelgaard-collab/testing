@@ -21,6 +21,7 @@ const FK_MESSAGE: Record<EntityKey, string> = {
   activities: 'This activity cannot be deleted right now.',
 };
 
+const WRITE_BLOCKED = "You can't save this record with that owner. Choose an owner from your team.";
 const parseId = (raw: string | string[] | undefined): number => {
   if (typeof raw !== 'string' || !/^[1-9]\d{0,9}$/.test(raw)) throw new NotFoundError();
   const n = Number(raw);
@@ -110,10 +111,15 @@ function mount(router: Router, store: CrmStore, def: EntityDef): void {
       const env = await formEnv(repo, req, lk, null);
       const { values, errors } = await prepare(repo, req, lk, env, body, null);
       if (Object.keys(errors).length > 0) return { kind: 'invalid' as const, env, errors };
-      const id = await repo.create(key, values, metaOf(req));
-      const visible = await repo.get(key, id);
-      const owner = await repo.ownerById(Number(values.OwnerId));
-      return { kind: 'saved' as const, id, visible: visible !== null, ownerName: owner?.name ?? '' };
+      try {
+        const id = await repo.create(key, values, metaOf(req));
+        const visible = await repo.get(key, id);
+        const owner = await repo.ownerById(Number(values.OwnerId));
+        return { kind: 'saved' as const, id, visible: visible !== null, ownerName: owner?.name ?? '' };
+      } catch (err) {
+        if (err instanceof ForbiddenError) return { kind: 'invalid' as const, env, errors: { OwnerId: WRITE_BLOCKED } };
+        throw err;
+      }
     });
     if (out.kind === 'invalid') return renderForm(res, req, { title: `New ${def.singular}`, action: base, cancel: base, values: rawValues(body), errors: out.errors, env: out.env });
     afterSave(req, res, out);
@@ -133,8 +139,13 @@ function mount(router: Router, store: CrmStore, def: EntityDef): void {
     const { values, errors } = validateEntity(key, body, lk);
     const ownerId = Number(str(body.OwnerId));
     if (!errors.OwnerId) {
-      const allowed = env.owners.some((o: OwnerOption) => o.id === ownerId) || (current !== null && Number(current.OwnerId) === ownerId);
-      if (!allowed) errors.OwnerId = ctxOf(req).role === 'Admin' ? 'Choose an owner.' : 'Choose an owner from your team.';
+      const inList = env.owners.some((o: OwnerOption) => o.id === ownerId);
+      const keepsCurrent = current !== null && Number(current.OwnerId) === ownerId;
+      const admin = ctxOf(req).role === 'Admin';
+      if (!inList && !(keepsCurrent && admin)) {
+        // A non-Admin cannot save a record that stays with an inactive (or out-of-team) owner: fn_RowWriteTarget rejects it.
+        errors.OwnerId = admin ? 'Choose an owner.' : keepsCurrent && env.currentOwner && !env.currentOwner.active ? 'Current owner is inactive: choose a new owner.' : 'Choose an owner from your team.';
+      }
     }
     {
       for (const [field, entity, message] of REF_FIELDS) {
@@ -215,7 +226,14 @@ function mount(router: Router, store: CrmStore, def: EntityDef): void {
       const env = await formEnv(repo, req, lk, current);
       const { values, errors } = await prepare(repo, req, lk, env, body, current);
       if (Object.keys(errors).length > 0) return { kind: 'invalid' as const, env, errors, name: recordName(key, current) };
-      const result = await repo.update(key, id, values, rowVer, metaOf(req));
+      let result;
+      try {
+        result = await repo.update(key, id, values, rowVer, metaOf(req));
+      } catch (err) {
+        // The database refused the resulting row (33504): keep the user's input and say why.
+        if (err instanceof ForbiddenError) return { kind: 'invalid' as const, env, errors: { OwnerId: WRITE_BLOCKED }, name: recordName(key, current) };
+        throw err;
+      }
       if (result !== 'ok') return { kind: result };
       const visible = await repo.get(key, id);
       const owner = await repo.ownerById(Number(values.OwnerId));

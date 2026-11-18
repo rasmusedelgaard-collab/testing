@@ -1,4 +1,4 @@
-/* eslint-disable no-undef, @typescript-eslint/no-require-imports -- standalone CommonJS script; page.evaluate callbacks run in the browser */
+/* eslint-disable @typescript-eslint/no-require-imports -- standalone CommonJS script; page.evaluate callbacks run in the browser */
 /**
  * Increment 2 end-to-end journeys in demo mode (in-memory CRM store, headless Chromium):
  * create -> edit -> edit conflict (two browser sessions) -> delete for every entity, plus role-based checks.

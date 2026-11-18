@@ -48,3 +48,27 @@ describe('N3: NODE_ENV=test is refused next to a real environment', () => {
     expect(loadConfig({ NODE_ENV: 'test' }).demoMode).toBe(true);
   });
 });
+
+describe('QA-I2 fixes', () => {
+  it('I2-3: /readyz in demo mode answers 200 with a JSON body', async () => {
+    const { app } = makeApp({ config: demoConfig(), store: createMemoryStore() });
+    const res = await request(app).get('/readyz');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ status: 'ok', db: 'demo' });
+  });
+  it('I2-1: the error names the problem (inactive owner) on the owner field', async () => {
+    const store = createMemoryStore();
+    store.state.settings.visibilityMode = 'team';
+    store.state.users.find((u) => u.id === 4)!.active = false;
+    const { app } = makeApp({ config: demoConfig(), store });
+    const agent = request.agent(app);
+    await agent.get('/__test/login?role=User');
+    const page = await agent.get('/accounts/2/edit');
+    const rowVer = /name="rowVer" value="([^"]+)"/.exec(page.text)![1]!;
+    const csrf = /name="_csrf" value="([^"]+)"/.exec(page.text)![1]!;
+    const res = await agent.post('/accounts/2').type('form').send({ _csrf: csrf, rowVer, Name: 'Edited', OwnerId: '4' });
+    expect(res.status).toBe(422);
+    expect(res.text).toContain('Current owner is inactive: choose a new owner.');
+    expect(res.text).toContain('value="Edited"');
+  });
+});

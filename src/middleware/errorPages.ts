@@ -12,6 +12,10 @@ export const errorHandler: ErrorRequestHandler = (err: unknown, req, res, next) 
     res.set('Retry-After', '15');
     return res.status(503).render('pages/waking', { title: 'Waking up the database', status: 503, reference: req.id, isPost: req.method !== 'GET' });
   }
+  const httpStatus = (err as { status?: unknown; type?: unknown } | null)?.status;
+  if (httpStatus === 413 || (err as { type?: unknown } | null)?.type === 'entity.too.large') {
+    return res.status(413).render('pages/error', { title: 'Too large', status: 413, reference: req.id, heading: 'This form is too large.', message: 'Shorten your text and try again. Nothing was saved.' });
+  }
   if (err instanceof EditConflictError) {
     return res.status(409).render('pages/conflict', { title: 'Edit conflict', status: 409, reference: req.id, recordPath: err.recordPath });
   }
