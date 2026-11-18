@@ -19,6 +19,7 @@ import { securityHeaders } from './middleware/security';
 import { createCommonAuthRouter, createEntraAuthRouter } from './routes/auth';
 import { createAppRouter } from './routes/app';
 import { createCrmRouter } from './routes/crm';
+import { createDashboardRouter } from './routes/dashboard';
 import { createSettingsRouter } from './routes/settings';
 import { createBrandingRouter } from './middleware/branding';
 import { createSqlBranding } from './db/publicReads';
@@ -117,6 +118,7 @@ export function createApp(deps: AppDeps): Express {
     next();
   });
   authed.use('/settings', requireRole('Admin'), createSettingsRouter(store, branding));
+  authed.use(createDashboardRouter(store));
   authed.use(createCrmRouter(store));
   authed.use(createAppRouter());
   app.use(authed);

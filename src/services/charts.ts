@@ -25,6 +25,9 @@ const pct = (c: FormatCtx, v: number, digits = 0) => new Intl.NumberFormat(c.loc
 const monthLabel = (ym: string, locale: string) => new Intl.DateTimeFormat(locale, { timeZone: 'UTC', month: 'short', year: 'numeric' }).format(new Date(`${ym}-01T00:00:00Z`));
 export const EMPTY_TEXT = 'No data for this period. Try a longer date range.';
 
+const flagOf = (c: { excluded: unknown[]; fallbackCurrencies: unknown[] }): string | undefined =>
+  [c.excluded.length ? 'Not included: no FX rate' : '', c.fallbackCurrencies.length ? 'Latest rate used' : ''].filter(Boolean).join('; ') || undefined;
+
 const base = (id: string, title: string, kind: ChartVM['kind'], valueKind: ChartVM['valueKind'], seriesLabel: string): ChartVM => ({
   id, title, kind, valueKind, seriesLabel, takeaway: EMPTY_TEXT, notes: [], labels: [], data: [], table: { columns: [], rows: [] }, ariaLabel: `${title}: no data`, empty: true,
 });
@@ -38,12 +41,12 @@ export function pipelineByStage(rows: AggRow[], stages: Stage[], conv: Converter
   vm.notes = [exclusionNote(all), fallbackNote(all)].filter(Boolean);
   vm.labels = per.map((p) => p.s.name);
   vm.data = per.map((p) => p.conv.total);
-  vm.table = { columns: ['Stage', 'Opportunities', `Amount (${c.base})`], rows: per.map((p) => ({ cells: [p.s.name, String(p.n), c.f.money(p.conv.total, c.base)], flag: p.conv.excluded.length ? 'Not included: no FX rate' : p.conv.fallbackCurrencies.length ? 'Latest rate used' : undefined })) };
+  vm.table = { columns: ['Stage', 'Opportunities', `Amount (${c.base})`], rows: per.map((p) => ({ cells: [p.s.name, String(p.n), c.f.money(p.conv.total, c.base)], flag: flagOf(p.conv) })) };
   if (rows.length === 0) return vm;
   const top = [...per].sort((a, b) => b.conv.total - a.conv.total)[0]!;
   vm.empty = false;
   vm.takeaway = `${top.s.name} holds the most value: ${compact(c, top.conv.total)}`;
-  vm.ariaLabel = `Bar chart of open pipeline by stage. ${vm.takeaway}.`;
+  vm.ariaLabel = `Bar chart of open pipeline by stage. ${vm.takeaway.replace(/\.$/, "")}.`;
   return vm;
 }
 
@@ -59,12 +62,12 @@ export function wonRevenueByMonth(rows: AggRow[], range: Range, conv: Converter,
   vm.notes = [exclusionNote(all), fallbackNote(all)].filter(Boolean);
   vm.labels = months.map((m) => monthLabel(m, c.locale));
   vm.data = per.map((p) => p.conv.total);
-  vm.table = { columns: ['Month', 'Deals', `Revenue (${c.base})`], rows: per.map((p) => ({ cells: [monthLabel(p.m, c.locale), String(p.n), c.f.money(p.conv.total, c.base)], flag: p.conv.excluded.length ? 'Not included: no FX rate' : p.conv.fallbackCurrencies.length ? 'Latest rate used' : undefined })) };
+  vm.table = { columns: ['Month', 'Deals', `Revenue (${c.base})`], rows: per.map((p) => ({ cells: [monthLabel(p.m, c.locale), String(p.n), c.f.money(p.conv.total, c.base)], flag: flagOf(p.conv) })) };
   if (rows.length === 0) return vm;
   const best = [...per].sort((a, b) => b.conv.total - a.conv.total)[0]!;
   vm.empty = false;
   vm.takeaway = `Best month: ${monthLabel(best.m, c.locale)} with ${compact(c, best.conv.total)}`;
-  vm.ariaLabel = `Line chart of won revenue by month. ${vm.takeaway}.`;
+  vm.ariaLabel = `Line chart of won revenue by month. ${vm.takeaway.replace(/\.$/, "")}.`;
   return vm;
 }
 
@@ -84,7 +87,7 @@ export function winRateByOwner(rows: AggRow[], c: FormatCtx): ChartVM {
   if (list.length === 0) return vm;
   vm.empty = false;
   vm.takeaway = `${list[0]!.name} has the highest win rate: ${pct(c, list[0]!.rate)}`;
-  vm.ariaLabel = `Horizontal bar chart of win rate by owner. ${vm.takeaway}.`;
+  vm.ariaLabel = `Horizontal bar chart of win rate by owner. ${vm.takeaway.replace(/\.$/, "")}.`;
   return vm;
 }
 
@@ -101,7 +104,7 @@ export function activitiesByType(rows: Array<{ type: string; count: number }>, c
   const top = [...list].sort((a, b) => b.n - a.n)[0]!;
   vm.empty = false;
   vm.takeaway = `${TYPE_LABEL[top.t]} is the most common type: ${top.n} of ${total}`;
-  vm.ariaLabel = `Bar chart of activities by type. ${vm.takeaway}.`;
+  vm.ariaLabel = `Bar chart of activities by type. ${vm.takeaway.replace(/\.$/, "")}.`;
   return vm;
 }
 
@@ -116,6 +119,6 @@ export function oppsByLeadSource(rows: AggRow[], c: FormatCtx): ChartVM {
   if (list.length === 0) return vm;
   vm.empty = false;
   vm.takeaway = `${list[0]!.name} brings the most opportunities: ${list[0]!.n}`;
-  vm.ariaLabel = `Horizontal bar chart of opportunities by lead source. ${vm.takeaway}.`;
+  vm.ariaLabel = `Horizontal bar chart of opportunities by lead source. ${vm.takeaway.replace(/\.$/, "")}.`;
   return vm;
 }
