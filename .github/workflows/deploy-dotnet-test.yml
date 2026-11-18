@@ -83,10 +83,10 @@ jobs:
           test -f "$WEB_PROJECT/Crm.Web.csproj" || { echo "::error::$WEB_PROJECT/Crm.Web.csproj not found (the .NET app does not exist on this commit yet)"; exit 1; }
           if [ "$SELF_CONTAINED" = "true" ]; then
             echo "Publishing self-contained win-x64 (fallback)"
-            dotnet publish "$WEB_PROJECT" -c Release -r win-x64 --self-contained true -o out/web
+            dotnet publish "$WEB_PROJECT" -c Release -r win-x64 --self-contained true -p:DebugType=none -p:DebugSymbols=false -o out/web
           else
             echo "Publishing framework-dependent net10.0"
-            dotnet publish "$WEB_PROJECT" -c Release -o out/web
+            dotnet publish "$WEB_PROJECT" -c Release -p:DebugType=none -p:DebugSymbols=false -o out/web
           fi
 
       - name: Preflight - published files (names only)
