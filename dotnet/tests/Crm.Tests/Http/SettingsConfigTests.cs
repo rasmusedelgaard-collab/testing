@@ -49,7 +49,7 @@ public sealed class SettingsConfigTests(SqlServerFixture fx)
     private static readonly string[] GetPaths =
     [
         "/settings", "/settings/general", "/settings/general/logo", "/settings/locale", "/settings/fx", "/settings/fx/1/edit", "/settings/fx/1/delete", "/settings/stages",
-        "/settings/picklists", "/settings/picklists/industry", "/settings/visibility", "/settings/users", "/settings/teams/1/edit", "/settings/teams/1/deactivate",
+        "/settings/picklists", "/settings/picklists/industry", "/settings/visibility", "/settings/users", "/settings/teams", "/settings/teams/1", "/settings/teams/1/edit", "/settings/teams/1/deactivate",
     ];
 
     private static readonly string[] PostPaths =
