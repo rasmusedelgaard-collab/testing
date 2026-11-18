@@ -159,7 +159,7 @@ export class MemoryRepo implements Repo {
           if (v === 'overdue' && (r.IsDone || !due || due >= q.today)) return false;
           if (v === 'due' && (r.IsDone || !due || due > q.today)) return false;
           if (v === 'today' && due !== q.today) return false;
-          if (v === 'week') { const end = new Date(`${q.today}T00:00:00Z`); end.setUTCDate(end.getUTCDate() + 6); if (!due || due < q.today || due > end.toISOString().slice(0, 10)) return false; }
+          if (v === 'week') { const end = new Date(`${q.today}T00:00:00Z`); end.setUTCDate(end.getUTCDate() + 7); if (!due || due <= q.today || due > end.toISOString().slice(0, 10)) return false; }
           break;
         }
       }

@@ -107,7 +107,7 @@ export function filterFields(entity: EntityKey, q: ListQuery, lk: Lookups, owner
       { name: 'status', label: 'Status', value: q.filters.status ?? 'open', options: ['open', 'won', 'lost', 'closed', 'all'].map((v) => ({ value: v, label: cap(v) })) }];
     case 'activities': return [f('type', 'Type', [...Object.entries(TYPE_LABEL).map(([value, label]) => ({ value, label })), { value: 'actionable', label: 'Call, meeting or task' }]), ownerF,
       { name: 'status', label: 'Status', value: q.filters.status ?? 'open', options: ['open', 'done', 'all'].map((v) => ({ value: v, label: cap(v) })) },
-      { name: 'due', label: 'Due', value: q.filters.due ?? 'any', options: [{ value: 'any', label: 'Any' }, { value: 'due', label: 'Due or overdue' }, { value: 'overdue', label: 'Overdue' }, { value: 'today', label: 'Today' }, { value: 'week', label: 'This week' }] }];
+      { name: 'due', label: 'Due', value: q.filters.due ?? 'any', options: [{ value: 'any', label: 'Any' }, { value: 'due', label: 'Due or overdue' }, { value: 'overdue', label: 'Overdue' }, { value: 'today', label: 'Today' }, { value: 'week', label: 'Next 7 days' }] }];
   }
 }
 

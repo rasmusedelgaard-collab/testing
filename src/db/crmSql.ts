@@ -67,7 +67,7 @@ export function filterClause(entity: EntityKey, key: string, value: string): str
       return value === 'overdue' ? 'e.IsDone = 0 AND e.DueDate < @today'
         : value === 'due' ? 'e.IsDone = 0 AND e.DueDate <= @today'
         : value === 'today' ? 'e.DueDate = @today'
-        : value === 'week' ? 'e.DueDate >= @today AND e.DueDate <= DATEADD(day, 6, CAST(@today AS date))' : null;
+        : value === 'week' ? 'e.DueDate > @today AND e.DueDate <= DATEADD(day, 7, CAST(@today AS date))' : null; // next 7 days: tomorrow..today+7 (same window as the dashboard count)
     default: return null;
   }
 }

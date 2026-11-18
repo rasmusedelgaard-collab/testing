@@ -268,3 +268,23 @@ describe('accounts: Open pipeline column', () => {
     expect((await s.agent.get('/accounts?q=Solo')).text.replace(/\s+/g, ' ')).toContain('data-label="Open pipeline" class="num"> –');
   });
 });
+
+describe('QA-F3: Overdue / Today / Next 7 days are disjoint windows used by count, rows and link alike', () => {
+  it('each activity appears once; the count equals the rows; the link opens the same window', async () => {
+    const s = await session('Admin');
+    const base = s.state.data.activities[0]!;
+    s.state.data.activities.length = 0;
+    const add = (id: number, d: number) => s.state.data.activities.push({ ...base, Id: id, Subject: `Day ${d}`, ActivityType: 'call', OwnerId: 1, TeamId: 1, DueDate: addDays(s.today, d), IsDone: false } as never);
+    [-2, 0, 1, 3, 7, 8].forEach((d, i) => add(20 + i, d));
+    const html = (await s.agent.get('/')).text;
+    expect(html).toContain('Overdue (1)');
+    expect(html).toContain('Today (1)');
+    expect(html).toContain('Next 7 days (3)'); // +1, +3, +7 (not today, not +8)
+    const list = (await s.agent.get('/activities?status=open&type=actionable&due=week')).text;
+    for (const d of [1, 3, 7]) expect(list).toContain(`Day ${d}<`);
+    for (const d of [-2, 0, 8]) expect(list).not.toContain(`Day ${d}<`);
+    const today = (await s.agent.get('/activities?status=open&type=actionable&due=today')).text;
+    expect(today).toContain('Day 0<');
+    expect(today).not.toContain('Day 1<');
+  });
+});
