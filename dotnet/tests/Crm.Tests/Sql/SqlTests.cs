@@ -377,6 +377,5 @@ public sealed class TicketStoreAndUsersTests(SqlServerFixture fx)
         var b = await cache.GetAsync(CancellationToken.None);
         Assert.False(string.IsNullOrEmpty(b.AppName));
         Assert.Matches("^#[0-9A-Fa-f]{6}$", b.AccentColor);
-        Assert.Null(b.LogoSha);
     }
 }

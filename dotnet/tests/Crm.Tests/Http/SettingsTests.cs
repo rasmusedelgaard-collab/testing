@@ -41,7 +41,7 @@ public sealed class SettingsTests(SqlServerFixture fx)
         {
             var r = await c.GetAsync(path);
             Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
-            Assert.Contains("You don't have access to this page.", await r.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+            Assert.Equal("You don't have access to this page.", (await HttpHelpers.ParseAsync(r)).QuerySelector("h1")!.TextContent);
         }
         var token = await HttpHelpers.TokenAsync(c, "/accounts/new");
         Assert.Equal(HttpStatusCode.Forbidden, (await c.PostAsync("/settings/general", HttpHelpers.Form(("_csrf", token), ("appName", "Hacked"), ("accentColor", "#000000")))).StatusCode);
@@ -134,9 +134,9 @@ public sealed class SettingsTests(SqlServerFixture fx)
         await HttpHelpers.ExpectAsync(HttpStatusCode.OK, page);
         var doc = await HttpHelpers.ParseAsync(page);
         Assert.Matches(@"^Your connection: IP \S+ \(X-Forwarded-For hops trusted: [0-9]\)$", doc.QuerySelector("#connection-info")!.TextContent);
-        Assert.Contains("Test Admin", doc.QuerySelector("table.data:last-of-type")!.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Test Admin", doc.QuerySelectorAll("table.data").Last().TextContent, StringComparison.Ordinal);
         var filtered = await HttpHelpers.ParseAsync(await c.GetAsync("/settings/users?role=Manager&q=manager"));
-        Assert.DoesNotContain("Test Admin", filtered.QuerySelector("table.data:last-of-type")!.TextContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("Test Admin", filtered.QuerySelectorAll("table.data").Last().TextContent, StringComparison.Ordinal);
 
         var group = Guid.NewGuid().ToString();
         var name = "Team-" + group[..8];
