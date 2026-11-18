@@ -103,3 +103,25 @@ public class SettingsConfigUnitTests
         Assert.All(TimeZones.Listed, z => Assert.True(TimeZones.IsValid(z), z));
     }
 }
+
+public class LikeEscapeTests
+{
+    [Theory]
+    [InlineData("a%b", "a\\%b")]
+    [InlineData("a_b", "a\\_b")]
+    [InlineData("a[b", "a\\[b")]
+    [InlineData("a\\b", "a\\\\b")]
+    [InlineData("end\\", "end\\\\")]
+    public void Wildcards_and_the_escape_character_are_escaped_in_pairs(string input, string expected) =>
+        Assert.Equal(expected, Crm.Web.Data.CrmRepo.EscapeLike(input));
+
+    [Fact]
+    public void The_worst_case_pattern_fits_the_declared_parameter_size_and_never_ends_in_a_lone_escape()
+    {
+        var pattern = $"%{Crm.Web.Data.CrmRepo.EscapeLike(new string('%', 100))}%";
+        Assert.Equal(202, pattern.Length);
+        Assert.True(pattern.Length <= 4000);
+        var run = pattern.Reverse().TakeWhile(c => c == '\\').Count();
+        Assert.Equal(0, run % 2);
+    }
+}

@@ -24,6 +24,10 @@ public sealed class TestAccessGate(string accessCode, TimeProvider time, ILogger
 
     public CodeAttempt Submit(string clientKey, string code)
     {
+        if (accessCode.Length == 0)
+        {
+            return CodeAttempt.Wrong; // not configured (entra mode): an empty submission must never match an empty code
+        }
         if (IsLocked(clientKey))
         {
             log.LogWarning("test access code attempt while locked out (client {Client})", clientKey);

@@ -169,7 +169,7 @@ Environment variables are read through `IConfiguration` (environment variable pr
 | `DB_SERVER`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | same | as today |
 | `DB_TRUST_SERVER_CERT` | same | default false |
 | `SQL_POOL_MAX` | same | 1–100, default 10 (RLS pool `Max Pool Size`) |
-| `TRUST_PROXY` | same name, new default | 0–5. Default: **0 under IIS in-process** (the ASP.NET Core Module hands the app the real TCP peer, there is no proxy hop inside the server), otherwise 1 when `REDIRECT_URI` is https, else 0. Verify on each host with the "Your connection" line on Settings > Users & teams |
+| `TRUST_PROXY` | same name, **new default 0** | 0–5. Default: **0 everywhere** (security review M1: forwarded headers are never trusted unless set explicitly; under IIS in-process there is no proxy hop). Set `TRUST_PROXY=1` explicitly behind a TLS-terminating proxy such as App Service Linux, otherwise the https redirect (secure cookies) would loop. Verify on each host with the "Your connection" line on Settings > Users & teams |
 | `LIVE` | same | `LIVE=true` or `WEBSITE_INSTANCE_ID` set = live |
 | `LOG_LEVEL` | same | maps to `Logging:LogLevel:Default` (`trace`…`fatal`, `silent` = `None`) |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | same | optional |

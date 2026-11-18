@@ -21,7 +21,7 @@ public sealed class TestLoginUserModel(CrmConfig config, TestAccessCookie cookie
         {
             return NotFound();
         }
-        if (!cookie.IsVerified(HttpContext))
+        if (!cookie.TryConsume(HttpContext)) // single use: a replayed cookie goes back to the code page
         {
             return RedirectSeeOther("/auth/test-login");
         }

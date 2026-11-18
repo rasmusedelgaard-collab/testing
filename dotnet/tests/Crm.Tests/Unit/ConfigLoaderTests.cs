@@ -191,6 +191,17 @@ public class ConfigLoaderTests
         Assert.Throws<ConfigException>(() => CrmConfigLoader.Load(env));
     }
 
+    [Theory]
+    [InlineData("LIVE", "true")]
+    [InlineData("WEBSITE_SITE_NAME", "x")]
+    [InlineData("WEBSITE_INSTANCE_ID", "x")]
+    public void Development_environment_is_refused_on_real_hosts(string key, string value)
+    {
+        var env = With(Entra(), ("ASPNETCORE_ENVIRONMENT", "Development"), (key, value));
+        var e = Assert.Throws<ConfigException>(() => CrmConfigLoader.Load(env));
+        Assert.Contains("Development is refused", e.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Testing_environment_is_allowed_on_a_plain_host() =>
         Assert.Equal("Testing", CrmConfigLoader.Load(With(TestMode(), ("ASPNETCORE_ENVIRONMENT", "Testing"), ("REDIRECT_URI", "http://localhost/auth/redirect"))).Environment);
@@ -205,7 +216,8 @@ public class ConfigLoaderTests
     [Fact]
     public void Trust_proxy_defaults_and_overrides()
     {
-        Assert.Equal(1, CrmConfigLoader.Load(Entra()).TrustProxy);
+        Assert.Equal(0, CrmConfigLoader.Load(Entra()).TrustProxy); // M1: never trust forwarded headers unless TRUST_PROXY is explicit
+        Assert.Equal(1, CrmConfigLoader.Load(With(Entra(), ("TRUST_PROXY", "1"))).TrustProxy);
         Assert.Equal(0, CrmConfigLoader.Load(With(Entra(), ("TRUST_PROXY", "0"))).TrustProxy);
         Assert.Equal(0, CrmConfigLoader.Load(With(Entra(), ("APP_POOL_ID", "x"))).TrustProxy);
         Assert.Equal(0, CrmConfigLoader.Load(With(Entra(), ("ASPNETCORE_ENVIRONMENT", "Development"), ("REDIRECT_URI", "http://localhost:5000/auth/redirect"))).TrustProxy);

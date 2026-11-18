@@ -31,9 +31,9 @@ public static partial class CrmConfigLoader
         {
             throw new ConfigException(["DEMO_MODE is not supported in the .NET app (there is no demo or auth bypass); use test-access-code mode with a database"]);
         }
-        if (environment == "Testing" && (live || onAzure))
+        if (environment is "Testing" or "Development" && (live || onAzure))
         {
-            throw new ConfigException(["ASPNETCORE_ENVIRONMENT=Testing is refused in a live/Azure environment"]);
+            throw new ConfigException([$"ASPNETCORE_ENVIRONMENT={environment} is refused in a live/Azure environment"]);
         }
 
         var authModeText = Get("AUTH_MODE") ?? "entra";
@@ -101,8 +101,8 @@ public static partial class CrmConfigLoader
             }
         }
 
-        var behindIis = Get("APP_POOL_ID") is not null || Get("ASPNETCORE_IIS_PHYSICAL_PATH") is not null;
-        var trustProxy = trustProxyConfigured ?? (behindIis ? 0 : (secure ? 1 : 0));
+        // Forwarded headers are trusted only when TRUST_PROXY is set explicitly: a wrong default lets clients spoof their IP and scheme.
+        var trustProxy = trustProxyConfigured ?? 0;
 
         string? testCode = null;
         if (testAccess)

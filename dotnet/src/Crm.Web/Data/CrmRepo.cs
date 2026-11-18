@@ -18,7 +18,8 @@ public sealed partial class CrmRepo(RlsTx tx, RlsContext ctx)
 
     private static DynamicParameters P() => new();
 
-    private static string EscapeLike(string s) => Regex.Replace(s, @"[\\%_\[]", m => "\\" + m.Value);
+    /// <summary>Every LIKE wildcard and the escape character itself is escaped as a pair, so the pattern never ends in a lone escape.</summary>
+    internal static string EscapeLike(string s) => Regex.Replace(s, @"[\\%_\[]", m => "\\" + m.Value);
 
     private static void AddColumn(DynamicParameters p, ColumnSpec c, object? value)
     {
@@ -136,7 +137,7 @@ public sealed partial class CrmRepo(RlsTx tx, RlsContext ctx)
         if (q.Q.Length > 0)
         {
             where.Add("(" + string.Join(" OR ", d.Search.Select(s => $"{s.Sql} LIKE @q ESCAPE '\\'")) + ")");
-            p.Add("q", $"%{EscapeLike(q.Q)}%", DbType.String, size: 120);
+            p.Add("q", $"%{EscapeLike(q.Q)}%", DbType.String, size: 4000); // escaping can double the length: never truncate (a cut could leave a lone escape)
         }
         // Sort comes from the whitelist by exact key match; an unknown key falls back to the default.
         var sort = d.Sorts.TryGetValue(q.Sort, out var s0) ? s0 : d.Sorts[d.DefaultSort];

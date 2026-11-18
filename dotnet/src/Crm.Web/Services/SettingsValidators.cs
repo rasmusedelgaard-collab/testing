@@ -138,6 +138,42 @@ public static partial class SettingsValidators
     private const string BadType = "Logo must be a PNG, 500 KB or smaller.";
     private const string SvgRefused = "SVG logos are not supported. Upload a PNG, 500 KB or smaller.";
 
+    public const int MaxLogoPixels = 1024;
+
+    /// <summary>
+    /// Structure check after the signature: IHDR first (13 bytes, width and height 1..1024), then chunks that stay inside the buffer,
+    /// ending exactly with an IEND chunk. A truncated or padded file, or an image decompressing to a huge bitmap, is refused.
+    /// </summary>
+    private static bool IsWellFormedPng(ReadOnlySpan<byte> buf)
+    {
+        if (System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(buf[8..12]) != 13)
+        {
+            return false;
+        }
+        var width = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(buf[16..20]);
+        var height = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(buf[20..24]);
+        if (width is 0 or > MaxLogoPixels || height is 0 or > MaxLogoPixels)
+        {
+            return false;
+        }
+        var pos = 8L;
+        while (pos + 12 <= buf.Length)
+        {
+            var len = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(buf.Slice((int)pos, 4));
+            var next = pos + 12 + len;
+            if (next > buf.Length)
+            {
+                return false;
+            }
+            if (buf.Slice((int)pos + 4, 4).SequenceEqual("IEND"u8))
+            {
+                return len == 0 && next == buf.Length;
+            }
+            pos = next;
+        }
+        return false;
+    }
+
     /// <summary>
     /// PNG only. SVG can carry script and external references a text filter cannot reliably remove, so it is refused outright.
     /// The type is decided by content (magic bytes plus a first IHDR chunk), never by filename or declared MIME type.
@@ -151,7 +187,7 @@ public static partial class SettingsValidators
         ReadOnlySpan<byte> png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
         if (buf.Length >= 33 && buf[..8].SequenceEqual(png) && buf[12..16].SequenceEqual("IHDR"u8))
         {
-            return (true, null, System.Security.Cryptography.SHA256.HashData(buf));
+            return IsWellFormedPng(buf) ? (true, null, System.Security.Cryptography.SHA256.HashData(buf)) : (false, BadType, null);
         }
         var head = System.Text.Encoding.UTF8.GetString(buf[..Math.Min(512, buf.Length)]).ToLowerInvariant();
         return head.Contains("<svg", StringComparison.Ordinal) || head.Contains("<?xml", StringComparison.Ordinal) ? (false, SvgRefused, null) : (false, BadType, null);

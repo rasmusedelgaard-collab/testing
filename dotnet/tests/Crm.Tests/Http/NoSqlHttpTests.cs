@@ -24,6 +24,18 @@ public sealed class NoSqlHttpTests : IDisposable
         Assert.Equal(HttpStatusCode.NotFound, r.StatusCode);
     }
 
+    [Theory]
+    [InlineData("403", HttpStatusCode.Forbidden)]
+    [InlineData("502", HttpStatusCode.BadGateway)]
+    [InlineData("400", HttpStatusCode.BadRequest)]
+    [InlineData("999", HttpStatusCode.BadRequest)]
+    [InlineData("", HttpStatusCode.BadRequest)]
+    public async Task Signin_error_page_keeps_nodes_status_codes(string code, HttpStatusCode expected)
+    {
+        var r = await HttpHelpers.NewClient(_f).GetAsync("/signin-error?ref=00000000-0000-4000-8000-000000000001&code=" + code);
+        Assert.Equal(expected, r.StatusCode);
+    }
+
     [Fact]
     public async Task Healthz_is_ok_without_a_database()
     {

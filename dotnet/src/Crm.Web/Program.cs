@@ -101,6 +101,11 @@ builder.Services.Configure<RouteOptions>(o =>
     o.ConstraintMap["crmentity"] = typeof(CrmEntityConstraint);
     o.ConstraintMap["crmid"] = typeof(CrmIdConstraint);
 });
+builder.Services.AddHttpsRedirection(o =>
+{
+    o.RedirectStatusCode = StatusCodes.Status308PermanentRedirect;
+    o.HttpsPort = 443;
+});
 builder.Services.AddHsts(o =>
 {
     o.MaxAge = TimeSpan.FromDays(365);
@@ -161,6 +166,11 @@ else
     app.UseExceptionHandler("/error");
 }
 app.UseStatusCodePagesWithReExecute("/error/{0}");
+if (config.SecureCookies)
+{
+    // Secure-only cookies cannot work over http (antiforgery would throw on any form page). Health probes stay reachable over http.
+    app.UseWhen(ctx => !ctx.Request.Path.StartsWithSegments("/healthz") && !ctx.Request.Path.StartsWithSegments("/readyz"), b => b.UseHttpsRedirection());
+}
 if (config.SecureCookies && !app.Environment.IsDevelopment())
 {
     app.UseHsts();
