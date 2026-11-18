@@ -30,6 +30,7 @@ export interface ListQuery {
   /** Today in the Settings timezone, YYYY-MM-DD (for due-date filters). */
   today: string;
 }
+export interface HistoryRow { at: string; by: string; action: 'C' | 'U' | 'D'; field: string | null; oldValue: string | null; newValue: string | null }
 export interface Meta { userId: number; correlationId: string }
 export type UpdateResult = 'ok' | 'conflict' | 'notfound';
 
@@ -42,6 +43,8 @@ export interface Repo {
   list(entity: EntityKey, q: ListQuery): Promise<{ rows: Row[]; total: number }>;
   get(entity: EntityKey, id: number): Promise<Row | null>;
   refExists(entity: EntityKey, id: number): Promise<boolean>;
+  /** Audit trail of one record, newest first (owner ids already resolved to names). */
+  history(entity: EntityKey, id: number): Promise<HistoryRow[]>;
   create(entity: EntityKey, values: Values, meta: Meta): Promise<number>;
   update(entity: EntityKey, id: number, values: Values, rowVer: string, meta: Meta): Promise<UpdateResult>;
   remove(entity: EntityKey, id: number, meta: Meta): Promise<boolean>;

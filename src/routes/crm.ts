@@ -5,7 +5,7 @@ import type { CrmStore, EntityKey, Lookups, OwnerOption, Repo, Row, Values } fro
 import { validateEntity, type Errors } from '../domain/validators';
 import { ConflictError, EditConflictError, ForbiddenError, NotFoundError } from '../errors';
 import { makeFormatter, todayIn } from '../services/format';
-import { canDelete, cellsFor, columnsFor, detailRows, errorList, filterFields, formFields, formValuesFromRow, pageHref, recordName, relatedTo, TYPE_LABEL, type FormEnv } from './crmViews';
+import { canDelete, cellsFor, describeHistory, columnsFor, detailRows, errorList, filterFields, formFields, formValuesFromRow, pageHref, recordName, relatedTo, TYPE_LABEL, type FormEnv } from './crmViews';
 
 const REF_FIELDS: Array<[string, EntityKey, string]> = [
   ['AccountId', 'accounts', 'Choose an account from the list.'],
@@ -161,7 +161,8 @@ function mount(router: Router, store: CrmStore, def: EntityDef): void {
       if (key === 'accounts') { related.contacts = await rel('contacts', 'account'); related.opportunities = await rel('opportunities', 'account'); related.activities = await rel('activities', 'account'); }
       if (key === 'contacts') { related.opportunities = await rel('opportunities', 'contact'); related.activities = await rel('activities', 'contact'); }
       if (key === 'opportunities') related.activities = await rel('activities', 'opportunity');
-      return { row, lk, today, related };
+      const history = await repo.history(key, id);
+      return { row, lk, today, related, history };
     });
     if (!out) throw new NotFoundError();
     const f = makeFormatter(out.lk.settings);
@@ -183,6 +184,7 @@ function mount(router: Router, store: CrmStore, def: EntityDef): void {
       modified: { by: String(row.ModifiedByName ?? ''), at: f.dateTime(String(row.ModifiedAt)), createdBy: String(row.CreatedByName ?? ''), createdAt: f.dateTime(String(row.CreatedAt)), edited: row.ModifiedAt !== row.CreatedAt || row.ModifiedBy !== row.CreatedBy },
       stageActions: key === 'opportunities' && row.StageType === 'open' ? { rowVer: String(row.RowVer), lostReasons: (out.lk.picklists.lost_reason ?? []).filter((p) => p.active) } : null,
       doneAction: key === 'activities' ? { action: `${detailPath}/${row.IsDone ? 'undone' : 'done'}`, label: row.IsDone ? 'Mark as not done' : 'Mark as done', returnTo: detailPath } : null,
+      history: out.history.map((h) => ({ at: f.dateTime(h.at), by: h.by, text: describeHistory(h, f), owner: h.field === 'OwnerId' })),
       related: key === 'activities' ? relatedTo(row) : null, typeLabel: TYPE_LABEL[String(row.ActivityType)] ?? '',
     });
   });

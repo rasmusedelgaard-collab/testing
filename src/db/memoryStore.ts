@@ -1,6 +1,6 @@
 import { ConflictError, ForbiddenError } from '../errors';
 import { ENTITIES } from '../domain/entities';
-import type { CrmStore, EntityKey, ListQuery, Lookups, Meta, OwnerOption, PicklistValue, RefOption, Repo, Row, Settings, Stage, UpdateResult, Value, Values } from '../domain/types';
+import type { CrmStore, EntityKey, HistoryRow, ListQuery, Lookups, Meta, OwnerOption, PicklistValue, RefOption, Repo, Row, Settings, Stage, UpdateResult, Value, Values } from '../domain/types';
 import { createRow, deleteRow, updateRows, type AuditRow } from '../services/audit';
 import type { RlsContext } from './withRlsContext';
 
@@ -19,7 +19,7 @@ export interface MemoryState {
   stages: Stage[];
   picklists: Record<string, PicklistValue[]>;
   data: Record<EntityKey, Raw[]>;
-  audit: Array<AuditRow & { changedBy: number; correlationId: string }>;
+  audit: Array<AuditRow & { changedBy: number; correlationId: string; at: string }>;
   nextId: number;
 }
 
@@ -163,11 +163,18 @@ class MemoryRepo implements Repo {
   }
   async refExists(entity: EntityKey, id: number) { return this.s.data[entity].some((x) => x.Id === id && this.canSee(x)); }
 
+  async history(entity: EntityKey, id: number): Promise<HistoryRow[]> {
+    const type = ENTITIES[entity].auditType;
+    const owner = (f: string | null, v: string | null) => (f === 'OwnerId' && v ? (this.user(Number(v))?.name ?? v) : v);
+    return this.s.audit.filter((a) => a.entityType === type && a.entityId === id).reverse()
+      .map((a) => ({ at: a.at, by: this.user(a.changedBy)?.name ?? '', action: a.action, field: a.fieldName, oldValue: owner(a.fieldName, a.oldValue), newValue: owner(a.fieldName, a.newValue) }));
+  }
+
   private teamOf(ownerId: unknown) { return this.user(ownerId)?.teamId ?? null; }
   private checkTarget(ownerId: unknown) {
     if (this.ctx.role !== 'Admin' && (!this.ownerAllowed(Number(ownerId)) || this.teamOf(ownerId) !== this.team)) throw new ForbiddenError();
   }
-  private audit(rows: AuditRow[], meta: Meta) { for (const a of rows) this.s.audit.push({ ...a, changedBy: meta.userId, correlationId: meta.correlationId }); }
+  private audit(rows: AuditRow[], meta: Meta) { for (const a of rows) this.s.audit.push({ ...a, changedBy: meta.userId, correlationId: meta.correlationId, at: iso() }); }
   private label(entity: EntityKey, r: Row) { return String(r[ENTITIES[entity].labelCol] ?? ''); }
 
   async create(entity: EntityKey, values: Values, meta: Meta) {

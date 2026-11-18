@@ -106,6 +106,13 @@ describe('SqlRepo', () => {
     expect(await repo().setDone(1, true, meta)).toBe(true);
     for (const c of h.calls) expect(c.text).not.toMatch(/\b1\b\s*$/);
   });
+  it('history: parameterised by entity type and id, resolves owner ids to names', async () => {
+    h.script.push(() => [[{ At: '2026-11-18T10:00:00.000Z', ByName: 'Jane', Action: 'U', FieldName: 'OwnerId', OldValue: 'Anna', NewValue: 'Jane' }]]);
+    const rows = await repo().history('accounts', 7);
+    expect(rows).toEqual([{ at: '2026-11-18T10:00:00.000Z', by: 'Jane', action: 'U', field: 'OwnerId', oldValue: 'Anna', newValue: 'Jane' }]);
+    expect(h.calls[0]!.text).toContain("a.FieldName = 'OwnerId'");
+    expect(h.calls[0]!.params).toMatchObject({ et: 'account', id: 7 });
+  });
   it('filterClause: unknown keys yield no SQL; enum values are never echoed', () => {
     expect(filterClause('accounts', 'bogus', 'x')).toBeNull();
     expect(filterClause('activities', 'due', "'; DROP TABLE x;--")).toBeNull();

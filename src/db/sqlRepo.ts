@@ -1,6 +1,6 @@
 import sql from 'mssql';
 import { ENTITIES, type ColumnSpec } from '../domain/entities';
-import type { CrmStore, EntityKey, ListQuery, Lookups, Meta, OwnerOption, PicklistValue, RefOption, Repo, Row, Settings, Stage, UpdateResult, Values } from '../domain/types';
+import type { CrmStore, EntityKey, HistoryRow, ListQuery, Lookups, Meta, OwnerOption, PicklistValue, RefOption, Repo, Row, Settings, Stage, UpdateResult, Values } from '../domain/types';
 import { createRow, deleteRow, updateRows, type AuditRow } from '../services/audit';
 import { COMMON_COLS, COMMON_JOINS, filterClause, SQL } from './crmSql';
 import { withRlsContext, type RlsContext } from './withRlsContext';
@@ -118,6 +118,15 @@ export class SqlRepo implements Repo {
     const d = ENTITIES[entity];
     const res = await this.q(`SELECT 1 AS ok FROM ${d.table} WHERE ${d.pk} = @id`, [['id', sql.Int, id]]);
     return this.rows(res).length > 0;
+  }
+
+  async history(entity: EntityKey, id: number): Promise<HistoryRow[]> {
+    const owner = (c: string) => `CASE WHEN a.FieldName = 'OwnerId' THEN (SELECT DisplayName FROM crm.Users WHERE UserId = TRY_CAST(a.${c} AS int)) ELSE a.${c} END`;
+    const res = await this.q(`SELECT TOP (100) CONVERT(varchar(23), a.ChangedAt, 126) + 'Z' AS At, u.DisplayName AS ByName, a.Action, a.FieldName,
+        ${owner('OldValue')} AS OldValue, ${owner('NewValue')} AS NewValue
+      FROM crm.AuditLog a JOIN crm.Users u ON u.UserId = a.ChangedBy
+      WHERE a.EntityType = @et AND a.EntityId = @id ORDER BY a.ChangedAt DESC, a.AuditId DESC`, [['et', sql.VarChar(20), ENTITIES[entity].auditType], ['id', sql.Int, id]]);
+    return this.rows(res).map((r) => ({ at: String(r.At), by: String(r.ByName), action: r.Action as HistoryRow['action'], field: (r.FieldName as string | null) ?? null, oldValue: (r.OldValue as string | null) ?? null, newValue: (r.NewValue as string | null) ?? null }));
   }
 
   private valueParams(entity: EntityKey, values: Values): Param[] {

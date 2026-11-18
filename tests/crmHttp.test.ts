@@ -316,3 +316,25 @@ describe('page security', () => {
     expect((await agent.get(res.headers.location as string)).text).not.toContain('<img src=x');
   });
 });
+
+describe('history timeline (owner changes are explicit)', () => {
+  it('shows who changed the owner, from whom to whom, plus the takeover then delete flow in team mode', async () => {
+    const { agent, post } = await session('User', 'team');
+    const rowVer = /name="rowVer" value="([^"]+)"/.exec((await agent.get('/contacts/2/edit')).text)![1]!;
+    expect((await post('/contacts/2', { rowVer, LastName: 'Hansen', OwnerId: '3' })).status).toBe(303);
+    const html = (await agent.get('/contacts/2')).text;
+    expect(html).toContain('History');
+    expect(html).toContain('<strong>Owner changed from Anna Teammate to Demo User</strong>');
+    expect(html).toContain('Demo User:');
+    // now the owner, the User may delete; the delete is audited too
+    expect(html).toContain('Delete contact');
+    expect((await post('/contacts/2/delete', {})).status).toBe(303);
+  });
+  it('history is empty for an untouched record and logs a close-date change readably', async () => {
+    const { agent, post } = await session('User');
+    expect((await agent.get('/opportunities/1')).text).toContain('No changes recorded yet.');
+    const rowVer = /name="rowVer" value="([^"]+)"/.exec((await agent.get('/opportunities/1/edit')).text)![1]!;
+    await post('/opportunities/1', { rowVer, Name: 'Renewal 2027', AccountId: '1', StageId: '3', Amount: '120.000,00', CurrencyCode: 'DKK', CloseDate: '2027-01-05', OwnerId: '3' });
+    expect((await agent.get('/opportunities/1')).text).toContain('Close date changed from 15.12.2026 to 05.01.2027');
+  });
+});

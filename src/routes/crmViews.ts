@@ -1,5 +1,5 @@
 import { ENTITIES, type EntityDef } from '../domain/entities';
-import type { EntityKey, ListQuery, Lookups, OwnerOption, RefOption, Row, Value } from '../domain/types';
+import type { EntityKey, HistoryRow, ListQuery, Lookups, OwnerOption, RefOption, Row, Value } from '../domain/types';
 import type { Errors } from '../domain/validators';
 import type { Formatter } from '../services/format';
 import type { Role } from '../auth/types';
@@ -77,6 +77,16 @@ export function detailRows(entity: EntityKey, r: Row, f: Formatter): Array<{ lab
     }
     case 'activities': return [d('Type', TYPE_LABEL[s(r.ActivityType)] ?? ''), d('Status', r.IsDone ? 'Done' : 'Open'), d('Related to', relatedTo(r).text, relatedTo(r).href), d('Due', f.date(s(r.DueDate)) + (r.DueTime ? ` ${s(r.DueTime)}` : '')), d('Description', s(r.Description))];
   }
+}
+
+const FIELD_LABEL: Record<string, string> = { OwnerId: 'Owner', StageId: 'Stage', CurrencyCode: 'Currency', CloseDate: 'Close date', Amount: 'Amount' };
+/** One readable sentence per audit row, e.g. "Owner changed from Anna Teammate to Demo User". */
+export function describeHistory(h: HistoryRow, f: Formatter): string {
+  if (h.action === 'C') return 'Created';
+  if (h.action === 'D') return 'Deleted';
+  const label = FIELD_LABEL[h.field ?? ''] ?? h.field ?? 'Field';
+  const show = (v: string | null) => (v === null ? '(empty)' : h.field === 'CloseDate' ? f.date(v) : v);
+  return `${label} changed from ${show(h.oldValue)} to ${show(h.newValue)}`;
 }
 
 export function canDelete(user: { userId: number; role: Role; teamId: number | null }, r: Row): boolean {

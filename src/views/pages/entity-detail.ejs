@@ -51,6 +51,16 @@
   <% } %>
 </section>
 <% } %>
+<section aria-labelledby="hist-h" class="history">
+  <h2 id="hist-h">History</h2>
+  <% if (history.length === 0) { %><p class="muted">No changes recorded yet.</p><% } else { %>
+  <ol class="timeline">
+    <% history.forEach((h) => { %>
+    <li><span class="muted"><%= h.at %></span> · <%= h.by %>: <% if (h.owner) { %><strong><%= h.text %></strong><% } else { %><%= h.text %><% } %></li>
+    <% }) %>
+  </ol>
+  <% } %>
+</section>
 <footer class="record-footer muted">
   Created <%= modified.createdAt %> by <%= modified.createdBy %>
   <% if (modified.edited) { %> · Last modified by <%= modified.by %>, <%= modified.at %><% } %>
