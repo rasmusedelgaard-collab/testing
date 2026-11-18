@@ -1,3 +1,5 @@
+import { isRealDate } from './format';
+
 /** Calendar arithmetic on 'YYYY-MM-DD' strings (no time zones involved: callers pass "today" in the Settings timezone). */
 const pad = (n: number) => String(n).padStart(2, '0');
 const ymd = (d: Date) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
@@ -61,10 +63,9 @@ export function resolvePeriod(input: { period?: string; from?: string; to?: stri
     case 'this-year': return { ok: true, key, range: fiscalYearRange(today, fiscalStartMonth) };
     case 'last-12-months': return { ok: true, key, range: { from: monthStartPlus(today, -11), to: endAfterMonths(monthStartPlus(today, -11), 12) } };
     case 'custom': {
-      const re = /^\d{4}-\d{2}-\d{2}$/;
       const fallback = quarterRange(today, fiscalStartMonth);
       const { from = '', to = '' } = input;
-      if (!re.test(from) || !re.test(to) || Number.isNaN(Date.parse(from)) || Number.isNaN(Date.parse(to))) return { ok: false, key, range: fallback, error: 'Enter a real date, for example 31.12.2026.' };
+      if (!isRealDate(from) || !isRealDate(to)) return { ok: false, key, range: fallback, error: 'Enter a real date, for example 31.12.2026.' };
       if (to < from) return { ok: false, key, range: fallback, error: 'End date must be on or after start date.' };
       if (to > addDays(monthStartPlus(from, 0), 366 * 5 + 2)) return { ok: false, key, range: fallback, error: 'Choose a range of 5 years or less.' };
       return { ok: true, key, range: { from, to } };

@@ -1,3 +1,4 @@
+import { isRealDate } from '../services/format';
 import type { EntityKey, ListQuery } from './types';
 
 export interface ColumnSpec { name: string; type: 'text' | 'int' | 'date' | 'time' | 'money' | 'bool'; length?: number }
@@ -83,7 +84,7 @@ export function parseListQuery(def: EntityDef, query: Record<string, unknown>, t
   for (const f of def.filters) {
     const v = str(query[f.key]).trim();
     if (f.kind === 'int' && /^[1-9]\d{0,9}$/.test(v) && Number(v) <= MAX_INT) filters[f.key] = v;
-    else if (f.kind === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v))) filters[f.key] = v;
+    else if (f.kind === 'date' && isRealDate(v)) filters[f.key] = v;
     else if (f.kind === 'enum') {
       if (f.values?.includes(v)) filters[f.key] = v;
       else if (f.default) filters[f.key] = f.default;

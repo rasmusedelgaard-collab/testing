@@ -4,6 +4,7 @@ import { loadConfig } from '../src/config';
 import { ENTITIES, parseListQuery } from '../src/domain/entities';
 import { validateEntity } from '../src/domain/validators';
 import { createMemoryStore } from '../src/db/memoryStore';
+import { resolvePeriod } from '../src/services/periods';
 import { demoConfig, makeApp } from './helpers';
 
 describe('N1: prototype keys never reach sorting', () => {
@@ -86,5 +87,25 @@ describe('QA-I3-2/3: unchanged legacy values stay valid, new selections must be 
     expect(validateEntity('accounts', acc, lk, { IndustryValueId: 5 }).errors.IndustryValueId).toBeUndefined();
     expect(validateEntity('accounts', acc, lk, { IndustryValueId: 6 }).errors.IndustryValueId).toBeDefined();
     expect(validateEntity('accounts', acc, lk, null).errors.IndustryValueId).toBeDefined();
+  });
+});
+
+describe('Q1: impossible calendar dates are validation errors, not 500s', () => {
+  it('list date filters drop 2026-02-30 and 0000-01-01', () => {
+    expect(parseListQuery(ENTITIES.opportunities, { from: '2026-02-30' }, 't').filters.from).toBeUndefined();
+    expect(parseListQuery(ENTITIES.opportunities, { to: '0000-01-01' }, 't').filters.to).toBeUndefined();
+    expect(parseListQuery(ENTITIES.opportunities, { from: '2026-02-28' }, 't').filters.from).toBe('2026-02-28');
+  });
+  it('analytics custom ranges refuse them with the real-date copy', async () => {
+    for (const [from, to] of [['2026-02-30', '2026-03-05'], ['0000-01-01', '2026-03-05'], ['2026-03-01', '2026-04-31']]) {
+      expect(resolvePeriod({ period: 'custom', from, to }, '2026-11-18', 1)).toMatchObject({ ok: false, error: 'Enter a real date, for example 31.12.2026.' });
+    }
+  });
+  it('HTTP: both pages answer 200 with the message / ignore the filter', async () => {
+    const { app } = makeApp({ config: demoConfig(), store: createMemoryStore() });
+    const agent = request.agent(app);
+    await agent.get('/__test/login?role=Admin');
+    expect((await agent.get('/opportunities?from=2026-02-30&to=0000-01-01')).status).toBe(200);
+    expect((await agent.get('/analytics?period=custom&from=2026-02-30&to=2026-03-05')).text).toContain('Enter a real date');
   });
 });
