@@ -1,12 +1,12 @@
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { createMemoryStore } from '../src/db/memoryStore';
-import { checkLogo, svgIsSafe } from '../src/services/logo';
+import { checkLogo } from '../src/services/logo';
 import { contrastWithWhite } from '../src/services/color';
 import { validateFx, validateStages, validateTeam } from '../src/domain/settingsValidators';
 import { csrfFrom, demoConfig, makeApp } from './helpers';
 
-const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64, 1)]);
+const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from([0, 0, 0, 13]), Buffer.from('IHDR'), Buffer.alloc(64, 1)]);
 const SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="#123456"/></svg>');
 
 async function session(role: 'Admin' | 'Manager' | 'User' = 'Admin') {
@@ -104,36 +104,44 @@ describe('logo upload', () => {
     expect((await request(s.app).get('/branding/logo').set('If-None-Match', res.headers.etag as string)).status).toBe(304);
     expect((await s.agent.get('/')).text).toContain('<img class="logo" src="/branding/logo?v=');
   });
-  it('accepts a clean SVG', async () => {
+  it('refuses SVG outright with a clear message (PNG only)', async () => {
     const s = await session();
-    await upload(s, SVG, 'logo.svg', 'image/svg+xml');
-    expect(s.state.logo?.contentType).toBe('image/svg+xml');
-  });
-  it.each([
-    ['script element', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'],
-    ['event handler', '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"></svg>'],
-    ['javascript url', '<svg xmlns="http://www.w3.org/2000/svg"><a href="javascript:alert(1)"><rect/></a></svg>'],
-    ['foreignObject', '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><div/></foreignObject></svg>'],
-    ['external href', '<svg xmlns="http://www.w3.org/2000/svg"><image href="https://evil.example/x.png"/></svg>'],
-    ['external xlink', '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><use xlink:href="http://evil.example/a.svg#x"/></svg>'],
-    ['css url()', '<svg xmlns="http://www.w3.org/2000/svg"><rect style="fill:url(https://evil.example/x)"/></svg>'],
-    ['doctype/entity', '<!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]><svg xmlns="http://www.w3.org/2000/svg">&x;</svg>'],
-    ['mixed case', '<svg xmlns="http://www.w3.org/2000/svg"><SCRIPT>1</SCRIPT></svg>'],
-  ])('rejects an SVG with %s', async (_n, svg) => {
-    const s = await session();
-    const res = await upload(s, Buffer.from(svg), 'x.svg', 'image/svg+xml');
-    expect(res.status).toBe(303);
-    expect(s.state.logo).toBeNull();
-    expect((await s.agent.get('/settings/general')).text).toMatch(/This SVG contains script or external content|Logo must be PNG or SVG/);
+    for (const svg of [SVG, Buffer.from('<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>'), Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><x:script xmlns:x="http://www.w3.org/2000/svg">1</x:script></svg>')]) {
+      expect((await upload(s, svg, 'logo.svg', 'image/svg+xml')).status).toBe(303);
+      expect(s.state.logo).toBeNull();
+    }
+    expect((await s.agent.get('/settings/general')).text).toContain('SVG logos are not supported. Upload a PNG, 500 KB or smaller.');
+    expect((await s.agent.get('/settings/general')).text).toContain('Logo file (PNG, 500 KB or smaller)');
   });
   it('decides by content, not by filename or declared type', async () => {
     const s = await session();
     await upload(s, Buffer.from('<?php echo 1;'), 'logo.png', 'image/png');
-    await upload(s, Buffer.from('GIF89a......'), 'logo.svg', 'image/svg+xml');
+    await upload(s, Buffer.from('GIF89a......'), 'logo.png', 'image/png');
+    await upload(s, Buffer.concat([PNG.subarray(0, 8), Buffer.alloc(40)]), 'logo.png', 'image/png'); // PNG signature without an IHDR chunk
     await upload(s, Buffer.from('<html><body>hi</body></html>'), 'a.svg', 'image/svg+xml');
     expect(s.state.logo).toBeNull();
     expect(checkLogo(PNG).ok).toBe(true);
     expect(checkLogo(Buffer.alloc(0)).ok).toBe(false);
+  });
+  it('P2: logo bytes are cached by SHA and the endpoint is rate limited', async () => {
+    const s = await session();
+    await upload(s, PNG);
+    const res = await request(s.app).get('/branding/logo');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    let last = 0;
+    for (let i = 0; i < 125; i++) last = (await request(s.app).get('/branding/logo')).status;
+    expect(last).toBe(429);
+  });
+  it('P3: a stage save with unknown or duplicate ids is refused and changes nothing', async () => {
+    const s = await session();
+    const rows = s.state.stages.map((st, i) => ({ [`id_${i}`]: String(st.id), [`name_${i}`]: st.name, [`prob_${i}`]: String(st.probability), [`type_${i}`]: st.type }));
+    const body = { n: String(s.state.stages.length), ...Object.assign({}, ...rows), action: 'save' };
+    const dup = await s.post('/settings/stages', { ...body, id_1: body.id_0 });
+    expect(dup.status).toBe(422);
+    expect(dup.text).toContain('The stage list is out of date. Reload the page and try again.');
+    expect((await s.post('/settings/stages', { ...body, id_2: '9999' })).status).toBe(422);
+    expect(s.state.stages.map((x) => x.id)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(audit(s, 'stage')).toHaveLength(0);
   });
   it('rejects files over 500 KB without storing them', async () => {
     const s = await session();
@@ -141,7 +149,7 @@ describe('logo upload', () => {
     const res = await upload(s, big);
     expect(res.status).toBe(303);
     expect(s.state.logo).toBeNull();
-    expect((await s.agent.get('/settings/general')).text).toContain('Logo must be PNG or SVG, 500 KB or smaller.');
+    expect((await s.agent.get('/settings/general')).text).toContain('Logo must be a PNG, 500 KB or smaller.');
   });
   it('requires the CSRF token (checked after multipart parsing) and an Admin', async () => {
     const s = await session();
@@ -161,9 +169,6 @@ describe('logo upload', () => {
   it('/branding/logo is 404 when no logo exists', async () => {
     const s = await session();
     expect((await request(s.app).get('/branding/logo')).status).toBe(404);
-  });
-  it('svgIsSafe allows internal fragment references', () => {
-    expect(svgIsSafe('<svg><defs><linearGradient id="g"/></defs><rect fill="url(#g)"/><use href="#g"/></svg>')).toBe(true);
   });
 });
 

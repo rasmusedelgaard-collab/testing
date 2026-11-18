@@ -21,8 +21,8 @@
 <% if (logo) { %><p><img class="logo-preview" src="/branding/logo?v=<%= logo.sha256.slice(0, 12) %>" alt="Current logo" height="48"></p><% } else { %><p class="muted">No logo uploaded.</p><% } %>
 <form method="post" action="/settings/general/logo" enctype="multipart/form-data" class="form">
   <div class="field">
-    <label for="f-logo">Logo file (PNG or SVG, 500 KB or smaller)</label>
-    <input id="f-logo" name="logo" type="file" accept="image/png,image/svg+xml" required>
+    <label for="f-logo">Logo file (PNG, 500 KB or smaller)</label>
+    <input id="f-logo" name="logo" type="file" accept="image/png" required>
   </div>
   <input type="hidden" name="_csrf" value="<%= csrfToken() %>">
   <div class="actions"><button type="submit" class="button secondary">Upload logo</button></div>

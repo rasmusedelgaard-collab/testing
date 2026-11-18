@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Router } from 'express';
 import { darken } from '../services/color';
+import { rateLimit } from './rateLimit';
 import type { BrandingProvider } from '../services/brandingTypes';
 
 /** Public: theme stylesheet and logo (the sign-in page needs both), plus layout locals on every request. */
@@ -27,7 +28,7 @@ export function createBrandingRouter(branding: BrandingProvider): Router {
     res.send(css);
   });
 
-  router.get('/branding/logo', async (req, res) => {
+  router.get('/branding/logo', rateLimit({ max: 120, windowMs: 60_000 }), async (req, res) => {
     const b = await branding.get();
     if (!b.logoSha) return res.status(404).type('text/plain').send('Not found');
     const etag = `"${b.logoSha}"`;

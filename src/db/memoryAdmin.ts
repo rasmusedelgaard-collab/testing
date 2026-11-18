@@ -79,6 +79,8 @@ export class MemoryAdminRepo implements AdminRepo {
     return this.s.stages.map((st) => ({ ...st, used: this.s.data.opportunities.filter((o) => o.StageId === st.id).length })).sort((a, b) => a.sortOrder - b.sortOrder);
   }
   async saveStages(rows: StageInput[], meta: Meta): Promise<Outcome> {
+    const ids = rows.filter((r) => r.id !== null).map((r) => r.id as number);
+    if (new Set(ids).size !== ids.length || ids.some((id) => !this.s.stages.some((o) => o.id === id))) return { ok: false, error: 'The stage list is out of date. Reload the page and try again.' };
     const keep = new Set(rows.filter((r) => r.id !== null).map((r) => r.id));
     for (const st of this.s.stages) {
       if (keep.has(st.id)) continue;

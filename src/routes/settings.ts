@@ -63,7 +63,7 @@ export function createSettingsRouter(store: CrmStore, branding: BrandingProvider
         if (!csrfValid(req, (req.body as Record<string, unknown> | undefined)?._csrf)) return next(new ForbiddenError('Invalid or missing CSRF token'));
         if (err) {
 
-          flash(req, 'Logo must be PNG or SVG, 500 KB or smaller.', 'error');
+          flash(req, 'Logo must be a PNG, 500 KB or smaller.', 'error');
           return res.redirect(303, '/settings/general');
         }
         const file = req.file;

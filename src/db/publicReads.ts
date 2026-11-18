@@ -18,6 +18,7 @@ export async function pingDatabase(): Promise<boolean> {
  */
 export function createSqlBranding(ttlMs = 30_000, now: () => number = Date.now): BrandingProvider {
   let cached: { at: number; value: Branding } | undefined;
+  let logoCache: LogoData | undefined; // bytes kept in memory by SHA, so the logo endpoint does not hit the database per request
   return {
     async get() {
       if (cached && now() - cached.at < ttlMs) return cached.value;
@@ -37,14 +38,20 @@ export function createSqlBranding(ttlMs = 30_000, now: () => number = Date.now):
       }
     },
     async logo(): Promise<LogoData | null> {
+      if (logoCache) {
+        const current = await this.get();
+        if (current.logoSha === logoCache.sha256) return logoCache;
+        logoCache = undefined;
+      }
       try {
         const rows = await systemQuery<{ ct: LogoData['contentType']; c: Buffer; sha: string }>(`SELECT ContentType AS ct, Content AS c, LOWER(CONVERT(char(64), Sha256, 2)) AS sha FROM crm.BrandingAssets WHERE AssetKey = 'logo'`, [], { retry: false });
         const r = rows[0];
-        return r ? { contentType: r.ct, content: r.c, sha256: r.sha } : null;
+        if (r) logoCache = { contentType: r.ct, content: r.c, sha256: r.sha };
+        return logoCache ?? null;
       } catch {
         return null;
       }
     },
-    invalidate() { cached = undefined; },
+    invalidate() { cached = undefined; logoCache = undefined; },
   };
 }
