@@ -74,7 +74,7 @@ public sealed partial class SourceRulesTests
     }
 
     [Fact]
-    public void No_Html_Raw_in_views_without_review() => Assert.Empty(Files("*.cshtml").Where(f => File.ReadAllText(f).Contains("Html.Raw(", StringComparison.Ordinal)).Select(Rel));
+    public void Html_Raw_only_for_the_json_chart_blocks() => Assert.Equal(["Pages/Dashboard/Analytics.cshtml"], Files("*.cshtml").Where(f => File.ReadAllText(f).Contains("Html.Raw(", StringComparison.Ordinal)).Select(Rel).Order());
 
     [Fact]
     public void Views_have_no_inline_script_or_style_attributes()

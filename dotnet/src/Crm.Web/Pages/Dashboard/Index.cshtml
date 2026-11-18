@@ -1,0 +1,61 @@
+@page "/"
+@model Crm.Web.Pages.Dashboard.IndexModel
+<div class="page-header">
+  <h1>@Model.Greeting</h1>
+  <p class="muted">Data as of @Model.AsOf</p>
+</div>
+<section aria-label="Key figures">
+<ul class="tiles">
+  @for (var ti = 0; ti < Model.Tiles.Count; ti++)
+  {
+  var t = Model.Tiles[ti];
+  var tileId = ti;
+  <li class="tile">
+    <a href="@t.Href" class="tile-link" title="@(t.Full.Length > 0 ? t.Label + ": " + t.Full : t.Label)" aria-describedby="@(t.Notes.Count > 0 ? string.Join(' ', t.Notes.Select((_, ni) => $"tn-{tileId}-{ni}")) : null)">
+      <span class="tile-label">@t.Label</span>
+      <span class="tile-value@(t.Wrap ? " wrap" : "")">@t.Short@if (t.Full.Length > 0){<span class="visually-hidden"> (@t.Full)</span>}</span>
+      <span class="tile-context@(t.Danger ? " danger" : "")">@t.Context</span>
+    </a>
+    @for (var ni = 0; ni < t.Notes.Count; ni++)
+    {
+    var n = t.Notes[ni];
+    <p class="tile-note"><span id="tn-@ti-@ni"><span aria-hidden="true">⚠ </span>@n</span>@if (t.Excluded && n.Contains("not included", StringComparison.Ordinal)){<text> </text>@if (Model.IsAdmin){<a href="/settings/fx">Add FX rates<span class="visually-hidden"> for @t.FxCurrencies</span></a>}else{<text>Ask an administrator.</text>}}</p>
+    }
+  </li>
+  }
+</ul>
+</section>
+<div class="dash-grid">
+<section aria-labelledby="my-opps-h">
+  <h2 id="my-opps-h">My open opportunities</h2>
+  @if (Model.Opps.Count == 0){<p class="muted">No open opportunities yet. <a href="/opportunities/new">New opportunity</a></p>}
+  else
+  {
+  <div class="table-wrap"><table class="data">
+    <caption class="visually-hidden">My open opportunities, earliest close date first</caption>
+    <thead><tr>@foreach (var c in Model.OppColumns){<th scope="col">@c</th>}</tr></thead>
+    <tbody>@foreach (var cells in Model.Opps){<tr>@for (var ci = 0; ci < cells.Count; ci++){var c = cells[ci];<td data-label="@Model.OppColumns[ci]" class="@(c.Right ? "num" : null)">@if (c.Href is not null){<a href="@c.Href">@c.Text</a>}else{@c.Text}@if (c.Note is not null){<br><span class="badge warn">@c.Note</span>}</td>}</tr>}</tbody>
+  </table></div>
+  <p><a href="/opportunities?status=open&amp;owner=@Model.UserId">View all my opportunities (@Model.OppTotal)</a></p>
+  }
+</section>
+<section aria-labelledby="upcoming-h">
+  <h2 id="upcoming-h">Upcoming activities</h2>
+  @if (Model.Upcoming.All(u => u.Rows.Count == 0)){<p class="muted">Nothing due. You're all caught up.</p>}
+  @foreach (var u in Model.Upcoming)
+  {
+  @if (u.Rows.Count > 0)
+  {
+  <h3>@u.Title (@u.Total)</h3>
+  <div class="table-wrap"><table class="data">
+    <caption class="visually-hidden">@u.Title activities</caption>
+    <thead><tr>@foreach (var c in Model.ActColumns){<th scope="col">@c</th>}</tr></thead>
+    <tbody>@foreach (var cells in u.Rows){<tr>@for (var ci = 0; ci < cells.Count; ci++){var c = cells[ci];<td data-label="@Model.ActColumns[ci]">
+      @if (c.DoneForm is not null){<form method="post" action="@c.DoneForm.Action" asp-antiforgery="true" class="inline-form"><input type="hidden" name="returnTo" value="@c.DoneForm.ReturnTo"><button type="submit" class="button link">@(c.DoneForm.Checked ? "☑ Done" : "☐ Mark done")<span class="visually-hidden">: @c.DoneForm.Context</span></button></form>}
+      else if (c.Href is not null){<a href="@c.Href">@c.Text</a>}else{@c.Text}</td>}</tr>}</tbody>
+  </table></div>
+  <p><a href="@u.ViewAll">View all</a></p>
+  }
+  }
+</section>
+</div>

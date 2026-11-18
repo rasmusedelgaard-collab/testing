@@ -368,8 +368,39 @@ public sealed partial class CrmRepo(RlsTx tx, RlsContext ctx)
         var rows = await tx.QueryAsync<FxRaw>("SELECT CurrencyCode, CONVERT(char(7), RateMonth, 23) AS Month, Rate FROM crm.FxRates WHERE BaseCurrency = @b", p).ConfigureAwait(false);
         return rows.Select(r => new FxRateRow(r.CurrencyCode.Trim(), r.Month, r.Rate)).ToList();
     }
+
+    public async Task<(int Overdue, int Today, int Next7)> ActivityCountsAsync(string today)
+    {
+        var p = P();
+        p.Add("t", today, DbType.AnsiString, size: 10);
+        var rows = await tx.QueryRowsAsync(
+            """
+            SELECT ISNULL(SUM(CASE WHEN DueDate < @t THEN 1 ELSE 0 END), 0) AS Overdue, ISNULL(SUM(CASE WHEN DueDate = @t THEN 1 ELSE 0 END), 0) AS Today,
+                ISNULL(SUM(CASE WHEN DueDate > @t AND DueDate <= DATEADD(day, 7, CAST(@t AS date)) THEN 1 ELSE 0 END), 0) AS Next7
+              FROM crm.Activities WHERE IsDone = 0 AND ActivityType <> 'note' AND DueDate IS NOT NULL
+            """, p).ConfigureAwait(false);
+        var r = rows[0];
+        return (r.Int("Overdue"), r.Int("Today"), r.Int("Next7"));
+    }
+
+    private sealed record TeamRow(int Id, string Name);
+
+    /// <summary>Teams for the Analytics filter (team names are not sensitive; crm.Teams has no FILTER).</summary>
+    public async Task<IReadOnlyList<(int Id, string Name)>> TeamsAsync() =>
+        (await tx.QueryAsync<TeamRow>("SELECT TeamId AS Id, Name FROM crm.Teams WHERE IsActive = 1 ORDER BY Name").ConfigureAwait(false)).Select(t => (t.Id, t.Name)).ToList();
+
+    private sealed record TypeCount(string ActivityType, int Cnt);
+
+    public async Task<IReadOnlyList<(string Type, int Count)>> ActivitiesByTypeAsync(DateRange range, int? ownerId, int? teamId)
+    {
+        var p = P();
+        p.Add("from", range.From, DbType.AnsiString, size: 10);
+        p.Add("to", range.To, DbType.AnsiString, size: 10);
+        var extra = "";
+        if (ownerId is { } o) { extra += " AND OwnerId = @o"; p.Add("o", o, DbType.Int32); }
+        if (teamId is { } t) { extra += " AND TeamId = @t"; p.Add("t", t, DbType.Int32); }
+        var rows = await tx.QueryAsync<TypeCount>(
+            $"SELECT ActivityType, COUNT(*) AS Cnt FROM crm.Activities WHERE COALESCE(DueDate, CAST(CreatedAt AS date)) BETWEEN @from AND @to{extra} GROUP BY ActivityType", p).ConfigureAwait(false);
+        return rows.Select(r => (r.ActivityType, r.Cnt)).ToList();
+    }
 }
-
-public sealed record AggRow(string StageType, int? StageId, int? OwnerId, string? OwnerName, string? LeadSource, string? Month, int? AccountId, string Currency, int Count, decimal Amount);
-
-public sealed record OppAggFilter(IReadOnlyList<string> Types, string? From = null, string? To = null, int? OwnerId = null, int? TeamId = null, IReadOnlyList<int>? AccountIds = null, IReadOnlyList<string>? GroupBy = null);

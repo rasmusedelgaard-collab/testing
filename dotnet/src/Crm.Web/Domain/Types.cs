@@ -60,3 +60,7 @@ public sealed class Row(IDictionary<string, object?> data)
 
     public IEnumerable<string> Keys => _d.Keys;
 }
+
+public sealed record AggRow(string StageType, int? StageId, int? OwnerId, string? OwnerName, string? LeadSource, string? Month, int? AccountId, string Currency, int Count, decimal Amount);
+
+public sealed record OppAggFilter(IReadOnlyList<string> Types, string? From = null, string? To = null, int? OwnerId = null, int? TeamId = null, IReadOnlyList<int>? AccountIds = null, IReadOnlyList<string>? GroupBy = null);
