@@ -3435,6 +3435,175 @@ BEGIN -- case
   END CATCH;
   IF XACT_STATE() = 1 ROLLBACK TRANSACTION sp_case;
 END
+-- ---------- 20. team mode: User takes over a team-mate record, then deletes it as owner; both steps audited ----------
+BEGIN -- case
+  SAVE TRANSACTION sp_case;
+  SET @err = 0; SET @rc = -1; SET @n = -1;
+  BEGIN TRY
+  EXEC sp_set_session_context N'UserId', @A1, 0; EXEC sp_set_session_context N'Role', N'Admin', 0; EXEC sp_set_session_context N'TeamId', NULL, 0;
+  IF EXISTS (SELECT 1 FROM crm.Settings WHERE SettingKey = 'visibility.mode') UPDATE crm.Settings SET SettingValue = N'team' WHERE SettingKey = 'visibility.mode'
+  ELSE INSERT crm.Settings (SettingKey, SettingValue) VALUES ('visibility.mode', N'team');
+  EXECUTE AS USER = N'rlstest_app';
+  EXEC sp_set_session_context N'UserId', @U1, 0;
+  EXEC sp_set_session_context N'Role', N'User', 0;
+  EXEC sp_set_session_context N'TeamId', @T1, 0;
+  BEGIN TRY
+    UPDATE crm.Accounts SET OwnerId = @U1, ModifiedBy = @U1 WHERE AccountId = @Acc_U2;
+    SET @rc = @@ROWCOUNT;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  SET @n = @rc; SET @rc = -1;
+  BEGIN TRY
+    INSERT crm.AuditLog (EntityType, EntityId, Action, FieldName, OldValue, NewValue, OwnerId, TeamId, ChangedBy, CorrelationId) VALUES ('account', @Acc_U2, 'U', 'OwnerId', CAST(@U2 AS nvarchar(20)), CAST(@U1 AS nvarchar(20)), @U1, @T1, @U1, NEWID());
+    SET @rc = @@ROWCOUNT;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  SET @n2 = @rc; SET @rc = -1;
+  BEGIN TRY
+    DELETE FROM crm.Accounts WHERE AccountId = @Acc_U2;
+    SET @rc = @@ROWCOUNT;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  SET @d1 = @rc; SET @rc = -1;
+  BEGIN TRY
+    INSERT crm.AuditLog (EntityType, EntityId, Action, OldValue, OwnerId, TeamId, ChangedBy, CorrelationId) VALUES ('account', @Acc_U2, 'D', N'RLSTEST takeover', @U1, @T1, @U1, NEWID());
+    SET @rc = @@ROWCOUNT;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  SET @d2 = @rc; SET @rc = -1;
+  BEGIN TRY
+    SELECT @u3 = COUNT(*) FROM crm.AuditLog WHERE EntityType = 'account' AND EntityId = @Acc_U2 AND ChangedBy = @U1;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  REVERT;
+  INSERT @R VALUES ('20', N'Accounts team mode: U1 takes over U2 row (rc=1), audit U row (rc=1), deletes it as owner (rc=1), audit D row (rc=1), 2 audit rows visible', CASE WHEN @err = 0 AND @n = 1 AND @n2 = 1 AND @d1 = 1 AND @d2 = 1 AND @u3 = 2 THEN 1 ELSE 0 END, CONCAT(N'err=', @err, N' takeover=', @n, N' audit1=', @n2, N' delete=', @d1, N' audit2=', @d2, N' audit_rows=', @u3));
+  END TRY BEGIN CATCH
+    REVERT;
+    INSERT @R VALUES ('EXC', N'unexpected error in a case (see Detail; cases above this row are unaffected)', 0, CONCAT(N'err=', ERROR_NUMBER(), N' line=', ERROR_LINE(), N' ', ERROR_MESSAGE()));
+  END CATCH;
+  IF XACT_STATE() = 1 ROLLBACK TRANSACTION sp_case;
+END
+BEGIN -- case
+  SAVE TRANSACTION sp_case;
+  SET @err = 0; SET @rc = -1; SET @n = -1;
+  BEGIN TRY
+  EXEC sp_set_session_context N'UserId', @A1, 0; EXEC sp_set_session_context N'Role', N'Admin', 0; EXEC sp_set_session_context N'TeamId', NULL, 0;
+  IF EXISTS (SELECT 1 FROM crm.Settings WHERE SettingKey = 'visibility.mode') UPDATE crm.Settings SET SettingValue = N'team' WHERE SettingKey = 'visibility.mode'
+  ELSE INSERT crm.Settings (SettingKey, SettingValue) VALUES ('visibility.mode', N'team');
+  EXECUTE AS USER = N'rlstest_app';
+  EXEC sp_set_session_context N'UserId', @U1, 0;
+  EXEC sp_set_session_context N'Role', N'User', 0;
+  EXEC sp_set_session_context N'TeamId', @T1, 0;
+  BEGIN TRY
+    UPDATE crm.Contacts SET OwnerId = @U1, ModifiedBy = @U1 WHERE ContactId = @Con_U2;
+    SET @rc = @@ROWCOUNT;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  SET @n = @rc; SET @rc = -1;
+  BEGIN TRY
+    INSERT crm.AuditLog (EntityType, EntityId, Action, FieldName, OldValue, NewValue, OwnerId, TeamId, ChangedBy, CorrelationId) VALUES ('contact', @Con_U2, 'U', 'OwnerId', CAST(@U2 AS nvarchar(20)), CAST(@U1 AS nvarchar(20)), @U1, @T1, @U1, NEWID());
+    SET @rc = @@ROWCOUNT;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  SET @n2 = @rc; SET @rc = -1;
+  BEGIN TRY
+    DELETE FROM crm.Contacts WHERE ContactId = @Con_U2;
+    SET @rc = @@ROWCOUNT;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  SET @d1 = @rc; SET @rc = -1;
+  BEGIN TRY
+    INSERT crm.AuditLog (EntityType, EntityId, Action, OldValue, OwnerId, TeamId, ChangedBy, CorrelationId) VALUES ('contact', @Con_U2, 'D', N'RLSTEST takeover', @U1, @T1, @U1, NEWID());
+    SET @rc = @@ROWCOUNT;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  SET @d2 = @rc; SET @rc = -1;
+  BEGIN TRY
+    SELECT @u3 = COUNT(*) FROM crm.AuditLog WHERE EntityType = 'contact' AND EntityId = @Con_U2 AND ChangedBy = @U1;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  REVERT;
+  INSERT @R VALUES ('20', N'Contacts team mode: U1 takes over U2 row (rc=1), audit U row (rc=1), deletes it as owner (rc=1), audit D row (rc=1), 2 audit rows visible', CASE WHEN @err = 0 AND @n = 1 AND @n2 = 1 AND @d1 = 1 AND @d2 = 1 AND @u3 = 2 THEN 1 ELSE 0 END, CONCAT(N'err=', @err, N' takeover=', @n, N' audit1=', @n2, N' delete=', @d1, N' audit2=', @d2, N' audit_rows=', @u3));
+  END TRY BEGIN CATCH
+    REVERT;
+    INSERT @R VALUES ('EXC', N'unexpected error in a case (see Detail; cases above this row are unaffected)', 0, CONCAT(N'err=', ERROR_NUMBER(), N' line=', ERROR_LINE(), N' ', ERROR_MESSAGE()));
+  END CATCH;
+  IF XACT_STATE() = 1 ROLLBACK TRANSACTION sp_case;
+END
+BEGIN -- case
+  SAVE TRANSACTION sp_case;
+  SET @err = 0; SET @rc = -1; SET @n = -1;
+  BEGIN TRY
+  EXEC sp_set_session_context N'UserId', @A1, 0; EXEC sp_set_session_context N'Role', N'Admin', 0; EXEC sp_set_session_context N'TeamId', NULL, 0;
+  IF EXISTS (SELECT 1 FROM crm.Settings WHERE SettingKey = 'visibility.mode') UPDATE crm.Settings SET SettingValue = N'team' WHERE SettingKey = 'visibility.mode'
+  ELSE INSERT crm.Settings (SettingKey, SettingValue) VALUES ('visibility.mode', N'team');
+  EXECUTE AS USER = N'rlstest_app';
+  EXEC sp_set_session_context N'UserId', @U1, 0;
+  EXEC sp_set_session_context N'Role', N'User', 0;
+  EXEC sp_set_session_context N'TeamId', @T1, 0;
+  BEGIN TRY
+    UPDATE crm.Opportunities SET OwnerId = @U1, ModifiedBy = @U1 WHERE OpportunityId = @Opp_U2;
+    SET @rc = @@ROWCOUNT;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  SET @n = @rc; SET @rc = -1;
+  BEGIN TRY
+    INSERT crm.AuditLog (EntityType, EntityId, Action, FieldName, OldValue, NewValue, OwnerId, TeamId, ChangedBy, CorrelationId) VALUES ('opportunity', @Opp_U2, 'U', 'OwnerId', CAST(@U2 AS nvarchar(20)), CAST(@U1 AS nvarchar(20)), @U1, @T1, @U1, NEWID());
+    SET @rc = @@ROWCOUNT;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  SET @n2 = @rc; SET @rc = -1;
+  BEGIN TRY
+    DELETE FROM crm.Opportunities WHERE OpportunityId = @Opp_U2;
+    SET @rc = @@ROWCOUNT;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  SET @d1 = @rc; SET @rc = -1;
+  BEGIN TRY
+    INSERT crm.AuditLog (EntityType, EntityId, Action, OldValue, OwnerId, TeamId, ChangedBy, CorrelationId) VALUES ('opportunity', @Opp_U2, 'D', N'RLSTEST takeover', @U1, @T1, @U1, NEWID());
+    SET @rc = @@ROWCOUNT;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  SET @d2 = @rc; SET @rc = -1;
+  BEGIN TRY
+    SELECT @u3 = COUNT(*) FROM crm.AuditLog WHERE EntityType = 'opportunity' AND EntityId = @Opp_U2 AND ChangedBy = @U1;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  REVERT;
+  INSERT @R VALUES ('20', N'Opportunities team mode: U1 takes over U2 row (rc=1), audit U row (rc=1), deletes it as owner (rc=1), audit D row (rc=1), 2 audit rows visible', CASE WHEN @err = 0 AND @n = 1 AND @n2 = 1 AND @d1 = 1 AND @d2 = 1 AND @u3 = 2 THEN 1 ELSE 0 END, CONCAT(N'err=', @err, N' takeover=', @n, N' audit1=', @n2, N' delete=', @d1, N' audit2=', @d2, N' audit_rows=', @u3));
+  END TRY BEGIN CATCH
+    REVERT;
+    INSERT @R VALUES ('EXC', N'unexpected error in a case (see Detail; cases above this row are unaffected)', 0, CONCAT(N'err=', ERROR_NUMBER(), N' line=', ERROR_LINE(), N' ', ERROR_MESSAGE()));
+  END CATCH;
+  IF XACT_STATE() = 1 ROLLBACK TRANSACTION sp_case;
+END
+BEGIN -- case
+  SAVE TRANSACTION sp_case;
+  SET @err = 0; SET @rc = -1; SET @n = -1;
+  BEGIN TRY
+  EXEC sp_set_session_context N'UserId', @A1, 0; EXEC sp_set_session_context N'Role', N'Admin', 0; EXEC sp_set_session_context N'TeamId', NULL, 0;
+  IF EXISTS (SELECT 1 FROM crm.Settings WHERE SettingKey = 'visibility.mode') UPDATE crm.Settings SET SettingValue = N'team' WHERE SettingKey = 'visibility.mode'
+  ELSE INSERT crm.Settings (SettingKey, SettingValue) VALUES ('visibility.mode', N'team');
+  EXECUTE AS USER = N'rlstest_app';
+  EXEC sp_set_session_context N'UserId', @U1, 0;
+  EXEC sp_set_session_context N'Role', N'User', 0;
+  EXEC sp_set_session_context N'TeamId', @T1, 0;
+  BEGIN TRY
+    UPDATE crm.Activities SET OwnerId = @U1, ModifiedBy = @U1 WHERE ActivityId = @Act_U2;
+    SET @rc = @@ROWCOUNT;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  SET @n = @rc; SET @rc = -1;
+  BEGIN TRY
+    INSERT crm.AuditLog (EntityType, EntityId, Action, FieldName, OldValue, NewValue, OwnerId, TeamId, ChangedBy, CorrelationId) VALUES ('activity', @Act_U2, 'U', 'OwnerId', CAST(@U2 AS nvarchar(20)), CAST(@U1 AS nvarchar(20)), @U1, @T1, @U1, NEWID());
+    SET @rc = @@ROWCOUNT;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  SET @n2 = @rc; SET @rc = -1;
+  BEGIN TRY
+    DELETE FROM crm.Activities WHERE ActivityId = @Act_U2;
+    SET @rc = @@ROWCOUNT;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  SET @d1 = @rc; SET @rc = -1;
+  BEGIN TRY
+    INSERT crm.AuditLog (EntityType, EntityId, Action, OldValue, OwnerId, TeamId, ChangedBy, CorrelationId) VALUES ('activity', @Act_U2, 'D', N'RLSTEST takeover', @U1, @T1, @U1, NEWID());
+    SET @rc = @@ROWCOUNT;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  SET @d2 = @rc; SET @rc = -1;
+  BEGIN TRY
+    SELECT @u3 = COUNT(*) FROM crm.AuditLog WHERE EntityType = 'activity' AND EntityId = @Act_U2 AND ChangedBy = @U1;
+  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;
+  REVERT;
+  INSERT @R VALUES ('20', N'Activities team mode: U1 takes over U2 row (rc=1), audit U row (rc=1), deletes it as owner (rc=1), audit D row (rc=1), 2 audit rows visible', CASE WHEN @err = 0 AND @n = 1 AND @n2 = 1 AND @d1 = 1 AND @d2 = 1 AND @u3 = 2 THEN 1 ELSE 0 END, CONCAT(N'err=', @err, N' takeover=', @n, N' audit1=', @n2, N' delete=', @d1, N' audit2=', @d2, N' audit_rows=', @u3));
+  END TRY BEGIN CATCH
+    REVERT;
+    INSERT @R VALUES ('EXC', N'unexpected error in a case (see Detail; cases above this row are unaffected)', 0, CONCAT(N'err=', ERROR_NUMBER(), N' line=', ERROR_LINE(), N' ', ERROR_MESSAGE()));
+  END CATCH;
+  IF XACT_STATE() = 1 ROLLBACK TRANSACTION sp_case;
+END
 -- ---------- 19. usp_UpsertUserOnLogin does not reactivate a deactivated user ----------
 BEGIN -- case
   SAVE TRANSACTION sp_case;

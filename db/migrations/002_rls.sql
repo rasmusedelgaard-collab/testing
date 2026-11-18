@@ -43,7 +43,10 @@ RETURN
 GO
 
 -- Delete an existing row: BEFORE DELETE.
--- Admin, owner, or Manager of the same team. Visibility mode never grants delete.
+-- Admin, owner, or Manager of the same team. Visibility mode never grants delete DIRECTLY.
+-- Product-owner decision 2026-11-18: in team mode a User may reassign a team-mate's record to themselves
+-- (fn_RowUpdate + fn_RowWriteTarget allow it) and then delete it as its owner. This takeover-then-delete is
+-- permitted by design; both steps are written to the audit log (ChangedBy, old/new owner, D row).
 CREATE FUNCTION sec.fn_RowDelete(@OwnerId int, @TeamId int)
 RETURNS TABLE WITH SCHEMABINDING AS
 RETURN
