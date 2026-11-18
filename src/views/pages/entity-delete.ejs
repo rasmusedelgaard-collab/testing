@@ -1,0 +1,9 @@
+<%- include('../partials/head') %>
+<h1>Delete <%= name %>?</h1>
+<p>Delete <strong><%= name %></strong>? <%= notice %> This cannot be undone. The deletion is recorded in the audit log.</p>
+<form method="post" action="<%= def.path %>/<%= id %>/delete">
+  <%- csrfField() %>
+  <button type="submit" class="button danger">Delete <%= def.singular %></button>
+  <a href="<%= def.path %>/<%= id %>">Cancel</a>
+</form>
+<%- include('../partials/foot') %>

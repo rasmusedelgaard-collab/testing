@@ -42,3 +42,10 @@ export class DbUnavailableError extends AppError {
     super(503, 'Database unavailable', options);
   }
 }
+
+/** Optimistic-concurrency miss: the row changed since the form was loaded. `recordPath` links to the current version. */
+export class EditConflictError extends ConflictError {
+  constructor(public readonly recordPath: string) {
+    super('Someone else changed this record while you were editing.');
+  }
+}

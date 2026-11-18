@@ -65,3 +65,4 @@
   </nav>
 <% } %>
   <main id="main" tabindex="-1">
+<% if (locals.flash) { %><p class="flash<%= flash.kind === 'error' ? ' flash-error' : '' %>" role="<%= flash.kind === 'error' ? 'alert' : 'status' %>"><%= flash.message %></p><% } %>

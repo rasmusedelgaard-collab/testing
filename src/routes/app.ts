@@ -3,10 +3,6 @@ import type { RequestHandler } from 'express';
 
 /** Placeholder pages for sections built in later increments, so the navigation has no dead links. */
 const SECTIONS: Array<{ path: string; title: string; nav: string }> = [
-  { path: '/accounts', title: 'Accounts', nav: 'accounts' },
-  { path: '/contacts', title: 'Contacts', nav: 'contacts' },
-  { path: '/opportunities', title: 'Opportunities', nav: 'opportunities' },
-  { path: '/activities', title: 'Activities', nav: 'activities' },
   { path: '/analytics', title: 'Analytics', nav: 'analytics' },
   { path: '/search', title: 'Search', nav: '' },
 ];

@@ -1,5 +1,5 @@
 import type { ErrorRequestHandler, RequestHandler } from 'express';
-import { AppError, DbUnavailableError } from '../errors';
+import { AppError, DbUnavailableError, EditConflictError } from '../errors';
 import { logger } from '../logger';
 
 export const notFoundHandler: RequestHandler = (req, res) => {
@@ -11,6 +11,9 @@ export const errorHandler: ErrorRequestHandler = (err: unknown, req, res, next) 
   if (err instanceof DbUnavailableError) {
     res.set('Retry-After', '15');
     return res.status(503).render('pages/waking', { title: 'Waking up the database', status: 503, reference: req.id, isPost: req.method !== 'GET' });
+  }
+  if (err instanceof EditConflictError) {
+    return res.status(409).render('pages/conflict', { title: 'Edit conflict', status: 409, reference: req.id, recordPath: err.recordPath });
   }
   if (err instanceof AppError) {
     if (err.status === 403) {

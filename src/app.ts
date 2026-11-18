@@ -18,6 +18,10 @@ import { requestContext } from './middleware/requestContext';
 import { securityHeaders } from './middleware/security';
 import { createCommonAuthRouter, createEntraAuthRouter } from './routes/auth';
 import { createAppRouter } from './routes/app';
+import { createCrmRouter } from './routes/crm';
+import { createMemoryStore } from './db/memoryStore';
+import { sqlStore } from './db/sqlRepo';
+import type { CrmStore } from './domain/types';
 
 export interface AppDeps {
   config: AppConfig;
@@ -26,6 +30,7 @@ export interface AppDeps {
   testUserRepo?: TestUserRepo;
   sessionStore?: session.Store;
   ping?: () => Promise<boolean>;
+  store?: CrmStore;
   isUserActive?: (userId: number) => Promise<boolean>;
 }
 
@@ -101,6 +106,7 @@ export function createApp(deps: AppDeps): Express {
     }
     next();
   });
+  authed.use(createCrmRouter(deps.store ?? (config.demoMode ? createMemoryStore() : sqlStore)));
   authed.use(createAppRouter({ requireAdmin: requireRole('Admin') }));
   app.use(authed);
 

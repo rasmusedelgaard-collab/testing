@@ -1,0 +1,48 @@
+<%- include('../partials/head') %>
+<h1><%= title %></h1>
+<% if (errors.length) { %>
+<div class="error-summary" role="alert" tabindex="-1" id="error-summary">
+  <h2>Fix <%= errors.length %> problem<%= errors.length === 1 ? '' : 's' %> to save</h2>
+  <ul><% errors.forEach((e) => { %><li><a href="#f-<%= e.field %>"><%= e.message %></a></li><% }) %></ul>
+</div>
+<% } %>
+<form method="post" action="<%= action %>" class="form" novalidate>
+  <%- csrfField() %>
+  <% if (rowVer) { %><input type="hidden" name="rowVer" value="<%= rowVer %>"><% } %>
+  <% let group = null; %>
+  <% fields.forEach((f) => { %>
+    <% if (f.group && f.group !== group) { group = f.group; %><p class="muted group-label"><%= group %></p><% } %>
+    <div class="field<%= f.error ? ' has-error' : '' %>">
+    <% const describedBy = [f.error ? `e-${f.name}` : '', f.help ? `h-${f.name}` : ''].filter(Boolean).join(' '); %>
+    <% if (f.type === 'radio') { %>
+      <fieldset<%- describedBy ? ` aria-describedby="${describedBy}"` : '' %>><legend><%= f.label %></legend>
+        <% f.options.forEach((o, i) => { %><label class="inline"><input type="radio" id="<%= i === 0 ? 'f-' + f.name : 'f-' + f.name + '-' + i %>" name="<%= f.name %>" value="<%= o.value %>"<%- o.selected ? ' checked' : '' %>> <%= o.label %></label><% }) %>
+      </fieldset>
+    <% } else if (f.type === 'checkbox') { %>
+      <label class="inline"><input type="checkbox" id="f-<%= f.name %>" name="<%= f.name %>"<%- f.value ? ' checked' : '' %>> <%= f.label %></label>
+    <% } else { %>
+      <label for="f-<%= f.name %>"><%= f.label %></label>
+      <% if (f.help) { %><span class="help" id="h-<%= f.name %>"><%= f.help %></span><% } %>
+      <% if (f.error) { %><span class="field-error" id="e-<%= f.name %>"><span aria-hidden="true">⚠ </span><%= f.error %></span><% } %>
+      <% if (f.type === 'select') { %>
+        <select id="f-<%= f.name %>" name="<%= f.name %>"<%- f.required ? ' required' : '' %><%- f.error ? ' aria-invalid="true"' : '' %><%- describedBy ? ` aria-describedby="${describedBy}"` : '' %>>
+          <% f.options.forEach((o) => { %><option value="<%= o.value %>"<%- o.selected ? ' selected' : '' %>><%= o.label %></option><% }) %>
+        </select>
+      <% } else if (f.type === 'textarea') { %>
+        <textarea id="f-<%= f.name %>" name="<%= f.name %>" rows="4"<%- f.error ? ' aria-invalid="true"' : '' %><%- describedBy ? ` aria-describedby="${describedBy}"` : '' %>><%= f.value %></textarea>
+      <% } else { %>
+        <input id="f-<%= f.name %>" name="<%= f.name %>" type="<%= f.type %>" value="<%= f.value %>"<%- f.required ? ' required' : '' %><%- f.inputmode ? ` inputmode="${f.inputmode}"` : '' %><%- f.autocomplete ? ` autocomplete="${f.autocomplete}"` : '' %><%- f.error ? ' aria-invalid="true"' : '' %><%- describedBy ? ` aria-describedby="${describedBy}"` : '' %>>
+      <% } %>
+    <% } %>
+    <% if (f.type === 'radio' || f.type === 'checkbox') { %>
+      <% if (f.help) { %><span class="help" id="h-<%= f.name %>"><%= f.help %></span><% } %>
+      <% if (f.error) { %><span class="field-error" id="e-<%= f.name %>"><span aria-hidden="true">⚠ </span><%= f.error %></span><% } %>
+    <% } %>
+    </div>
+  <% }) %>
+  <div class="actions">
+    <button type="submit" class="button primary">Save</button>
+    <a href="<%= cancel %>">Cancel</a>
+  </div>
+</form>
+<%- include('../partials/foot') %>
