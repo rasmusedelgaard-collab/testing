@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { parseAmount, isRealDate } from '../services/format';
+import { amountExample, parseAmount, isRealDate } from '../services/format';
 import type { EntityKey, Lookups, Values } from './types';
 
 export type Errors = Record<string, string>;
@@ -55,9 +55,9 @@ function shape(entity: EntityKey, locale: string, currencies: string[]): z.ZodRa
         AccountId: reqInt('Choose an account.'),
         PrimaryContactId: optInt('Choose a contact from the list.'),
         StageId: reqInt('Choose a stage.'),
-        Amount: z.preprocess(s, z.string().min(1, 'Enter an amount, for example 12.500,00.')
+        Amount: z.preprocess(s, z.string().min(1, `Enter an amount, for example ${amountExample(locale)}.`)
           .refine((v) => v === '' || parseAmount(v, locale).ok || (parseAmount(v, locale) as { reason?: string }).reason !== 'negative', "Amount can't be negative.")
-          .refine((v) => v === '' || parseAmount(v, locale).ok, 'Enter an amount, for example 12.500,00.')).transform((v) => (parseAmount(v, locale) as { value: number }).value),
+          .refine((v) => v === '' || parseAmount(v, locale).ok, `Enter an amount, for example ${amountExample(locale)}.`)).transform((v) => (parseAmount(v, locale) as { value: number }).value),
         CurrencyCode: z.preprocess((v) => s(v).toUpperCase(), z.string().refine((v) => currencies.includes(v), 'Choose a currency.')),
         CloseDate: date('Enter a close date.', 'Enter a real date, for example 31.12.2026.'),
         LeadSourceValueId: optInt(chooseFromList),

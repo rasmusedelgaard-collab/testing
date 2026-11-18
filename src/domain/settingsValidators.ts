@@ -1,5 +1,5 @@
 import { contrastWithWhite } from '../services/color';
-import { ALLOWED_LOCALES, parseRate } from '../services/format';
+import { ALLOWED_LOCALES, parseRate, rateExample } from '../services/format';
 import type { Errors } from './validators';
 
 export const CURRENCIES = ['DKK', 'EUR', 'USD', 'GBP', 'SEK', 'NOK', 'CHF', 'PLN', 'CZK', 'HUF', 'ISK', 'CAD', 'AUD', 'JPY', 'CNY', 'INR', 'BRL', 'ZAR', 'SGD', 'AED'];
@@ -53,11 +53,11 @@ export function validateFx(body: Record<string, unknown>, o: { base: string; ena
   let rate = 0;
   const raw = s(body.rate);
   const r = raw ? parseRate(raw, o.locale) : null;
-  if (!raw || (r && !r.ok && r.reason === 'format')) errors.rate = 'Enter a rate, for example 7,4590.';
+  if (!raw || (r && !r.ok && r.reason === 'format')) errors.rate = `Enter a rate, for example ${rateExample(o.locale)}.`;
   else if (r && r.ok) {
     rate = r.value;
     if (rate <= 0) errors.rate = 'Rate must be more than 0.';
-    else if (rate >= 1e10) errors.rate = 'Enter a rate, for example 7,4590.';
+    else if (rate >= 1e10) errors.rate = `Enter a rate, for example ${rateExample(o.locale)}.`;
   } else errors.rate = 'Rate must be more than 0.';
   return { values: { currency, month, rate }, errors };
 }
