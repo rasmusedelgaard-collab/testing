@@ -151,6 +151,7 @@ public sealed class SettingsTests(SqlServerFixture fx)
         var after = await HttpHelpers.ParseAsync(await c.GetAsync("/settings/users"));
         Assert.Equal($"Team {name} added.", after.QuerySelector(".flash")!.TextContent);
         var dup = await c.PostAsync("/settings/teams", HttpHelpers.Form(("_csrf", token), ("name", name.ToUpperInvariant()), ("groupId", Guid.NewGuid().ToString())));
+        await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, dup);
         Assert.Contains($"A team named {name} already exists.", await dup.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         var dupGroup = await c.PostAsync("/settings/teams", HttpHelpers.Form(("_csrf", token), ("name", "Other-" + name), ("groupId", group)));
         Assert.Contains($"This group is already linked to the team {name}.", await dupGroup.Content.ReadAsStringAsync(), StringComparison.Ordinal);
