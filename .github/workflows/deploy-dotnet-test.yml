@@ -6,6 +6,11 @@ name: Deploy .NET to test (MonsterASP)
 # The secret-bearing web.config exists only inside the deploy job's workspace; the published artifact never contains secrets.
 # Reference: docs/architecture/dotnet.md section 15.1, ADR-0007.
 on:
+  # The push trigger exists only so GitHub registers this workflow while it lives on a non-default branch
+  # (a dispatch-only workflow off the default branch cannot be dispatched). Push runs skip every job.
+  push:
+    paths:
+      - .github/workflows/deploy-dotnet-test.yml
   workflow_dispatch:
     inputs:
       self_contained:
@@ -49,6 +54,7 @@ env:
 
 jobs:
   build:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
