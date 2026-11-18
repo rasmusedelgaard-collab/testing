@@ -252,6 +252,7 @@ public sealed partial class CrmRepo(RlsTx tx, RlsContext ctx)
         var d = EntityDefinitions.All[entity];
         if (!IsRowVer(rowVer))
         {
+            Diagnostics = $"rowVer has an invalid format (length {rowVer.Length})";
             return UpdateResult.Conflict;
         }
         var x = CrmSql.Entities[entity].UpdateExtra;
