@@ -235,30 +235,63 @@ jobs:
           & $env:MSDEPLOY @msArgs
           if ($LASTEXITCODE -ne 0) { throw "msdeploy failed with exit code $LASTEXITCODE" }
 
-      - name: Smoke test (status codes only)
+      - name: Diagnostic - where did Web Deploy put the files (top level only)
+        # Does not fail the job. Lists remote entries so we can see whether web.config sits at the site root.
+        continue-on-error: true
+        env:
+          WD_SERVER: ${{ secrets.MONSTERASP_WEBDEPLOY_SERVER }}
+          WD_SITE: ${{ secrets.MONSTERASP_WEBDEPLOY_SITE }}
+          WD_USER: ${{ secrets.MONSTERASP_WEBDEPLOY_USER }}
+          WD_PASSWORD: ${{ secrets.MONSTERASP_WEBDEPLOY_PASSWORD }}
+          WD_ALLOW_UNTRUSTED: ${{ vars.MONSTERASP_WEBDEPLOY_ALLOW_UNTRUSTED || 'false' }}
+        run: |
+          Write-Host "::add-mask::$env:WD_PASSWORD"
+          $server = ($env:WD_SERVER -replace '^https?://','' -replace '/.*$','')
+          if ($server -notmatch ':\d+$') { $server = "${server}:8172" }
+          $src = "contentPath=$($env:WD_SITE),computerName=https://$server/msdeploy.axd?site=$($env:WD_SITE),userName=$($env:WD_USER),password=$($env:WD_PASSWORD),authType=Basic"
+          $msArgs = @('-verb:dump', "-source:$src")
+          if ($env:WD_ALLOW_UNTRUSTED -eq 'true') { $msArgs += '-allowUntrusted' }
+          $out = & $env:MSDEPLOY @msArgs 2>&1 | ForEach-Object { "$_" }
+          Write-Host "msdeploy dump exit code: $LASTEXITCODE; $($out.Count) lines"
+          # Drop the huge node_modules listing and the credentials-bearing lines; show the rest (capped).
+          $out | Where-Object { $_ -notmatch 'node_modules' -and $_ -notmatch 'password=' } | Select-Object -First 80 | ForEach-Object { Write-Host $_ }
+          Write-Host '--- top-level entries (first path segment, counts) ---'
+          $out | ForEach-Object { if ($_ -match '(?i)(?:absolutePath|path)="?[^"]*?[\\/]([^\\/"]+)[\\/"]') { $Matches[1] } } | Group-Object | Sort-Object Count -Descending | Select-Object -First 25 | ForEach-Object { Write-Host ("{0,6}  {1}" -f $_.Count, $_.Name) }
+
+      - name: Smoke test
         env:
           SITE_URL: ${{ vars.SITE_URL || 'https://crmtest.runasp.net' }}
         run: |
           $ErrorActionPreference = 'Stop'
           $base = $env:SITE_URL.TrimEnd('/')
-          function Get-Status([string]$url) {
-            try { return [int](Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 20 -MaximumRedirection 0).StatusCode }
-            catch { if ($_.Exception.Response) { return [int]$_.Exception.Response.StatusCode } else { return 0 } }
+          Write-Host "pwsh $($PSVersionTable.PSVersion)"
+          # Returns @{ Code; Body } and prints the real outcome: status, Server/X-Powered-By, first 300 chars of body (tags stripped).
+          function Probe([string]$url) {
+            try {
+              $r = Invoke-WebRequest -Uri $url -SkipHttpErrorCheck -MaximumRedirection 0 -TimeoutSec 20
+              $body = [string]$r.Content
+              $plain = ($body -replace '(?s)<(script|style)[^>]*>.*?</\1>', ' ' -replace '<[^>]+>', ' ' -replace '\s+', ' ').Trim()
+              if ($plain.Length -gt 300) { $plain = $plain.Substring(0, 300) }
+              $srv = ($r.Headers['Server'] -join ','); $xp = ($r.Headers['X-Powered-By'] -join ','); $loc = ($r.Headers['Location'] -join ',')
+              Write-Host "  GET $url -> HTTP $([int]$r.StatusCode); Server=[$srv] X-Powered-By=[$xp] Location=[$loc]"
+              Write-Host "  body: $plain"
+              return @{ Code = [int]$r.StatusCode; Body = $body.Trim() }
+            } catch {
+              $e = $_.Exception
+              Write-Host "  GET $url -> EXCEPTION $($e.GetType().FullName): $($e.Message)"
+              if ($e.InnerException) { Write-Host "  inner: $($e.InnerException.GetType().FullName): $($e.InnerException.Message)" }
+              return @{ Code = 0; Body = '' }
+            }
           }
           # The app pool needs time to restart after app_offline.htm is removed: retry /healthz for up to ~2 minutes.
           $ok = $false
           for ($i = 1; $i -le 12; $i++) {
-            $code = Get-Status "$base/healthz"
-            Write-Host "healthz attempt ${i}: HTTP $code"
-            if ($code -eq 200) {
-              $body = (Invoke-WebRequest -Uri "$base/healthz" -UseBasicParsing -TimeoutSec 20).Content.Trim()
-              if ($body -eq 'ok') { $ok = $true; break }
-              Write-Host 'healthz returned 200 but body is not "ok"'
-            }
+            Write-Host "healthz attempt ${i}:"
+            $res = Probe "$base/healthz"
+            if ($res.Code -eq 200 -and $res.Body -eq 'ok') { $ok = $true; break }
             Start-Sleep -Seconds 10
           }
           if (-not $ok) { throw 'Smoke test failed: /healthz did not return 200 "ok" within 2 minutes' }
-          $code = Get-Status "$base/signin"
-          Write-Host "signin: HTTP $code"
-          if ($code -ne 200) { throw "Smoke test failed: /signin returned HTTP $code" }
+          $res = Probe "$base/signin"
+          if ($res.Code -ne 200) { throw "Smoke test failed: /signin returned HTTP $($res.Code)" }
           Write-Host 'Smoke test passed'
