@@ -109,6 +109,9 @@ builder.Services.AddRazorPages(o =>
     o.Conventions.AddPageRoute("/Entity/Form", "{entity:crmentity}/{id:int:min(1)}/edit");
     o.Conventions.AddPageRoute("/Entity/Detail", "opportunities/{id:int:min(1)}/{outcome:regex(^(won|lost)$)}");
     o.Conventions.AddPageRoute("/Entity/Detail", "activities/{id:int:min(1)}/{verb:regex(^(done|undone)$)}");
+    o.Conventions.AddPageRoute("/Settings/Users", "settings/teams");
+    o.Conventions.AddPageRoute("/Settings/Team", "settings/teams/{id:int:min(1)}");
+    o.Conventions.AddPageRoute("/Settings/Team", "settings/teams/{id:int:min(1)}/{verb:regex(^(deactivate|reactivate)$)}");
 }).AddMvcOptions(o => o.Filters.Add<AntiforgeryFailureFilter>());
 
 var app = builder.Build();

@@ -1,0 +1,8 @@
+@model Crm.Web.Pages.Settings.ConfirmVm
+<h1>@Model.Title</h1>
+<p>@Model.Message</p>
+<form method="post" action="@Model.Action" asp-antiforgery="true">
+  @foreach (var f in Model.Fields){<input type="hidden" name="@f.Name" value="@f.Value">}
+  <button type="submit" class="button @(Model.Danger ? "danger" : "primary")">@Model.Label</button>
+  <a href="@Model.Cancel">Cancel</a>
+</form>

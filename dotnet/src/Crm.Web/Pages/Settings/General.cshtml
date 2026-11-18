@@ -1,0 +1,29 @@
+@page "/settings/general/{handler?}"
+@model GeneralModel
+<partial name="_SettingsNav" model='"general"' />
+<h1>General</h1>
+<partial name="_ErrorSummary" model="Model.Summary" />
+<form method="post" action="/settings/general" asp-antiforgery="true" class="form" novalidate>
+  <div class="field@(Model.Errors.ContainsKey("appName") ? " has-error" : "")">
+    <label for="f-appName">CRM name (required)</label>
+    @if (Model.Errors.TryGetValue("appName", out var e1)){<span class="field-error" id="e-appName"><span aria-hidden="true">⚠ </span>@e1</span>}
+    <input id="f-appName" name="appName" type="text" maxlength="40" required value="@Model.AppName" aria-invalid="@(Model.Errors.ContainsKey("appName") ? "true" : null)" aria-describedby="@(Model.Errors.ContainsKey("appName") ? "e-appName" : null)">
+  </div>
+  <div class="field@(Model.Errors.ContainsKey("accentColor") ? " has-error" : "")">
+    <label for="f-accentColor">Accent colour</label>
+    <span class="help" id="h-accentColor">Used for links and buttons. It must have a contrast of at least 4.5:1 against both white and the light grey page background (#F9FAFB).</span>
+    @if (Model.Errors.TryGetValue("accentColor", out var e2)){<span class="field-error" id="e-accentColor"><span aria-hidden="true">⚠ </span>@e2</span>}
+    <input id="f-accentColor" name="accentColor" type="text" maxlength="7" pattern="#[0-9A-Fa-f]{6}" value="@Model.AccentColor" aria-describedby="h-accentColor@(Model.Errors.ContainsKey("accentColor") ? " e-accentColor" : "")" aria-invalid="@(Model.Errors.ContainsKey("accentColor") ? "true" : null)">
+  </div>
+  <div class="actions"><button type="submit" class="button primary">Save</button></div>
+</form>
+<h2>Logo</h2>
+@if (Model.LogoSha is not null){<p><img class="logo-preview" src="/branding/logo?v=@Model.LogoSha[..12]" alt="Current logo" height="48"></p>}else{<p class="muted">No logo uploaded.</p>}
+<form method="post" action="/settings/general/logo" enctype="multipart/form-data" asp-antiforgery="true" class="form">
+  <div class="field@(Model.Errors.ContainsKey("logo") ? " has-error" : "")">
+    <label for="f-logo">Logo file (PNG, 500 KB or smaller)</label>
+    @if (Model.Errors.TryGetValue("logo", out var e3)){<span class="field-error" id="e-logo"><span aria-hidden="true">⚠ </span>@e3</span>}
+    <input id="f-logo" name="logo" type="file" accept="image/png" aria-invalid="@(Model.Errors.ContainsKey("logo") ? "true" : null)" aria-describedby="@(Model.Errors.ContainsKey("logo") ? "e-logo" : null)">
+  </div>
+  <div class="actions"><button type="submit" class="button secondary">Upload logo</button></div>
+</form>

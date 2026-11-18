@@ -57,7 +57,7 @@ public abstract class EntityPageModel(IRlsDb rls, IRlsContextAccessor identity, 
 
     protected static string Cap(string s) => EntityViews.Capitalise(s);
 
-    protected string Today(Settings s) => TimeZones.TodayIn(s.Timezone, time).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    protected string Today(Crm.Web.Domain.Settings s) => TimeZones.TodayIn(s.Timezone, time).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     /// <summary>The submitted form as raw strings (first value per key); nothing is model-bound.</summary>
     protected Dictionary<string, string> FormBody() =>
