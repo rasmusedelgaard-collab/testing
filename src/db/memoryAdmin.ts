@@ -75,6 +75,12 @@ export class MemoryAdminRepo implements AdminRepo {
     return true;
   }
 
+  async currencyUsage(): Promise<Record<string, number>> {
+    const out: Record<string, number> = {};
+    for (const o of this.s.data.opportunities) out[String(o.CurrencyCode)] = (out[String(o.CurrencyCode)] ?? 0) + 1;
+    return out;
+  }
+
   async stageUsage(): Promise<StageUsage[]> {
     return this.s.stages.map((st) => ({ ...st, used: this.s.data.opportunities.filter((o) => o.StageId === st.id).length })).sort((a, b) => a.sortOrder - b.sortOrder);
   }

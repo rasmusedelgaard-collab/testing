@@ -81,7 +81,8 @@ export function createSettingsRouter(store: CrmStore, branding: BrandingProvider
   });
 
   // ---------------- Currency & locale ----------------
-  const localePage = (res: Response, d: { values: Record<string, unknown>; errors?: Record<string, string>; s: Record<string, string> }) => {
+  const warningsFor = (enabled: string[], usage: Record<string, number>) => Object.entries(usage).filter(([c, n]) => n > 0 && !enabled.includes(c)).map(([c, n]) => `${c} is disabled but ${n} ${n === 1 ? 'opportunity still uses' : 'opportunities still use'} it. They keep their currency; new records can't use it.`);
+  const localePage = (res: Response, d: { values: Record<string, unknown>; errors?: Record<string, string>; s: Record<string, string>; warnings?: string[] }) => {
     const base = String(d.values.base ?? 'DKK');
     const locale = String(d.values.locale ?? 'en-GB');
     let preview = '';
@@ -92,17 +93,21 @@ export function createSettingsRouter(store: CrmStore, branding: BrandingProvider
     render(res, 'settings-locale', 'locale', { title: 'Currency & locale', currencies: CURRENCIES, locales: ALLOWED_LOCALES, zones: timezones(), days: DAYS, months: MONTHS, preview, ...d });
   };
   router.get('/locale', async (req, res) => {
-    const s = await store.runAdmin(ctxOf(req), (a) => a.settingsMap());
-    localePage(res, { s, values: { base: s['currency.base'], enabled: (s['currency.enabled'] ?? '').split(','), locale: s['locale.code'], timezone: s['locale.timezone'], firstDay: s['locale.firstDayOfWeek'], fiscalStart: s['fiscal.startMonth'] } });
+    const { s, usage } = await store.runAdmin(ctxOf(req), async (a) => ({ s: await a.settingsMap(), usage: await a.currencyUsage() }));
+    localePage(res, { s, warnings: warningsFor((s['currency.enabled'] ?? '').split(','), usage), values: { base: s['currency.base'], enabled: (s['currency.enabled'] ?? '').split(','), locale: s['locale.code'], timezone: s['locale.timezone'], firstDay: s['locale.firstDayOfWeek'], fiscalStart: s['fiscal.startMonth'] } });
   });
   router.post('/locale', async (req, res) => {
     const { values, errors } = validateLocale(req.body as Record<string, unknown>);
     if (Object.keys(errors).length > 0) return localePage(res, { s: {}, values: { ...values, enabled: values.enabled, firstDay: str(req.body.firstDay), fiscalStart: str(req.body.fiscalStart) }, errors });
-    await store.runAdmin(ctxOf(req), (a) => a.saveSettings({
-      'currency.base': values.base, 'currency.enabled': values.enabled.join(','), 'locale.code': values.locale, 'locale.timezone': values.timezone,
-      'locale.firstDayOfWeek': String(values.firstDay), 'fiscal.startMonth': String(values.fiscalStart),
-    }, meta(req)));
-    flash(req, 'Settings saved.');
+    const usage = await store.runAdmin(ctxOf(req), async (a) => {
+      await a.saveSettings({
+        'currency.base': values.base, 'currency.enabled': values.enabled.join(','), 'locale.code': values.locale, 'locale.timezone': values.timezone,
+        'locale.firstDayOfWeek': String(values.firstDay), 'fiscal.startMonth': String(values.fiscalStart),
+      }, meta(req));
+      return a.currencyUsage();
+    });
+    const warn = warningsFor(values.enabled, usage);
+    flash(req, warn.length ? `Settings saved. ${warn.join(' ')}` : 'Settings saved.');
     res.redirect(303, '/settings/locale');
   });
 

@@ -81,9 +81,14 @@ function shape(entity: EntityKey, locale: string, currencies: string[]): z.ZodRa
 }
 
 /** Field-level rules (zod) plus cross-field and lookup rules. Owner membership is checked by the route. */
-export function validateEntity(entity: EntityKey, body: Record<string, unknown>, lookups: Lookups): ValidationResult {
+/**
+ * `current` is the stored record when editing: an unchanged deactivated picklist value or disabled currency stays valid
+ * (otherwise saving another field would silently re-denominate or reject the record); NEW selections must be active/enabled.
+ */
+export function validateEntity(entity: EntityKey, body: Record<string, unknown>, lookups: Lookups, current: Record<string, unknown> | null = null): ValidationResult {
   const { settings, stages, picklists } = lookups;
-  const parsed = z.object(shape(entity, settings.localeCode, settings.enabledCurrencies)).safeParse(body);
+  const currentCurrency = typeof current?.CurrencyCode === 'string' ? [current.CurrencyCode] : [];
+  const parsed = z.object(shape(entity, settings.localeCode, [...settings.enabledCurrencies, ...currentCurrency])).safeParse(body);
   const errors: Errors = {};
   if (!parsed.success) {
     for (const issue of parsed.error.issues) {
@@ -93,9 +98,10 @@ export function validateEntity(entity: EntityKey, body: Record<string, unknown>,
     return { values: {}, errors };
   }
   const v = parsed.data as Values;
-  const activeIn = (code: string, id: unknown) => id === null || (picklists[code] ?? []).some((p) => p.active && p.id === id);
+  const known = (code: string, id: number) => (picklists[code] ?? []).some((p) => p.id === id);
+  const activeIn = (field: string, code: string, id: unknown) => id === null || (id === current?.[field] && known(code, Number(id))) || (picklists[code] ?? []).some((p) => p.active && p.id === id);
   const check = (field: string, code: string) => {
-    if (!activeIn(code, v[field] ?? null)) errors[field] = chooseFromList;
+    if (!activeIn(field, code, v[field] ?? null)) errors[field] = chooseFromList;
   };
   if (entity === 'accounts') check('IndustryValueId', 'industry');
   if (entity === 'opportunities') {

@@ -72,3 +72,21 @@ describe('QA-I2 fixes', () => {
     expect(res.text).toContain('value="Edited"');
   });
 });
+
+describe('QA-I3-2/3: unchanged legacy values stay valid, new selections must be current', () => {
+  const lk = { settings: { appName: 'CRM', localeCode: 'en-GB', timezone: 'UTC', baseCurrency: 'DKK', enabledCurrencies: ['DKK'], visibilityMode: 'private', accentColor: '#1D4ED8', firstDayOfWeek: 1, fiscalStartMonth: 1 }, stages: [{ id: 1, name: 'Q', sortOrder: 1, probability: 10, type: 'open' }], picklists: { industry: [{ id: 5, code: null, label: 'Old', active: false }], lead_source: [], lost_reason: [] } } as never;
+  const opp = { Name: 'o', AccountId: '1', StageId: '1', Amount: '1', CurrencyCode: 'EUR', CloseDate: '2026-12-01', OwnerId: '1' };
+  it('a disabled currency is accepted only when it is the record\'s current one', async () => {
+    const { validateEntity } = await import('../src/domain/validators');
+    expect(validateEntity('opportunities', opp, lk, { CurrencyCode: 'EUR' }).errors.CurrencyCode).toBeUndefined();
+    expect(validateEntity('opportunities', opp, lk, { CurrencyCode: 'DKK' }).errors.CurrencyCode).toBe('Choose a currency.');
+    expect(validateEntity('opportunities', opp, lk, null).errors.CurrencyCode).toBe('Choose a currency.');
+  });
+  it('an inactive picklist value is accepted only when unchanged', async () => {
+    const { validateEntity } = await import('../src/domain/validators');
+    const acc = { Name: 'a', OwnerId: '1', IndustryValueId: '5' };
+    expect(validateEntity('accounts', acc, lk, { IndustryValueId: 5 }).errors.IndustryValueId).toBeUndefined();
+    expect(validateEntity('accounts', acc, lk, { IndustryValueId: 6 }).errors.IndustryValueId).toBeDefined();
+    expect(validateEntity('accounts', acc, lk, null).errors.IndustryValueId).toBeDefined();
+  });
+});

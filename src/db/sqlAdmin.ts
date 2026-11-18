@@ -93,6 +93,11 @@ export class SqlAdminRepo implements AdminRepo {
     return true;
   }
 
+  async currencyUsage(): Promise<Record<string, number>> {
+    const res = await this.q('SELECT CurrencyCode, COUNT(*) AS Cnt FROM crm.Opportunities GROUP BY CurrencyCode');
+    return Object.fromEntries(this.rows(res).map((r) => [String(r.CurrencyCode).trim(), NUM(r.Cnt)]));
+  }
+
   async stageUsage(): Promise<StageUsage[]> {
     // Opportunities are counted under RLS: the app can only count what the Admin may see (Admin sees all).
     const res = await this.q(`SELECT s.StageId, s.Name, s.SortOrder, s.Probability, s.StageType, (SELECT COUNT(*) FROM crm.Opportunities o WHERE o.StageId = s.StageId) AS Used FROM crm.PipelineStages s ORDER BY s.SortOrder`);

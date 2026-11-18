@@ -2,6 +2,7 @@
 <%- include('../partials/settings-nav') %>
 <h1>Currency &amp; locale</h1>
 <%- include('../partials/error-summary') %>
+<% (locals.warnings || []).forEach((w) => { %><p class="flash-warn" role="status"><span aria-hidden="true">⚠ </span><%= w %></p><% }) %>
 <form method="post" action="/settings/locale" class="form" novalidate>
   <%- csrfField() %>
   <div class="field<%= errors.base ? ' has-error' : '' %>"><label for="f-base">Base currency</label>

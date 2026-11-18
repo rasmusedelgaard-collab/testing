@@ -20,6 +20,8 @@ export interface AdminRepo {
   /** Duplicate (base, currency, month) is reported, never overwritten. */
   saveFxRate(input: { id: number | null; base: string; currency: string; month: string; rate: number }, meta: Meta): Promise<{ ok: true; id: number } | { ok: false; duplicateOf: number }>;
   deleteFxRate(id: number, meta: Meta): Promise<boolean>;
+  /** Opportunities per currency (Admin sees all rows). Used to warn before disabling a currency. */
+  currencyUsage(): Promise<Record<string, number>>;
   stageUsage(): Promise<StageUsage[]>;
   saveStages(rows: StageInput[], meta: Meta): Promise<Outcome>;
   picklist(code: string): Promise<{ name: string; values: PicklistValue[] } | null>;

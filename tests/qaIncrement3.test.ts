@@ -216,7 +216,7 @@ describe('visibility, locale and currency take effect immediately', () => {
   });
   // OPEN DEFECT QA-I3-2 (Medium): the edit form lists only enabled currencies, so for an opportunity in a disabled currency the
   // browser silently submits the first option (DKK) and the server otherwise answers 'Choose a currency.'. it.fails: remove marker once fixed.
-  it.fails('an existing opportunity in a currency that was later disabled can still be saved after editing another field', async () => {
+  it('an existing opportunity in a currency that was later disabled can still be saved after editing another field', async () => {
     const s = await session();
     await s.post('/settings/locale', { base: 'DKK', enabled: ['DKK'], locale: 'da-DK', timezone: 'Europe/Copenhagen', firstDay: '1', fiscalStart: '1' });
     const opp = s.state.data.opportunities.find((o) => o.CurrencyCode === 'EUR')!;
@@ -280,7 +280,7 @@ describe('picklists', () => {
   });
   // OPEN DEFECT QA-I3-3 (Medium): the edit form offers the deactivated value as selected but the save rejects it with 'Choose a value from the list.'.
   // it.fails: remove marker once fixed. The edit form offers the inactive value as selected ("so saving other fields never forces a change"); the save must accept it.
-  it.fails('saving another field on a record that carries a deactivated value succeeds (QA-I3-3)', async () => {
+  it('saving another field on a record that carries a deactivated value succeeds (QA-I3-3)', async () => {
     const s = await session();
     const industry = s.state.picklists.industry![0]!;
     await s.post('/settings/picklists/industry', { action: 'deactivate', valueId: String(industry.id) });
@@ -289,7 +289,7 @@ describe('picklists', () => {
     expect(res.status).toBe(303);
     expect(s.state.data.accounts[0]!.IndustryValueId).toBe(industry.id);
   });
-  it.fails('a deactivated lead source is likewise kept when saving an opportunity (QA-I3-3)', async () => {
+  it('a deactivated lead source is likewise kept when saving an opportunity (QA-I3-3)', async () => {
     const s = await session();
     const ls = s.state.picklists.lead_source![0]!;
     await s.post('/settings/picklists/lead_source', { action: 'deactivate', valueId: String(ls.id) });
