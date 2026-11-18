@@ -11,7 +11,7 @@ public sealed record UserRow(int Id, string Name, string? Email, string Role, in
 public sealed record SaveOutcomeAdmin(bool Ok, string? Error = null, string? Field = null, int Id = 0);
 
 /// <summary>Admin configuration SQL (port of sqlAdmin.ts, increment 4 subset). Runs in the Admin's RLS transaction; fn_AdminWrite is the database backstop.</summary>
-public sealed class AdminRepo(RlsTx tx)
+public sealed partial class AdminRepo(RlsTx tx)
 {
     private static DynamicParameters P() => new();
 

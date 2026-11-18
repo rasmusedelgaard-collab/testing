@@ -1,6 +1,6 @@
 @model string
 <nav aria-label="Settings" class="subnav"><ul>
-@foreach (var (k, label) in new[] { ("general", "General"), ("visibility", "Visibility"), ("users", "Users & teams") })
+@foreach (var (k, label) in new[] { ("general", "General"), ("locale", "Currency & locale"), ("fx", "FX rates"), ("stages", "Pipeline stages"), ("picklists", "Picklists"), ("visibility", "Visibility"), ("users", "Users & teams") })
 {
   <li><a href="/settings/@k" aria-current="@(Model == k ? "page" : null)">@label</a></li>
 }

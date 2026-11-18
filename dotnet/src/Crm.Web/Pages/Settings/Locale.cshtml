@@ -1,0 +1,29 @@
+@page "/settings/locale"
+@model LocaleModel
+<partial name="_SettingsNav" model='"locale"' />
+<h1>Currency &amp; locale</h1>
+<partial name="_ErrorSummary" model="Model.Summary" />
+@foreach (var w in Model.Warnings){<p class="flash-warn" role="status"><span aria-hidden="true">⚠ </span>@w</p>}
+<form method="post" action="/settings/locale" asp-antiforgery="true" class="form" novalidate>
+  <div class="field@(Model.Errors.ContainsKey("base") ? " has-error" : "")"><label for="f-base">Base currency</label>
+    <span class="help">Dashboard and analytics totals are converted to this currency. Changing it makes existing FX rates (which are stored per base currency) unused until you enter new ones.</span>
+    @if (Model.Errors.TryGetValue("base", out var e1)){<span class="field-error" id="e-base"><span aria-hidden="true">⚠ </span>@e1</span>}
+    <select id="f-base" name="base" aria-invalid="@(Model.Errors.ContainsKey("base") ? "true" : null)" aria-describedby="@(Model.Errors.ContainsKey("base") ? "e-base" : null)">@foreach (var c in Crm.Web.Services.SettingsValidators.Currencies){<option selected="@(c == Model.Values.Base)">@c</option>}</select></div>
+  <fieldset><legend>Enabled currencies</legend>
+    @foreach (var c in Crm.Web.Services.SettingsValidators.Currencies){<label class="inline"><input type="checkbox" name="enabled" value="@c" checked="@Model.Values.Enabled.Contains(c)"> @c</label>}
+    <span class="help">The base currency is always enabled.</span></fieldset>
+  <div class="field@(Model.Errors.ContainsKey("locale") ? " has-error" : "")"><label for="f-locale">Locale</label>
+    @if (Model.Errors.TryGetValue("locale", out var e2)){<span class="field-error" id="e-locale"><span aria-hidden="true">⚠ </span>@e2</span>}
+    <select id="f-locale" name="locale" aria-invalid="@(Model.Errors.ContainsKey("locale") ? "true" : null)" aria-describedby="@(Model.Errors.ContainsKey("locale") ? "e-locale" : null)">@foreach (var l in Crm.Web.Services.LocaleProfile.Allowed){<option selected="@(l == Model.Values.Locale)">@l</option>}</select></div>
+  <div class="field@(Model.Errors.ContainsKey("timezone") ? " has-error" : "")"><label for="f-timezone">Timezone</label>
+    @if (Model.Errors.TryGetValue("timezone", out var e3)){<span class="field-error" id="e-timezone"><span aria-hidden="true">⚠ </span>@e3</span>}
+    <select id="f-timezone" name="timezone" aria-invalid="@(Model.Errors.ContainsKey("timezone") ? "true" : null)" aria-describedby="@(Model.Errors.ContainsKey("timezone") ? "e-timezone" : null)">@foreach (var z in Model.Zones){<option selected="@(z == Model.Values.Timezone)">@z</option>}</select></div>
+  <div class="field@(Model.Errors.ContainsKey("firstDay") ? " has-error" : "")"><label for="f-firstDay">First day of the week</label>
+    @if (Model.Errors.TryGetValue("firstDay", out var e4)){<span class="field-error" id="e-firstDay"><span aria-hidden="true">⚠ </span>@e4</span>}
+    <select id="f-firstDay" name="firstDay" aria-invalid="@(Model.Errors.ContainsKey("firstDay") ? "true" : null)" aria-describedby="@(Model.Errors.ContainsKey("firstDay") ? "e-firstDay" : null)">@for (var i = 0; i < LocaleModel.Days.Count; i++){<option value="@(i + 1)" selected="@((i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) == Model.Values.FirstDay)">@LocaleModel.Days[i]</option>}</select></div>
+  <div class="field@(Model.Errors.ContainsKey("fiscalStart") ? " has-error" : "")"><label for="f-fiscalStart">Fiscal year starts in</label>
+    @if (Model.Errors.TryGetValue("fiscalStart", out var e5)){<span class="field-error" id="e-fiscalStart"><span aria-hidden="true">⚠ </span>@e5</span>}
+    <select id="f-fiscalStart" name="fiscalStart" aria-invalid="@(Model.Errors.ContainsKey("fiscalStart") ? "true" : null)" aria-describedby="@(Model.Errors.ContainsKey("fiscalStart") ? "e-fiscalStart" : null)">@for (var i = 0; i < LocaleModel.Months.Count; i++){<option value="@(i + 1)" selected="@((i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) == Model.Values.FiscalStart)">@LocaleModel.Months[i]</option>}</select></div>
+  @if (Model.Preview.Length > 0){<p class="muted">Preview (saved settings): <strong>@Model.Preview</strong></p>}
+  <div class="actions"><button type="submit" class="button primary">Save</button></div>
+</form>

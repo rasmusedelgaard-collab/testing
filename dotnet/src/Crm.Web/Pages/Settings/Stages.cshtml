@@ -1,0 +1,42 @@
+@page "/settings/stages"
+@model StagesModel
+<partial name="_SettingsNav" model='"stages"' />
+<h1>Pipeline stages</h1>
+<partial name="_ErrorSummary" model="Model.Summary" />
+@if (Model.Note.Length > 0){<p class="muted" role="status">@Model.Note</p>}
+<form method="post" action="/settings/stages" asp-antiforgery="true" novalidate>
+  <input type="hidden" name="n" value="@Model.Rows.Count">
+  <div class="table-wrap"><table class="data">
+    <caption class="visually-hidden">Pipeline stages in order</caption>
+    <thead><tr><th scope="col">Order</th><th scope="col">Stage name</th><th scope="col">Probability</th><th scope="col">Type</th><th scope="col">Opportunities</th><th scope="col"><span class="visually-hidden">Remove</span></th></tr></thead>
+    <tbody>
+    @for (var i = 0; i < Model.Rows.Count; i++)
+    {
+      var r = Model.Rows[i];
+      var nameErr = Model.Errors.TryGetValue("name" + i, out var en) ? en : null;
+      var probErr = Model.Errors.TryGetValue("prob" + i, out var ep) ? ep : null;
+    <tr>
+      <td data-label="Order"><input type="hidden" name="id_@i" value="@r.Id">
+        <button type="submit" id="up-@i" data-autofocus="@(Model.Focus == "up-" + i ? "" : null)" class="button secondary" name="action" value="up:@i" aria-label="Move @(r.Name.Length > 0 ? r.Name : "stage") up" disabled="@(i == 0)">↑</button>
+        <button type="submit" id="down-@i" data-autofocus="@(Model.Focus == "down-" + i ? "" : null)" class="button secondary" name="action" value="down:@i" aria-label="Move @(r.Name.Length > 0 ? r.Name : "stage") down" disabled="@(i == Model.Rows.Count - 1)">↓</button></td>
+      <td data-label="Stage name"><label class="visually-hidden" for="f-name@(i)">Stage name @(i + 1)</label>
+        @if (nameErr is not null){<span class="field-error" id="e-name@(i)"><span aria-hidden="true">⚠ </span>@nameErr</span>}
+        @if (Model.Links.TryGetValue("name" + i, out var link)){<a href="@link">View these opportunities</a><br>}
+        <input id="f-name@(i)" data-autofocus="@(Model.Focus == "f-name" + i ? "" : null)" name="name_@i" type="text" maxlength="60" value="@r.Name" aria-invalid="@(nameErr is not null ? "true" : null)" aria-describedby="@(nameErr is not null ? "e-name" + i : null)"></td>
+      <td data-label="Probability"><label class="visually-hidden" for="f-prob@(i)">Probability @(i + 1) (percent)</label>
+        @if (probErr is not null){<span class="field-error" id="e-prob@(i)"><span aria-hidden="true">⚠ </span>@probErr</span>}
+        <input id="f-prob@(i)" name="prob_@i" type="text" inputmode="numeric" size="4" value="@(r.Type == "won" ? "100" : r.Type == "lost" ? "0" : r.Prob)" aria-invalid="@(probErr is not null ? "true" : null)" aria-describedby="@(probErr is not null ? "e-prob" + i : null)"> %</td>
+      <td data-label="Type"><fieldset class="plain"><legend class="visually-hidden">Type of stage @(i + 1)</legend>
+        @foreach (var t in new[] { "open", "won", "lost" }){<label class="inline"><input type="radio" name="type_@i" value="@t" checked="@(r.Type == t)"> @(char.ToUpperInvariant(t[0]) + t[1..])</label>}</fieldset></td>
+      <td data-label="Opportunities" class="num">@r.Used</td>
+      <td data-label="Remove"><button type="submit" class="button link" name="action" value="remove:@i" aria-label="Remove stage @(r.Name.Length > 0 ? r.Name : (i + 1).ToString())">Remove</button></td>
+    </tr>
+    }
+    </tbody>
+  </table></div>
+  <p class="muted">Exactly one Won stage (probability 100) and one Lost stage (probability 0). A stage in use cannot be removed until its opportunities are moved to another stage.</p>
+  <div class="actions">
+    <button type="submit" class="button secondary" name="action" value="add">Add stage</button>
+    <button type="submit" class="button primary" name="action" value="save">Save stages</button>
+  </div>
+</form>

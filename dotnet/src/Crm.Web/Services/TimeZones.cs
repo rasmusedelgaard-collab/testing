@@ -19,6 +19,28 @@ public static class TimeZones
         return TimeZoneInfo.Utc;
     }
 
+    private static readonly Lazy<IReadOnlyList<string>> ListedZones = new(BuildList);
+
+    /// <summary>IANA zone ids offered on the locale page (the Node app used Intl.supportedValuesOf). Windows ids are mapped to IANA ids.</summary>
+    public static IReadOnlyList<string> Listed => ListedZones.Value;
+
+    private static IReadOnlyList<string> BuildList()
+    {
+        var ids = new SortedSet<string>(StringComparer.Ordinal) { "UTC", "Europe/Copenhagen" };
+        foreach (var z in TimeZoneInfo.GetSystemTimeZones())
+        {
+            if (z.Id.Contains('/', StringComparison.Ordinal))
+            {
+                ids.Add(z.Id);
+            }
+            else if (TimeZoneInfo.TryConvertWindowsIdToIanaId(z.Id, out var iana) && iana is not null)
+            {
+                ids.Add(iana);
+            }
+        }
+        return ids.Where(IsValid).ToList();
+    }
+
     public static bool IsValid(string id)
     {
         try

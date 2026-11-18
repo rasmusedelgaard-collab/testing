@@ -38,6 +38,102 @@ public static partial class SettingsValidators
         return (name, groupId, errors);
     }
 
+    public static readonly IReadOnlyList<string> Currencies = ["DKK", "EUR", "USD", "GBP", "SEK", "NOK", "CHF", "PLN", "CZK", "HUF", "ISK", "CAD", "AUD", "JPY", "CNY", "INR", "BRL", "ZAR", "SGD", "AED"];
+
+    public sealed record LocaleValues(string Base, IReadOnlyList<string> Enabled, string Locale, string Timezone, string FirstDay, string FiscalStart);
+
+    private static string T(string? s) => (s ?? "").Trim();
+
+    private static bool InRange(string s, int min, int max) =>
+        int.TryParse(s, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) && n >= min && n <= max;
+
+    public static (LocaleValues Values, Dictionary<string, string> Errors) ValidateLocale(string? baseRaw, IEnumerable<string>? enabledRaw, string? localeRaw, string? timezoneRaw, string? firstDayRaw, string? fiscalRaw, IReadOnlyCollection<string> zones)
+    {
+        var errors = new Dictionary<string, string>();
+        var baseCurrency = T(baseRaw);
+        if (!Currencies.Contains(baseCurrency)) { errors["base"] = "Choose a base currency."; }
+        var enabled = (enabledRaw ?? []).Select(T).Where(Currencies.Contains).Distinct().ToList();
+        if (!errors.ContainsKey("base") && !enabled.Contains(baseCurrency)) { enabled.Insert(0, baseCurrency); } // the base currency is always enabled
+        var locale = T(localeRaw);
+        if (!LocaleProfile.Allowed.Contains(locale)) { errors["locale"] = "Choose a locale."; }
+        var timezone = T(timezoneRaw);
+        if (!zones.Contains(timezone)) { errors["timezone"] = "Choose a timezone."; }
+        var firstDay = T(firstDayRaw);
+        if (!InRange(firstDay, 1, 7)) { errors["firstDay"] = "Choose the first day of the week."; }
+        var fiscal = T(fiscalRaw);
+        if (!InRange(fiscal, 1, 12)) { errors["fiscalStart"] = "Choose a month."; }
+        return (new LocaleValues(baseCurrency, enabled, locale, timezone, firstDay, fiscal), errors);
+    }
+
+    [GeneratedRegex(@"^[0-9]{4}-(0[1-9]|1[0-2])\z", RegexOptions.CultureInvariant)]
+    private static partial Regex MonthPattern();
+
+    public static (string Currency, string Month, decimal Rate, Dictionary<string, string> Errors) ValidateFx(string? currencyRaw, string? monthRaw, string? rateRaw, string baseCurrency, IReadOnlyList<string> enabled, string locale)
+    {
+        var errors = new Dictionary<string, string>();
+        var currency = T(currencyRaw).ToUpperInvariant();
+        if (currency.Length == 0 || currency == baseCurrency || !enabled.Contains(currency)) { errors["currency"] = "Choose a currency."; }
+        var month = T(monthRaw);
+        if (!MonthPattern().IsMatch(month) || int.Parse(month[..4], System.Globalization.CultureInfo.InvariantCulture) < 2000) { errors["month"] = "Choose a month."; }
+        var rate = 0m;
+        var raw = T(rateRaw);
+        var example = $"Enter a rate, for example {NumberParser.RateExample(locale)}.";
+        var r = raw.Length > 0 ? NumberParser.ParseRate(raw, locale) : default;
+        if (raw.Length == 0 || (!r.Ok && r.Reason == ParseFailure.Format)) { errors["rate"] = example; }
+        else if (r.Ok)
+        {
+            rate = r.Value;
+            if (rate <= 0) { errors["rate"] = "Rate must be more than 0."; }
+            else if (rate >= 1e10m) { errors["rate"] = example; }
+        }
+        else { errors["rate"] = "Rate must be more than 0."; }
+        return (currency, month, rate, errors);
+    }
+
+    public static string? ValidateLabel(string? raw)
+    {
+        var t = T(raw);
+        return t.Length == 0 ? "Enter a name." : t.Length > 80 ? "Name must be 80 characters or fewer." : null;
+    }
+
+    public sealed record StageForm(string Id, string Name, string Prob, string Type);
+
+    public sealed record StageInput(int? Id, string Name, int Probability, string Type);
+
+    /// <summary>Rows come from the editor form. Won is forced to 100 and Lost to 0 (the database CHECKs require it).</summary>
+    public static (IReadOnlyList<StageInput> Rows, Dictionary<string, string> Errors, List<string> Summary) ValidateStages(IReadOnlyList<StageForm> rows)
+    {
+        var errors = new Dictionary<string, string>();
+        var summary = new List<string>();
+        var rowsOut = new List<StageInput>();
+        var seen = new HashSet<string>();
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var r = rows[i];
+            int? id = StageId().IsMatch(r.Id) ? (long.Parse(r.Id, System.Globalization.CultureInfo.InvariantCulture) > int.MaxValue ? int.MaxValue : int.Parse(r.Id, System.Globalization.CultureInfo.InvariantCulture)) : null;
+            var name = T(r.Name);
+            var type = r.Type is "won" or "lost" ? r.Type : "open";
+            var prob = StageProb().IsMatch(T(r.Prob)) ? int.Parse(T(r.Prob), System.Globalization.CultureInfo.InvariantCulture) : -1;
+            if (name.Length == 0) { errors[$"name{i}"] = "Enter a stage name."; }
+            else if (name.Length > 60) { errors[$"name{i}"] = "Stage name must be 60 characters or fewer."; }
+            else if (seen.Contains(name.ToLowerInvariant())) { errors[$"name{i}"] = "Each stage needs a different name."; }
+            seen.Add(name.ToLowerInvariant());
+            if (type == "won") { prob = 100; }
+            else if (type == "lost") { prob = 0; }
+            else if (prob is < 0 or > 100) { errors[$"prob{i}"] = "Probability must be between 0 and 100."; }
+            rowsOut.Add(new StageInput(id, name, prob, type));
+        }
+        if (rowsOut.Count(r => r.Type == "won") != 1 || rowsOut.Count(r => r.Type == "lost") != 1) { summary.Add("You need exactly one Won stage and one Lost stage."); }
+        if (!rowsOut.Any(r => r.Type == "open")) { summary.Add("You need at least one open stage."); }
+        return (rowsOut, errors, summary);
+    }
+
+    [GeneratedRegex(@"^[1-9][0-9]{0,9}\z", RegexOptions.CultureInvariant)]
+    private static partial Regex StageId();
+
+    [GeneratedRegex(@"^[0-9]{1,3}\z", RegexOptions.CultureInvariant)]
+    private static partial Regex StageProb();
+
     public const int MaxLogoBytes = 512_000;
     private const string BadType = "Logo must be a PNG, 500 KB or smaller.";
     private const string SvgRefused = "SVG logos are not supported. Upload a PNG, 500 KB or smaller.";

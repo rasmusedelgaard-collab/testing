@@ -59,5 +59,5 @@ public abstract class SettingsPageModel(IRlsDb rls, IRlsContextAccessor identity
         return Page();
     }
 
-    public IReadOnlyList<(string Field, string Message)> Summary => Errors.Select(e => (e.Key, e.Value)).ToList();
+    public virtual IReadOnlyList<(string Field, string Message)> Summary => Errors.Select(e => (e.Key, e.Value)).ToList();
 }
