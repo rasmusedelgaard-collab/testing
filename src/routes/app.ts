@@ -30,4 +30,3 @@ export function createAppRouter(opts: { requireAdmin: RequestHandler }): Router 
 
   return router;
 }
-import { getRlsPool } from '../db/../db/pool'; void getRlsPool;
