@@ -37,7 +37,10 @@ public sealed class UsersModel(IRlsDb rls, IRlsContextAccessor identity, Brandin
         : u.TeamStatus == "overage" ? "Too many groups — team not applied"
         : u.TeamStatus == "none" || u.TeamId is null ? "No team — sees own records only" : "";
 
-    private async Task LoadAsync()
+    private static async Task<(IReadOnlyList<UserRow> Users, IReadOnlyList<TeamRow> Teams, Lookups Lk)> ReadAsync(AdminRepo admin, CrmRepo repo) =>
+        (await admin.UsersAsync(), await admin.TeamsAsync(), await repo.LookupsAsync());
+
+    private void Apply((IReadOnlyList<UserRow> Users, IReadOnlyList<TeamRow> Teams, Lookups Lk) data)
     {
         Setup("users", "Users & teams");
         ConnectionIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
@@ -47,19 +50,18 @@ public sealed class UsersModel(IRlsDb rls, IRlsContextAccessor identity, Brandin
         FilterTeam = Q("team");
         FilterQ = Q("q").Trim().ToLowerInvariant();
         if (FilterQ.Length > 100) { FilterQ = FilterQ[..100]; }
-        var (users, teams, lk) = await RunAsync(async (admin, repo) => (await admin.UsersAsync(), await admin.TeamsAsync(), await repo.LookupsAsync()));
-        var f = new Formatter(lk.Settings.LocaleCode, lk.Settings.Timezone);
-        Teams = teams;
-        var filtered = users.Where(u => (FilterRole.Length == 0 || u.Role == FilterRole)
+        var f = new Formatter(data.Lk.Settings.LocaleCode, data.Lk.Settings.Timezone);
+        Teams = data.Teams;
+        var filtered = data.Users.Where(u => (FilterRole.Length == 0 || u.Role == FilterRole)
             && (FilterTeam.Length == 0 || (FilterTeam == "none" ? u.TeamId is null : u.TeamId?.ToString(CultureInfo.InvariantCulture) == FilterTeam))
             && (FilterQ.Length == 0 || u.Name.ToLowerInvariant().Contains(FilterQ, StringComparison.Ordinal) || (u.Email ?? "").ToLowerInvariant().Contains(FilterQ, StringComparison.Ordinal)));
         Users = filtered.Select(u => new UserVm(u, u.LastSignIn is null ? "" : f.DateTime(u.LastSignIn), BadgeOf(u))).ToList();
-        NoTeamCount = users.Count(u => u.Active && BadgeOf(u).Length > 0);
+        NoTeamCount = data.Users.Count(u => u.Active && BadgeOf(u).Length > 0);
     }
 
     public async Task<IActionResult> OnGetAsync()
     {
-        await LoadAsync();
+        Apply(await RunAsync(ReadAsync));
         return Page();
     }
 
@@ -67,17 +69,19 @@ public sealed class UsersModel(IRlsDb rls, IRlsContextAccessor identity, Brandin
     {
         var (n, g, errors) = SettingsValidators.ValidateTeam(name, groupId);
         var meta = MetaOf();
-        if (errors.Count == 0)
+        // One transaction per request: the save (if valid) and the data for re-rendering the page share it.
+        var (saved, data) = await RunAsync(async (admin, repo) =>
         {
-            var r = await RunAsync(async (admin, _) => await admin.SaveTeamAsync(null, n, g, meta));
-            if (r.Ok)
-            {
-                Flash($"Team {n} added.");
-                return SeeOther("/settings/users");
-            }
-            errors[r.Field ?? "name"] = r.Error!;
+            SaveOutcomeAdmin? r = errors.Count == 0 ? await admin.SaveTeamAsync(null, n, g, meta) : null;
+            return (r, await ReadAsync(admin, repo));
+        });
+        if (saved is { Ok: true })
+        {
+            Flash($"Team {n} added.");
+            return SeeOther("/settings/users");
         }
-        await LoadAsync();
+        if (saved is not null) { errors[saved.Field ?? "name"] = saved.Error!; }
+        Apply(data);
         Errors = errors;
         NameValue = name ?? "";
         GroupValue = groupId ?? "";
