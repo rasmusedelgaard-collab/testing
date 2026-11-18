@@ -1,132 +1,103 @@
-# Runbook: interim TEST site on MonsterASP.NET
+# Checklist: interim TEST site on MonsterASP.NET
 
-Site: https://crmtest.runasp.net (Windows / IIS + iisnode). Database: MSSQL `db81053` on `db81053.databaseasp.net`.
-Auth mode: `AUTH_MODE=test-access-code` (no Entra). **Test data only.** Design context: `docs/architecture/overview.md` section 12.3.
+Site: https://crmtest.runasp.net. Database `db81053` on `db81053.databaseasp.net`. Sign-in by shared access code. **Test data only, never real data.**
+Background: `docs/architecture/overview.md` section 12.3.
 
-## How it works
+How it works: every push to `claude/tender-darwin-4quuzo` runs GitHub Actions (lint, typecheck, tests), builds a ready-to-run package and force-pushes it as
+one commit to the branch `deploy`. MonsterASP pulls `deploy`. MonsterASP does not run `npm install`, so the package already contains everything.
+Never edit `deploy` by hand. Passwords are never in git: they live in a file `crm.env` that you upload once.
 
-1. A push to `claude/tender-darwin-4quuzo` (later `main`) runs `.github/workflows/deploy-test.yml`: lint, typecheck, tests, then
-   `npm run package` and a **force-push of the package as one fresh orphan commit to branch `deploy`**.
-2. MonsterASP git-deploys from `deploy`. MonsterASP does **not** run `npm install` or a build, which is why the package already
-   contains `dist/` and production `node_modules/`.
-3. `web.config` routes every request to `iisnode-entry.js`, which loads the settings file `crm.env` (not in git) and starts `dist/server.js`.
-
-The `deploy` branch contains generated files only. Never edit it by hand and never merge it.
-
-## Settings and secrets (never in git)
-
-iisnode on a plain IIS host does not reliably expose `web.config` `<appSettings>` as environment variables (that is an Azure App
-Service behaviour), and anything in `web.config` would be in git. So settings come from a separate file, `crm.env`, read by
-`iisnode-entry.js`. Lookup order, first found wins, real environment variables always win:
-
-1. the file named by the environment variable `CRM_ENV_FILE` (only if the control panel offers real environment variables)
-2. `crm.env` **one level above the site folder** (preferred: survives a deploy that wipes the site folder)
-3. `crm.env` inside the site folder (works only if the deploy does not delete untracked files; test this once, see below)
-
-If the control panel has an "Environment variables" section for the site, you may set the variables there instead and skip the file.
-
-Create `crm.env` from `crm.env.example` (also at `deploy/crm.env.example` in the repo):
-
-| Name | Value | Secret |
-|---|---|---|
-| `NODE_ENV` | `production` | no |
-| `AUTH_MODE` | `test-access-code` | no |
-| `REDIRECT_URI` | `https://crmtest.runasp.net/auth/redirect` (drives HTTPS cookie flags) | no |
-| `DB_AUTH_MODE` | `sql-password` | no |
-| `DB_SERVER` | `db81053.databaseasp.net` | no |
-| `DB_NAME` | `db81053` | no |
-| `DB_USER` | `db81053` | no |
-| `DB_PASSWORD` | the database password | **yes** |
-| `SESSION_SECRET` | 32+ random characters (comma-separated list allowed for rotation) | **yes** |
-| `TEST_ACCESS_CODE` | shared sign-in code, 16+ characters | **yes** |
-| `DB_TRUST_SERVER_CERT` | `true` only if connections fail with a certificate error | no |
-| `LOG_LEVEL` | optional, default `info` | no |
-
-Generate secrets: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`.
-Do not set `DEMO_MODE`; the app refuses it with `NODE_ENV=production`.
+Status of `deploy` (checked at 2a643d5): web.config, iisnode-entry.js, dist/, db/ and production node_modules at the root; about 62 MB;
+no src/, tests/, .env or source-map files outside third-party libraries.
 
 ## One-time setup
 
-1. **GitHub connection.** In the MonsterASP panel, point the site's Git deployment at this repository, branch **`deploy`**.
-   The branch exists only after the first workflow run: run **Actions > Deploy to test (MonsterASP) > Run workflow** first.
-2. **Node version.** In the panel's Node.js setting for the site choose the newest LTS offered (code needs Node 20+; CI tests 20 and 22).
-   After the first deploy, `iisnode\` logs (see Troubleshooting) or the startup error will show the version if it is too old.
-3. **Settings file.** Fill in `crm.env` on your PC and upload it with the panel's file manager/FTP to the folder **above** `wwwroot`
-   (or into the site folder if the parent is not writable). Then confirm it survives a deploy: re-run the workflow and check the file is still there.
-4. **Database migrations 001-004 and test users** (the database must be empty or only contain this app's tables). Choose one:
-   - **From your PC (recommended; verifies policies automatically).** Needs the DB host to accept your IP (check the remote-access / IP allowlist in the panel).
-     ```bash
-     # needs Node 22.9+ on your PC (the db scripts use --env-file-if-exists)
-     git checkout claude/tender-darwin-4quuzo && npm ci
-     export DB_AUTH_MODE=sql-password DB_SERVER=db81053.databaseasp.net DB_NAME=db81053 DB_USER=db81053
-     export DB_PASSWORD='<password>'          # PowerShell: $env:DB_PASSWORD='...'
-     # export DB_TRUST_SERVER_CERT=true       # only if you get a certificate error
-     npm run db:migrate                       # applies 001-004, records checksums, then asserts both security policies are ENABLED
-     npm run db:seed:test                     # db/seed/test-users.sql (test users and teams)
-     ```
-   - **Via MonsterASP's web SQL tool.** Paste and run, in order, `db/migrations/001_schema.sql`, `002_rls.sql`, `003_grants.sql`, `004_seed.sql`, then
-     `db/seed/test-users.sql`. The scripts contain `GO` separators; if the tool does not support `GO`, run each batch (text between `GO` lines) separately.
-     This path does not create `dbo.SchemaVersions`, so a later `npm run db:migrate` would try to re-apply 001: do not mix the two paths.
-5. **Verify the security policies are enabled.** `CREATE SECURITY POLICY` needs `ALTER ANY SECURITY POLICY` plus `ALTER` on the schema; the database owner
-   (`dbo`/`db_owner`) has these, so it should work with the owner login. **Not confirmed on this host (shared hosting can restrict features): confirm explicitly:**
+1. **GitHub.** Nothing to do: Actions are enabled and the `deploy` branch exists. To rebuild it any time: GitHub > Actions > "Deploy to test (MonsterASP)" > Run workflow.
+2. **MonsterASP Git deploy.** In the control panel, open the site's Git/deployment settings, choose this GitHub repository and the branch **`deploy`** (not main), then run a deploy/sync.
+3. **Node version.** In the panel's Node.js setting choose the newest LTS offered (must be 20 or newer).
+4. **Create `crm.env`.** On your PC make a text file named `crm.env` (copy `deploy/crm.env.example` from the repo) and fill in the three secrets. Generate each secret by running this once per secret (needs Node installed) and pasting the output:
+   ```
+   node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+   ```
+   Contents (`DB_PASSWORD` is the password MonsterASP gave you for the database; `SESSION_SECRET` and `TEST_ACCESS_CODE` are two different generated values; the access code is what testers type, so share it only with testers):
+   ```
+   NODE_ENV=production
+   AUTH_MODE=test-access-code
+   REDIRECT_URI=https://crmtest.runasp.net/auth/redirect
+   TRUST_PROXY=1
+   LOG_LEVEL=info
+   DB_AUTH_MODE=sql-password
+   DB_SERVER=db81053.databaseasp.net
+   DB_NAME=db81053
+   DB_USER=db81053
+   DB_PASSWORD=<database password>
+   SESSION_SECRET=<generated value 1>
+   TEST_ACCESS_CODE=<generated value 2>
+   ```
+   (There is no `BASE_URL` setting; the app derives it from `REDIRECT_URI`. Add `DB_TRUST_SERVER_CERT=true` only if the database connection later fails with a certificate error.)
+5. **Upload `crm.env`** with the panel's file manager (or FTP) into the folder **one level above `wwwroot`**; if that is not writable, into the site folder (`wwwroot`). After the next deploy check the file is still there.
+   If the panel has an "Environment variables" page you may enter the same names there instead of using the file.
+6. **Allow your PC to reach the database.** In the MonsterASP panel, database section, add your public IP (find it at https://ifconfig.me) to the allowed/remote-access list.
+7. **Run migrations and test users from your PC** (needs Node **22.9 or newer**, and the repo checked out on branch `claude/tender-darwin-4quuzo`).
+   macOS/Linux:
+   ```
+   npm ci
+   export DB_AUTH_MODE=sql-password DB_SERVER=db81053.databaseasp.net DB_NAME=db81053 DB_USER=db81053
+   export DB_PASSWORD='<database password>'
+   npm run db:migrate
+   npm run db:seed:test
+   ```
+   Windows PowerShell: same, but `$env:DB_AUTH_MODE='sql-password'; $env:DB_SERVER='db81053.databaseasp.net'; $env:DB_NAME='db81053'; $env:DB_USER='db81053'; $env:DB_PASSWORD='<database password>'`.
+   Success looks like `apply 001...004` then `Security policies CrmRowPolicy and CrmConfigPolicy are enabled.` and `Seeded test users and teams.`
+   Add `DB_TRUST_SERVER_CERT=true` if you get a certificate error. Do not paste the scripts into MonsterASP's web SQL tool instead unless this fails: that skips the migration bookkeeping.
+8. **Confirm both security policies are enabled** (SSMS, Azure Data Studio or the web SQL tool, connected as `db81053`):
    ```sql
-   SELECT name, is_enabled FROM sys.security_policies;      -- expect sec.CrmRowPolicy and sec.CrmConfigPolicy with is_enabled = 1
-   SELECT COUNT(*) FROM sys.security_predicates;            -- expect > 0
+   SELECT name, is_enabled FROM sys.security_policies;
+   SELECT COUNT(*) AS predicates FROM sys.security_predicates;
    ```
-   If migration 002 fails or the policies are missing/disabled, **stop**: do not use the site; RLS is the core data protection. Report the error.
-   (`npm run db:migrate` already fails with "Security policy not enabled or missing" in that case.)
-6. **RLS integration test (release gate).** Run `db/tests/rls-integration.sql` as the owner. It rolls back and leaves no data.
-   ```bash
-   sqlcmd -S db81053.databaseasp.net -d db81053 -U db81053 -P '<password>' -b -i db/tests/rls-integration.sql
+   Expect two rows, `CrmRowPolicy` and `CrmConfigPolicy`, both `is_enabled = 1`, and predicates greater than 0. If a policy is missing or 0, **stop**: the host may not allow RLS; send the error to the developer and do not use the site.
+9. **Run the row-level security test.** Open `db/tests/rls-integration.sql` in SSMS/Azure Data Studio connected as `db81053` and execute the whole file, or from a terminal:
    ```
-   or paste it into the web SQL tool. Read the final result table: every row must say **PASS**; any **FAIL** (or `sqlcmd` exiting non-zero)
-   means do not use the site and send the output to the developer. The script header notes it has not been run before: a syntax slip is possible on the first run.
-7. Open https://crmtest.runasp.net/healthz (expect `ok`), then the home page, enter the access code and choose a test user.
+   sqlcmd -S db81053.databaseasp.net -d db81053 -U db81053 -P '<database password>' -b -i db/tests/rls-integration.sql
+   ```
+   You do not need to create a user: the script itself creates a temporary `WITHOUT LOGIN` user in `crm_app_role`, impersonates it with `EXECUTE AS USER`, and rolls everything back.
+   Read the final result table: one row per case, column `Pass` / PASS or FAIL. **Every row must be PASS.** Any FAIL, an error, or `sqlcmd` exiting non-zero means do not use the site; send the full output to the developer.
+   This script had never been run before, so a first-run syntax slip is possible.
+10. **Post-deploy checks.**
+    - Open https://crmtest.runasp.net/healthz: it must show `ok`.
+    - Open the home page, enter the access code, pick a test user, open a list page. The banner "TEST ENVIRONMENT" should show.
+    - **Client IP check (rate limits depend on it).** The app currently does not display or log `req.ip`, so test indirectly: from your phone on mobile data, enter a wrong access code 5 times (it then blocks). Then, from a laptop on a different network, try one wrong code: it must still say "wrong code", not "too many attempts". If the laptop is blocked too, all users share one IP (the `TRUST_PROXY` value is wrong); try `TRUST_PROXY=2`, restart the site, repeat. **Open item for the developer:** add `ip: req.ip` to the request log line in `src/middleware/requestContext.ts` so this can be read from the log directly.
 
 ## Each deploy
 
-1. Push to `claude/tender-darwin-4quuzo` (or run the workflow manually). Wait for the workflow to go green; it force-pushes `deploy`.
-2. MonsterASP pulls `deploy` (automatically via webhook, or press Deploy/Sync in the panel if it is manual).
-3. Check `/healthz`, sign in, open one list page. `BUILD-INFO.txt` in the site folder shows the commit that is live.
-4. New migrations: the deploy does **not** run them. Run `npm run db:migrate` from your PC before or right after the deploy (it skips applied files and refuses changed ones).
-   Only reversible or approved one-way migrations should be shipped.
+1. Push to `claude/tender-darwin-4quuzo`, or run the workflow manually. Wait for green.
+2. MonsterASP pulls `deploy` (press Deploy/Sync in the panel if it is not automatic). `BUILD-INFO.txt` on the site shows which commit is live.
+3. Repeat the `/healthz` and sign-in checks. If a new migration was added, run `npm run db:migrate` from your PC (step 7; it skips applied ones).
 
 ## Rollback
 
-The `deploy` branch has a single commit, so the previous one is only available if you recorded it:
-- **Fast path:** re-run the workflow on the previous good commit: Actions > Deploy to test > Run workflow, choose that commit's branch/ref
-  (for an older SHA, create a temporary branch at it and run the workflow from there, adding the branch to the workflow trigger or via `workflow_dispatch` on that branch). A fresh `deploy` commit is built and MonsterASP redeploys it.
-- **Panel path:** the MonsterASP panel's Git deployment history may allow redeploying a previous deploy commit; GitHub also keeps the old commit reachable by SHA for a time (`git fetch origin <sha>`), so `git push -f origin <sha>:deploy` restores it.
-- **Database:** migrations are not auto-reverted. Ship backwards-compatible migrations; restore from the host's database backup (panel) if needed. This is test data, so the simplest recovery is re-running migrations on a fresh database.
-- The rollback has not been exercised yet: do one trial (deploy twice, redeploy the first) after the first successful deploy.
+- Ask the developer to `git revert` the bad commit and push; the workflow rebuilds `deploy` and MonsterASP redeploys. Or check out the last good commit on a branch and run the workflow from it (add that branch to the workflow trigger).
+- Emergency: in the MonsterASP panel, stop the site (or use its Git history to redeploy an earlier deploy commit if offered).
+- Database: migrations are not reverted automatically; restore from the host's backup, or, since this is test data, wipe and re-run steps 7-9.
+- The rollback has not been exercised yet: try it once after the first good deploy.
 
 ## Troubleshooting
 
-| Symptom | Likely cause and action |
+Turn on logs only when needed: edit `web.config` on the host and set `loggingEnabled="true"`; logs appear in the `iisnode` folder (`*-stdout-*.txt`, `*-stderr-*.txt`). Set it back to `false` afterwards. Secrets are never logged.
+
+| Symptom | Cause / action |
 |---|---|
-| 500.1001 / 500.1000 iisnode "failed to start" | Node crashed at start. Enable logging (below). Usual causes: invalid configuration (message lists which variable), Node too old, missing `crm.env`. |
-| Log says `Invalid configuration:` | A setting in `crm.env` is missing or malformed; the message names it (values are not printed). |
-| `config: no crm.env found` in the log | The file is not in `..\crm.env` or `.\crm.env`; re-upload (see Settings and secrets). |
-| 500.19 / 500.21 from IIS | `web.config` rejected: the host may not allow a section (e.g. `webSocket` or `requestFiltering`). Remove the offending element and tell DevOps. |
-| 404 for everything / 403.14 | Git deploy pointed at the wrong branch or folder: site root must contain `web.config` and `iisnode-entry.js`. |
-| DB errors / login failed | Wrong `DB_PASSWORD`, IP restrictions on the DB host, or certificate (`DB_TRUST_SERVER_CERT=true`). |
-| Login loops / session lost | `REDIRECT_URI` not https, or `SESSION_SECRET` changed (all sessions end; expected). |
-| Syntax errors on startup | Node older than 20 on the host. Select a newer Node in the panel. |
+| 500.1001 / 500.1000 (iisnode) | Node crashed at start. Read the log: usually `Invalid configuration:` (names the bad setting), Node too old, or missing `crm.env`. |
+| Log: `config: no crm.env found` | File not in `..\crm.env` or `.\crm.env`; re-upload (step 5). |
+| 500.19 / 500.21 | Host rejected a `web.config` section (e.g. `webSocket`, `requestFiltering`); send the error to the developer. |
+| 403.14 / 404 for everything | Wrong branch or folder: the site root must contain `web.config` and `iisnode-entry.js`. |
+| Database login failed | Wrong `DB_PASSWORD`, your IP/host IP not allowed, or certificate (`DB_TRUST_SERVER_CERT=true`). |
+| Everyone signed out | `SESSION_SECRET` changed; expected. |
+| Everyone "too many attempts" | `TRUST_PROXY` wrong (step 10). |
 
-**iisnode logs:** in `web.config` set `loggingEnabled="true"`. That change would be overwritten by the next deploy, so edit the file directly on the host with the panel's
-file manager for a debugging session, then restore `false` (or redeploy). Logs appear in the `iisnode\` folder (`*-stdout-*.txt`, `*-stderr-*.txt`) and contain pino JSON lines; secrets are never logged by the app.
+## Test-only gaps (accepted)
 
-To pin a Node binary instead of using the panel setting, add `nodeProcessCommandLine="&quot;<full path to node.exe>&quot;"` to the `<iisnode>` element in `deploy/iis/web.config`
-(an example is in the file's comment).
-
-## Test-only gaps (accepted for this interim host)
-
-- **App runs as the database owner.** The host provides one login only (`db81053`). RLS predicates still filter the app's queries, but the owner can
-  `ALTER SECURITY POLICY ... STATE = OFF`, drop predicates and read `dbo` tables, so an injection or a compromised app could switch RLS off. The RLS proof is the
-  integration script, which impersonates a `WITHOUT LOGIN` user in `crm_app_role`. If the host later allows a second login, create it and a user with `db/manual/create-app-user.sql`
-  and switch `DB_USER`/`DB_PASSWORD` in `crm.env`. This must not carry over to Azure.
-- **Test data only.** No customer or personal data, ever. Everything here is disposable.
-- **Shared access code.** One code for all testers, with a rate limit of 5 wrong attempts per 15 minutes per IP. Rotate by editing `TEST_ACCESS_CODE` in `crm.env` (the app reads it at start, so
-  touch `web.config` or press the panel's restart/recycle to apply) whenever a tester leaves or the code is shared outside the group. Rotating `SESSION_SECRET` signs everyone out.
-- **Shared-host limits.** No staging slot, no auto-rollback, limited log retention, DB backups per the host's plan. Not suitable for any load or availability test.
-- **Actions pinned by major tag** (`@v4`), not commit SHA; the deploy workflow's `GITHUB_TOKEN` has `contents: write` only in the publish job.
+- **App runs as the database owner** (the host gives one login). RLS still filters the app's queries, but the owner can switch policies off, so an injection could disable RLS. The RLS test proves the policies with a low-privilege user. If the host later allows a second login, create it with `db/manual/create-app-user.sql` and change `DB_USER`/`DB_PASSWORD`. Must not carry over to Azure.
+- **Test data only.** Everything is disposable.
+- **Shared access code.** Rotate by editing `TEST_ACCESS_CODE` in `crm.env` and restarting the site (touch `web.config` or use the panel's restart) when a tester leaves or the code leaks; max 5 wrong tries per 15 minutes per IP.
+- **Shared host:** no staging, limited logs, backups per the host plan. Actions are pinned to major tags, not SHAs.
