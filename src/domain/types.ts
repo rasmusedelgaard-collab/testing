@@ -1,0 +1,53 @@
+import type { RlsContext } from '../db/withRlsContext';
+
+export type EntityKey = 'accounts' | 'contacts' | 'opportunities' | 'activities';
+export type Value = string | number | boolean | null;
+/** A record as the UI sees it: raw columns plus joined display names. Dates are 'YYYY-MM-DD', timestamps ISO strings. */
+export type Row = Record<string, Value>;
+export type Values = Record<string, Value>;
+
+export interface Settings {
+  appName: string;
+  localeCode: string;
+  timezone: string;
+  baseCurrency: string;
+  enabledCurrencies: string[];
+  visibilityMode: 'private' | 'team';
+}
+export interface Stage { id: number; name: string; sortOrder: number; probability: number; type: 'open' | 'won' | 'lost' }
+export interface PicklistValue { id: number; code: string | null; label: string; active: boolean }
+export interface Lookups { settings: Settings; stages: Stage[]; picklists: Record<string, PicklistValue[]> }
+export interface OwnerOption { id: number; name: string; teamName: string | null; active: boolean }
+export interface RefOption { id: number; label: string }
+
+export interface ListQuery {
+  q: string;
+  page: number;
+  pageSize: number;
+  sort: string;
+  dir: 'asc' | 'desc';
+  filters: Record<string, string>;
+  /** Today in the Settings timezone, YYYY-MM-DD (for due-date filters). */
+  today: string;
+}
+export interface Meta { userId: number; correlationId: string }
+export type UpdateResult = 'ok' | 'conflict' | 'notfound';
+
+/** Everything a request needs from the database. One instance per request, bound to one transaction. */
+export interface Repo {
+  lookups(): Promise<Lookups>;
+  owners(): Promise<OwnerOption[]>;
+  ownerById(id: number): Promise<OwnerOption | null>;
+  refOptions(entity: EntityKey): Promise<RefOption[]>;
+  list(entity: EntityKey, q: ListQuery): Promise<{ rows: Row[]; total: number }>;
+  get(entity: EntityKey, id: number): Promise<Row | null>;
+  refExists(entity: EntityKey, id: number): Promise<boolean>;
+  create(entity: EntityKey, values: Values, meta: Meta): Promise<number>;
+  update(entity: EntityKey, id: number, values: Values, rowVer: string, meta: Meta): Promise<UpdateResult>;
+  remove(entity: EntityKey, id: number, meta: Meta): Promise<boolean>;
+  setDone(id: number, done: boolean, meta: Meta): Promise<boolean>;
+}
+
+export interface CrmStore {
+  run<T>(ctx: RlsContext, fn: (repo: Repo) => Promise<T>): Promise<T>;
+}
