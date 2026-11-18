@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><%= title %> – <%= appName %></title>
   <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="/css/theme.css?v=<%= locals.themeVersion || '' %>">
   <script src="/js/boot.js"></script>
 </head>
 <body>
@@ -19,7 +20,7 @@
   <% if (user) { %>
   <button type="button" class="menu-button" id="menu-button" aria-expanded="false" aria-controls="main-nav">Menu</button>
   <% } %>
-  <a class="brand" href="/"><%= appName %></a>
+  <a class="brand" href="/"><% if (locals.logoUrl) { %><img class="logo" src="<%= logoUrl %>" alt="" height="32"> <% } %><%= appName %></a>
   <% if (user) { %>
   <form class="search" action="/search" method="get" role="search">
     <label class="visually-hidden" for="q">Search all records</label>

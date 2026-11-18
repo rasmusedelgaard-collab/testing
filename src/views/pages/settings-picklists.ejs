@@ -1,0 +1,40 @@
+<%- include('../partials/head') %>
+<%- include('../partials/settings-nav') %>
+<h1>Picklists</h1>
+<nav aria-label="Picklists" class="tabs"><ul>
+  <% codes.forEach((c) => { %><li><a href="/settings/picklists/<%= c %>"<%- c === code ? ' aria-current="page"' : '' %>><%= { industry: 'Industry', lead_source: 'Lead source', lost_reason: 'Lost reason', activity_type: 'Activity type' }[c] %></a></li><% }) %>
+</ul></nav>
+<h2><%= list.name %></h2>
+<%- include('../partials/error-summary') %>
+<% if (code === 'activity_type') { %><p class="muted">The four activity types are fixed; you can rename their labels.</p><% } %>
+<div class="table-wrap"><table class="data">
+  <caption class="visually-hidden"><%= list.name %> values</caption>
+  <thead><tr><th scope="col">Value</th><th scope="col">Status</th><th scope="col">Order</th></tr></thead>
+  <tbody>
+  <% list.values.forEach((v, i) => { %>
+  <tr>
+    <td><form method="post" action="/settings/picklists/<%= code %>" class="inline-form"><%- csrfField() %><input type="hidden" name="action" value="rename"><input type="hidden" name="valueId" value="<%= v.id %>">
+      <label class="visually-hidden" for="f-label<%= v.id %>">Name of <%= v.label %></label>
+      <input id="f-label<%= v.id %>" name="label" type="text" maxlength="80" value="<%= v.label %>"<%- errors['label' + v.id] ? ' aria-invalid="true"' : '' %>>
+      <button type="submit" class="button secondary">Rename <%= v.label %></button></form>
+      <% if (errors['label' + v.id]) { %><span class="field-error"><%= errors['label' + v.id] %></span><% } %></td>
+    <td><%= v.active ? 'Active' : 'Inactive' %>
+      <form method="post" action="/settings/picklists/<%= code %>" class="inline-form"><%- csrfField() %><input type="hidden" name="valueId" value="<%= v.id %>"><input type="hidden" name="action" value="<%= v.active ? 'deactivate' : 'activate' %>">
+        <button type="submit" class="button link"><%= v.active ? 'Deactivate' : 'Reactivate' %> <%= v.label %></button></form></td>
+    <td><form method="post" action="/settings/picklists/<%= code %>" class="inline-form"><%- csrfField() %><input type="hidden" name="valueId" value="<%= v.id %>">
+      <button type="submit" class="button secondary" name="action" value="up" aria-label="Move <%= v.label %> up"<%- i === 0 ? ' disabled' : '' %>>↑</button>
+      <button type="submit" class="button secondary" name="action" value="down" aria-label="Move <%= v.label %> down"<%- i === list.values.length - 1 ? ' disabled' : '' %>>↓</button></form></td>
+  </tr>
+  <% }) %>
+  </tbody>
+</table></div>
+<p class="muted">Deactivated values stay on old records but cannot be picked for new ones. Values are never deleted.</p>
+<% if (canAdd) { %>
+<h3>Add a value</h3>
+<form method="post" action="/settings/picklists/<%= code %>" class="form" novalidate><%- csrfField() %><input type="hidden" name="action" value="add">
+  <div class="field<%= errors.label ? ' has-error' : '' %>"><label for="f-label">New value (required)</label>
+    <% if (errors.label) { %><span class="field-error" id="e-label"><%= errors.label %></span><% } %>
+    <input id="f-label" name="label" type="text" maxlength="80" value="<%= values.label || '' %>"></div>
+  <button type="submit" class="button primary">Add value</button></form>
+<% } %>
+<%- include('../partials/foot') %>

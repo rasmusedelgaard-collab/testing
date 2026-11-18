@@ -1,0 +1,15 @@
+<%- include('../partials/head') %>
+<%- include('../partials/settings-nav') %>
+<h1><%= title %></h1>
+<%- include('../partials/error-summary') %>
+<form method="post" action="/settings/teams/<%= team.id %>" class="form" novalidate>
+  <%- csrfField() %>
+  <div class="field<%= errors.name ? ' has-error' : '' %>"><label for="f-name">Team name (required)</label>
+    <% if (errors.name) { %><span class="field-error" id="e-name"><%= errors.name %></span><% } %>
+    <input id="f-name" name="name" type="text" maxlength="80" value="<%= values.name %>"></div>
+  <div class="field<%= errors.groupId ? ' has-error' : '' %>"><label for="f-groupId">Entra group object ID (required)</label>
+    <% if (errors.groupId) { %><span class="field-error" id="e-groupId"><%= errors.groupId %></span><% } %>
+    <input id="f-groupId" name="groupId" type="text" spellcheck="false" autocomplete="off" value="<%= values.groupId %>"></div>
+  <div class="actions"><button type="submit" class="button primary">Save team</button><a href="/settings/users">Cancel</a></div>
+</form>
+<%- include('../partials/foot') %>

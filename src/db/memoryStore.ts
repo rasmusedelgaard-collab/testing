@@ -5,6 +5,7 @@ import { createRow, deleteRow, updateRows, type AuditRow } from '../services/aud
 import type { RlsContext } from './withRlsContext';
 import type { FxRate, LogoInfo } from '../domain/adminTypes';
 import { MemoryAdminRepo } from './memoryAdmin';
+import type { BrandingProvider } from '../services/brandingTypes';
 
 /**
  * In-memory CrmStore for demo mode and tests. Emulates the RLS rules of overview 5.2 (visibility, update,
@@ -65,6 +66,14 @@ export function seedState(): MemoryState {
     ({ Id, ActivityType, Subject, Description: null, AccountId, ContactId: null, OpportunityId: null, DueDate, DueTime: null, IsDone: false, DoneAt: null, ...common(owner, team) });
   s.data.activities.push(act(1, 'call', 'Call Acme', 1, '2026-11-19', 3, 1), act(2, 'meeting', 'Kick-off Nordic Tools', 2, '2026-11-25', 4, 1), act(3, 'task', 'Send quote', 3, '2026-11-30', 5, 2));
   return s;
+}
+
+export function memoryBranding(state: MemoryState): BrandingProvider {
+  return {
+    get: async () => ({ appName: state.settings.appName, accentColor: state.settings.accentColor, logoSha: state.logo?.sha256 ?? null }),
+    logo: async () => state.logo,
+    invalidate: () => undefined,
+  };
 }
 
 export function createMemoryStore(state: MemoryState = seedState()): CrmStore & { state: MemoryState } {

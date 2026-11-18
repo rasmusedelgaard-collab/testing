@@ -19,6 +19,11 @@ import { securityHeaders } from './middleware/security';
 import { createCommonAuthRouter, createEntraAuthRouter } from './routes/auth';
 import { createAppRouter } from './routes/app';
 import { createCrmRouter } from './routes/crm';
+import { createSettingsRouter } from './routes/settings';
+import { createBrandingRouter } from './middleware/branding';
+import { createSqlBranding } from './db/publicReads';
+import { memoryBranding } from './db/memoryStore';
+import type { BrandingProvider } from './services/brandingTypes';
 import { createMemoryStore } from './db/memoryStore';
 import { sqlStore } from './db/sqlRepo';
 import type { CrmStore } from './domain/types';
@@ -31,6 +36,7 @@ export interface AppDeps {
   sessionStore?: session.Store;
   ping?: () => Promise<boolean>;
   store?: CrmStore;
+  branding?: BrandingProvider;
   isUserActive?: (userId: number) => Promise<boolean>;
 }
 
@@ -47,7 +53,6 @@ export function createApp(deps: AppDeps): Express {
   // View defaults first, so error pages render even when the session store or database is down.
   const testBanner = !config.demoMode && config.authMode === 'test-access-code';
   app.use((_req, res, next) => {
-    res.locals.appName = 'CRM';
     res.locals.testBanner = testBanner;
     res.locals.demoBanner = config.demoMode;
     res.locals.currentUser = undefined;
@@ -67,6 +72,10 @@ export function createApp(deps: AppDeps): Express {
     const ok = await probe();
     res.status(ok ? 200 : 503).type('text/plain').send(ok ? 'ok' : 'fail');
   });
+
+  const store: CrmStore = deps.store ?? (config.demoMode ? createMemoryStore() : sqlStore);
+  const branding: BrandingProvider = deps.branding ?? ('state' in store ? memoryBranding((store as ReturnType<typeof createMemoryStore>).state) : createSqlBranding());
+  app.use(createBrandingRouter(branding)); // public: theme.css, logo, and the appName/logo locals for every page
 
   const sessions = createSession(config, deps.sessionStore);
   app.use(sessions.middleware);
@@ -107,8 +116,9 @@ export function createApp(deps: AppDeps): Express {
     }
     next();
   });
-  authed.use(createCrmRouter(deps.store ?? (config.demoMode ? createMemoryStore() : sqlStore)));
-  authed.use(createAppRouter({ requireAdmin: requireRole('Admin') }));
+  authed.use('/settings', requireRole('Admin'), createSettingsRouter(store, branding));
+  authed.use(createCrmRouter(store));
+  authed.use(createAppRouter());
   app.use(authed);
 
   app.use(notFoundHandler);

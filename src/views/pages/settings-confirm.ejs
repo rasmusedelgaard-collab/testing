@@ -1,0 +1,11 @@
+<%- include('../partials/head') %>
+<%- include('../partials/settings-nav') %>
+<h1><%= title %></h1>
+<p><%= message %></p>
+<form method="post" action="<%= action %>">
+  <%- csrfField() %>
+  <% fields.forEach((f) => { %><input type="hidden" name="<%= f.name %>" value="<%= f.value %>"><% }) %>
+  <button type="submit" class="button <%= danger ? 'danger' : 'primary' %>"><%= label %></button>
+  <a href="<%= cancel %>">Cancel</a>
+</form>
+<%- include('../partials/foot') %>

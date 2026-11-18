@@ -1,0 +1,37 @@
+<%- include('../partials/head') %>
+<%- include('../partials/settings-nav') %>
+<h1>FX rates</h1>
+<p>Base currency: <strong><%= base %></strong>. A rate means 1 unit of the currency = X <%= base %> for that month.</p>
+<%- include('../partials/error-summary') %>
+<% if (dupId) { %><p><a href="/settings/fx/<%= dupId %>/edit">Edit the existing rate</a></p><% } %>
+<form method="get" action="/settings/fx" class="filters">
+  <div class="field"><label for="fc">Currency</label><select id="fc" name="currency"><option value="">All</option><% currencies.forEach((c) => { %><option<%- c === wantCur ? ' selected' : '' %>><%= c %></option><% }) %></select></div>
+  <div class="field"><label for="fy">Year</label><select id="fy" name="year"><option value="">All</option><% years.forEach((y) => { %><option<%- y === wantYear ? ' selected' : '' %>><%= y %></option><% }) %></select></div>
+  <button type="submit" class="button secondary">Apply</button>
+</form>
+<% if (missing.length) { %><p class="flash-warn" role="status"><span aria-hidden="true">⚠ </span>Missing rate for <%= curLabel %>: <%= missing.join(', ') %></p><% } %>
+<div class="table-wrap"><table class="data">
+  <caption class="visually-hidden">FX rates</caption>
+  <thead><tr><th scope="col">Currency</th><th scope="col">Month</th><th scope="col">Rate to <%= base %></th><th scope="col">Last changed</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+  <tbody>
+  <% missing.forEach((c) => { %><tr><td><%= c %></td><td><%= curLabel %></td><td>–  Missing</td><td></td><td><a href="/settings/fx?currency=<%= c %>#add-rate">Add rate for <%= c %></a></td></tr><% }) %>
+  <% rows.forEach((r) => { %><tr><td><%= r.currency %></td><td><%= r.monthLabel %></td><td class="num"><%= r.rateText %></td><td><%= r.at %> by <%= r.modifiedByName %></td>
+    <td><a href="/settings/fx/<%= r.id %>/edit">Edit <%= r.currency %> <%= r.monthLabel %></a> · <a href="/settings/fx/<%= r.id %>/delete">Delete <%= r.currency %> <%= r.monthLabel %></a></td></tr><% }) %>
+  </tbody>
+</table></div>
+<h2 id="add-rate"><%= editId ? 'Edit rate' : 'Add rate' %></h2>
+<% if (editId) { %><p class="muted">Changing a rate changes totals on the dashboard and in analytics for that month.</p><% } %>
+<form method="post" action="<%= editId ? '/settings/fx/' + editId : '/settings/fx' %>" class="form" novalidate>
+  <%- csrfField() %>
+  <div class="field<%= errors.currency ? ' has-error' : '' %>"><label for="f-currency">Currency (required)</label>
+    <% if (errors.currency) { %><span class="field-error" id="e-currency"><span aria-hidden="true">⚠ </span><%= errors.currency %></span><% } %>
+    <select id="f-currency" name="currency"><option value="">— choose —</option><% currencies.forEach((c) => { %><option<%- c === (values.currency || wantCur) ? ' selected' : '' %>><%= c %></option><% }) %></select></div>
+  <div class="field<%= errors.month ? ' has-error' : '' %>"><label for="f-month">Month (required)</label>
+    <% if (errors.month) { %><span class="field-error" id="e-month"><span aria-hidden="true">⚠ </span><%= errors.month %></span><% } %>
+    <input id="f-month" name="month" type="month" value="<%= values.month %>" required></div>
+  <div class="field<%= errors.rate ? ' has-error' : '' %>"><label for="f-rate">Rate to <%= base %> (required)</label>
+    <% if (errors.rate) { %><span class="field-error" id="e-rate"><span aria-hidden="true">⚠ </span><%= errors.rate %></span><% } %>
+    <input id="f-rate" name="rate" type="text" inputmode="decimal" value="<%= values.rate %>" required></div>
+  <div class="actions"><button type="submit" class="button primary">Save rate</button><% if (editId) { %><a href="/settings/fx">Cancel</a><% } %></div>
+</form>
+<%- include('../partials/foot') %>

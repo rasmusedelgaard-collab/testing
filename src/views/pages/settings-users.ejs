@@ -1,0 +1,45 @@
+<%- include('../partials/head') %>
+<%- include('../partials/settings-nav') %>
+<h1>Users &amp; teams</h1>
+<%- include('../partials/error-summary') %>
+<h2>Teams</h2>
+<p class="muted">Team membership is managed in Microsoft Entra ID; ask IT to add people to the group. A user must be in exactly one linked group.</p>
+<% if (teams.length === 0) { %><p>No teams yet. Add a team to link an Entra group.</p><% } else { %>
+<div class="table-wrap"><table class="data">
+  <caption class="visually-hidden">Teams</caption>
+  <thead><tr><th scope="col">Team name</th><th scope="col">Entra group object ID</th><th scope="col">Members</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+  <tbody><% teams.forEach((t) => { %><tr><td><%= t.name %></td><td><code><%= t.groupId %></code></td><td class="num"><%= t.members %></td><td><%= t.active ? 'Active' : 'Inactive' %></td>
+    <td><a href="/settings/teams/<%= t.id %>/edit">Edit <%= t.name %></a> ·
+    <% if (t.active) { %><a href="/settings/teams/<%= t.id %>/deactivate">Deactivate <%= t.name %></a>
+    <% } else { %><form method="post" action="/settings/teams/<%= t.id %>/reactivate" class="inline-form"><%- csrfField() %><button type="submit" class="button link">Reactivate <%= t.name %></button></form><% } %></td></tr><% }) %></tbody>
+</table></div>
+<% } %>
+<h3>Add team</h3>
+<form method="post" action="/settings/teams" class="form" novalidate>
+  <%- csrfField() %>
+  <div class="field<%= errors.name ? ' has-error' : '' %>"><label for="f-name">Team name (required)</label>
+    <% if (errors.name) { %><span class="field-error" id="e-name"><span aria-hidden="true">⚠ </span><%= errors.name %></span><% } %>
+    <input id="f-name" name="name" type="text" maxlength="80" value="<%= values.name || '' %>"></div>
+  <div class="field<%= errors.groupId ? ' has-error' : '' %>"><label for="f-groupId">Entra group object ID (required)</label>
+    <span class="help">Find this in Microsoft Entra ID &gt; Groups &gt; the group &gt; Object ID.</span>
+    <% if (errors.groupId) { %><span class="field-error" id="e-groupId"><span aria-hidden="true">⚠ </span><%= errors.groupId %></span><% } %>
+    <input id="f-groupId" name="groupId" type="text" spellcheck="false" autocomplete="off" value="<%= values.groupId || '' %>"></div>
+  <button type="submit" class="button primary">Add team</button>
+</form>
+<h2>Users</h2>
+<p class="muted">Roles and team membership are managed in Microsoft Entra ID.</p>
+<% if (noTeamCount > 0) { %><p><span aria-hidden="true">⚠ </span><%= noTeamCount %> user<%= noTeamCount === 1 ? ' has' : 's have' %> no team or a team problem. <a href="/settings/users?team=none">Show them</a></p><% } %>
+<form method="get" action="/settings/users" class="filters">
+  <div class="field"><label for="uq">Search name or email</label><input id="uq" name="q" type="search" value="<%= filters.q %>"></div>
+  <div class="field"><label for="ur">Role</label><select id="ur" name="role"><option value="">All</option><% ['Admin', 'Manager', 'User'].forEach((r) => { %><option<%- r === filters.role ? ' selected' : '' %>><%= r %></option><% }) %></select></div>
+  <div class="field"><label for="ut">Team</label><select id="ut" name="team"><option value="">All</option><option value="none"<%- filters.team === 'none' ? ' selected' : '' %>>No team</option><% teams.forEach((t) => { %><option value="<%= t.id %>"<%- String(t.id) === filters.team ? ' selected' : '' %>><%= t.name %></option><% }) %></select></div>
+  <button type="submit" class="button secondary">Apply</button>
+</form>
+<div class="table-wrap"><table class="data">
+  <caption class="visually-hidden">Users</caption>
+  <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Team</th><th scope="col">Last sign-in</th><th scope="col">Status</th></tr></thead>
+  <tbody><% users.forEach((u) => { %><tr><td><%= u.name %></td><td><%= u.email || '' %></td><td><%= u.role %></td>
+    <td><%= u.teamLabel %><% if (u.badge) { %> <span class="badge warn"><span aria-hidden="true">⚠ </span><%= u.badge %></span><% } %></td>
+    <td><%= u.lastSignInText %></td><td><%= u.active ? 'Active' : 'Inactive' %></td></tr><% }) %></tbody>
+</table></div>
+<%- include('../partials/foot') %>

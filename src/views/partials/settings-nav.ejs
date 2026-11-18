@@ -1,0 +1,5 @@
+<nav aria-label="Settings" class="subnav"><ul>
+<% [['general', 'General'], ['locale', 'Currency & locale'], ['fx', 'FX rates'], ['stages', 'Pipeline stages'], ['picklists', 'Picklists'], ['visibility', 'Visibility'], ['users', 'Users & teams']].forEach(([k, label]) => { %>
+  <li><a href="/settings/<%= k %>"<%- settingsNav === k ? ' aria-current="page"' : '' %>><%= label %></a></li>
+<% }) %>
+</ul></nav>
