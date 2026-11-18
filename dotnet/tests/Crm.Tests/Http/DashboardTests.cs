@@ -36,7 +36,7 @@ public sealed class DashboardTests(SqlServerFixture fx)
     public async Task Dashboard_shows_six_tiles_with_links_notes_for_missing_fx_and_my_lists()
     {
         var (f, c) = await AsAsync(UserB1);
-        using var _ = f;
+        using var guard = f;
         var me = await UserIdAsync(UserB1);
         var acc = await PostAsync(c, "/accounts/new", "/accounts", ("Name", "Dash-" + Guid.NewGuid().ToString("N")[..6]), ("OwnerId", I(me)));
         var accId = acc.Headers.Location!.OriginalString.Split('/')[^1];
@@ -72,7 +72,7 @@ public sealed class DashboardTests(SqlServerFixture fx)
     public async Task Admin_gets_the_add_fx_rates_link()
     {
         var (f, c) = await AsAsync("00000000-0000-4000-8000-00000000a001");
-        using var _ = f;
+        using var guard = f;
         var doc = await HttpHelpers.ParseAsync(await c.GetAsync("/"));
         Assert.Equal(6, doc.QuerySelectorAll("li.tile").Length);
     }
@@ -81,7 +81,7 @@ public sealed class DashboardTests(SqlServerFixture fx)
     public async Task Analytics_renders_five_figures_with_json_and_table_fallbacks_and_validates_custom_ranges()
     {
         var (f, c) = await AsAsync("00000000-0000-4000-8000-00000000a001");
-        using var _ = f;
+        using var guard = f;
         var page = await c.GetAsync("/analytics");
         await HttpHelpers.ExpectAsync(HttpStatusCode.OK, page);
         Assert.Equal("no-store", page.Headers.CacheControl!.ToString());
@@ -107,7 +107,7 @@ public sealed class DashboardTests(SqlServerFixture fx)
     public async Task A_user_sees_no_team_options_and_dashboard_requires_sign_in()
     {
         var (f, c) = await AsAsync("00000000-0000-4000-8000-00000000a003");
-        using var _ = f;
+        using var guard = f;
         var doc = await HttpHelpers.ParseAsync(await c.GetAsync("/analytics"));
         Assert.DoesNotContain(doc.QuerySelectorAll("#f-owner option"), o => o.GetAttribute("value")!.StartsWith("team:", StringComparison.Ordinal));
         using var anon = new CrmFactory(fx.AppDb);
