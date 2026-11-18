@@ -129,9 +129,8 @@ async function step(name, fn) {
       await A.goto(base + '/settings/stages');
       const proposalRow = A.locator('tr', { has: A.locator('input[value="Proposal"]') });
       await proposalRow.getByRole('button', { name: /^Remove stage/ }).click();
-      await A.getByRole('button', { name: 'Save stages' }).click();
       await A.waitForLoadState('load');
-      assert.match(await main(A), /Move \d+ opportunit(y|ies) out of "Proposal"/);
+      assert.match(await main(A), /Can't remove "Proposal": \d+ opportunit(y|ies) use(s)? it/); // refused at once, the row stays
       await A.goto(base + '/settings/stages');
       await A.getByLabel('Stage name 1').fill('Discovery');
       await A.getByRole('button', { name: 'Add stage' }).click();

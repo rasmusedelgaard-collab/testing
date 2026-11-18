@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-require-imports -- standalone CommonJS script; page.evaluate callbacks run in the browser */
+/* eslint-disable no-undef, @typescript-eslint/no-require-imports -- standalone CommonJS script; page.evaluate callbacks run in the browser */
 /**
  * Increment 4 end-to-end checks in demo mode (headless Chromium): dashboard tiles and links, Chart.js rendering under the strict CSP,
  * table fallbacks, FX notes, and no page-level horizontal scroll on the dense pages.
@@ -48,9 +48,7 @@ async function step(name, fn) {
     await Promise.all([page.waitForURL(base + '/'), page.getByRole('button', { name: /Sign in as demo user/ }).click()]);
     return { ctx, page };
   };
-  const save = (page) => Promise.all([page.waitForLoadState('load'), page.getByRole('button', { name: 'Save' }).click()]);
   const main = async (page) => (await page.locator('main').textContent()).replace(/\s+/g, ' ');
-  const flash = async (page) => (await page.locator('main').textContent()).replace(/\s+/g, ' ');
 
   const overflow = async (page, path, width) => {
     await page.setViewportSize({ width, height: 900 });
