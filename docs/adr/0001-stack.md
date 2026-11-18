@@ -1,6 +1,7 @@
 # ADR-0001: Application stack: Node.js 22 / TypeScript, Express 5 + EJS, Azure App Service + Azure SQL
 
 - **Status:** Accepted (user-approved 2026-11-18). The product owner chose the language, hosting and database in the approved plan, and serverless SQL with auto-pause in prod in the 2nd round. Library choices are architect recommendations within that decision.
+- **Partly superseded by [ADR-0007](0007-dotnet-10-rewrite.md) (2026-11-18):** the Node.js/Express/EJS stack, `mssql`, vitest/ESLint and iisnode hosting are replaced by .NET 10 / ASP.NET Core Razor Pages, Microsoft.Data.SqlClient + Dapper, xUnit and IIS in-process hosting. Azure SQL, serverless auto-pause, the migration rules and the interim MonsterASP decision stay in force.
 - **Date:** 2026-11-18
 - **One-way door:** **Yes, partly.**
   - Azure SQL is the system of record, and RLS is built on SQL Server features. Moving to another database means rewriting the security layer. Product owner sign-off was given via the plan.

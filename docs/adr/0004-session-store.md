@@ -1,6 +1,7 @@
 # ADR-0004: Server-side sessions in Azure SQL (`app.Sessions`) with a small custom express-session store
 
 - **Status:** Accepted (user-approved 2026-11-18)
+- **Mechanism superseded by [ADR-0007](0007-dotnet-10-rewrite.md) (2026-11-18):** `express-session` + custom store is replaced by ASP.NET Core cookie authentication with an `ITicketStore` over the same `app.Sessions` table. Timeouts, revocation, cleanup and contents rules are unchanged; `SESSION_SECRET` is replaced by Data Protection keys.
 - **Date:** 2026-11-18
 - **One-way door:** No. The store is behind the `express-session` `Store` interface and can be swapped for Redis in a day.
 

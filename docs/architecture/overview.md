@@ -4,6 +4,8 @@ Status: Approved for build (user decisions 2nd round, 2026-11-18) · Owner: Arch
 
 This is the build reference. Where it conflicts with the plan, this document and the ADRs take precedence. Section 13 lists the deviations.
 
+> **.NET rewrite (ADR-0007, 2026-11-18):** the application tier is being rewritten in .NET 10. For the stack-specific parts of this document (component table and guardrail in §2, pool and `withRlsContext` code in §8, helmet/express details in §10, variables in §11, iisnode in §12.3) the build reference is [dotnet.md](dotnet.md). Data model, RLS, grants, audit, retry rules, routes and Azure/Entra setup in this document remain valid.
+
 ---
 
 ## 1. Context and goals

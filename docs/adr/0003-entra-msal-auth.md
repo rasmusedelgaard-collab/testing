@@ -1,6 +1,7 @@
 # ADR-0003: Authentication with Microsoft Entra ID (MSAL Node, auth-code + PKCE), roles from app roles, teams from groups
 
 - **Status:** Accepted (user-approved 2026-11-18).
+- **Library partly superseded by [ADR-0007](0007-dotnet-10-rewrite.md) (2026-11-18):** `@azure/msal-node` is replaced by Microsoft.Identity.Web with the same flow (auth-code + PKCE, `response_mode=query`, callback `/auth/redirect`), role, team and overage rules.
   - Entra ID, MSAL auth-code + PKCE, and app roles `CRM.Admin`, `CRM.Manager` and `CRM.User` (product owner decision in the plan).
   - Team mapping via Entra security groups (option T1) and the Admin "Add team" form (user decision, 2nd round, 2026-11-18).
 - **Date:** 2026-11-18

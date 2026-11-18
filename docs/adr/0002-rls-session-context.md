@@ -1,6 +1,7 @@
 # ADR-0002: Row-Level Security in Azure SQL driven by SESSION_CONTEXT
 
 - **Status:** Accepted (user-approved 2026-11-18). The core approach (RLS with SESSION_CONTEXT, the visibility rules, fail closed) is the product owner's decision in the plan. The sub-decisions S1–S3 below were decided by the user in the 2nd round on 2026-11-18; S1 was changed from the original recommendation (team mode now allows update).
+- **Decision 5 (connection hygiene) partly superseded by [ADR-0007](0007-dotnet-10-rewrite.md) (2026-11-18):** SqlClient resets pooled connections on reuse, so `ResettingConnectionPool` is not ported; the stale-context guard (51000) stays. All RLS rules are unchanged.
 - **Date:** 2026-11-18
 - **One-way door:** **Partly.**
   - Putting authorisation in the database is costly to undo. Every query and test assumes it.

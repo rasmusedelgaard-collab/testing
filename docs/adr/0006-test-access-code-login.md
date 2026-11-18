@@ -1,6 +1,7 @@
 # ADR-0006: Shared access code + seeded test users on the interim test site (exception to "never build our own login")
 
 - **Status:** Accepted (user-approved 2026-11-18), scoped exception, time-limited.
+- **Implementation note (2026-11-18):** in the .NET rewrite ([ADR-0007](0007-dotnet-10-rewrite.md)) the same rules and guards apply; the go-live removal list for the .NET files is in [dotnet.md §8.3](../architecture/dotnet.md#83-test-access-code-mode-auth_modetest-access-code-adr-0006-rules-unchanged).
 - **Date:** 2026-11-18 (updated 2026-11-18: guards implemented after the security review)
 - **One-way door:** No. The mode is a config switch (`AUTH_MODE`) plus one router and one seed script; it is removed at Azure go-live. The real risk is not reversibility but **misuse outside its scope**, which the guards below address.
 - **Related:** ADR-0002 (RLS session context), ADR-0003 (Entra ID authentication), `docs/architecture/overview.md` §12.3.
