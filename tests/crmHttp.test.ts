@@ -200,19 +200,29 @@ describe('opportunities', () => {
     expect(fields).toEqual(expect.arrayContaining([['Amount', '120000', '130000'], ['StageId', 'Proposal', 'Negotiation'], ['CloseDate', '2026-12-15', '2026-12-20']]));
     expect(state.audit.every((a) => a.correlationId)).toBe(true);
   });
+  const verOf = async (agent: ReturnType<typeof request.agent>, id: number) => /name="rowVer" value="([^"]+)"/.exec((await agent.get(`/opportunities/${id}`)).text)![1]!;
   it('Mark as won sets the won stage and today as close date when it was in the future; lost needs a reason', async () => {
     const { agent, post, state } = await session('User');
-    const res = await post('/opportunities/1/won', {});
+    const res = await post('/opportunities/1/won', { rowVer: await verOf(agent, 1) });
     expect(res.status).toBe(303);
     const row = state.data.opportunities[0]!;
     expect(row.StageId).toBe(5);
     expect(row.ClosedAt).toBeTruthy();
     expect((await agent.get('/opportunities/1')).text).toContain('marked as won');
     const s2 = await session('User');
-    await s2.post('/opportunities/1/lost', {});
+    await s2.post('/opportunities/1/lost', { rowVer: await verOf(s2.agent, 1) });
     expect(s2.state.data.opportunities[0]!.StageId).toBe(3);
-    await s2.post('/opportunities/1/lost', { lostReason: '300' });
+    await s2.post('/opportunities/1/lost', { lostReason: '300', rowVer: await verOf(s2.agent, 1) });
     expect(s2.state.data.opportunities[0]).toMatchObject({ StageId: 6, LostReasonValueId: 300 });
+  });
+  it('won/lost without a RowVer, or with a stale one, give the 409 conflict page and change nothing (N4)', async () => {
+    const { agent, post, state } = await session('User');
+    const stale = await verOf(agent, 1);
+    expect((await post('/opportunities/1/won', {})).status).toBe(409);
+    expect((await post('/opportunities/1/lost', { lostReason: '300' })).status).toBe(409);
+    expect(state.data.opportunities[0]!.StageId).toBe(3);
+    await post('/opportunities/1/won', { rowVer: stale });
+    expect((await post('/opportunities/1/lost', { lostReason: '300', rowVer: stale })).status).toBe(409);
   });
 });
 

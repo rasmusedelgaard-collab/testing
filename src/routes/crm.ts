@@ -263,6 +263,7 @@ function mount(router: Router, store: CrmStore, def: EntityDef): void {
         const out = await store.run(ctxOf(req), async (repo) => {
           const row = await repo.get(key, id);
           if (!row) return { kind: 'notfound' as const };
+          if (!/^0x[0-9A-Fa-f]{16}$/.test(str(body.rowVer))) return { kind: 'conflict' as const }; // the action must carry the RowVer of the page it was clicked on
           const lk = await repo.lookups();
           const stage = lk.stages.find((s) => s.type === outcome);
           if (!stage) return { kind: 'error' as const, message: `No ${outcome} stage is configured.` };
@@ -273,7 +274,7 @@ function mount(router: Router, store: CrmStore, def: EntityDef): void {
           Object.assign(values, { StageId: stage.id, LostReasonValueId: outcome === 'lost' ? lostReason : null, OwnerId: row.OwnerId });
           const moved = String(row.CloseDate) > today;
           if (moved) values.CloseDate = today;
-          const result = await repo.update(key, id, values, str(body.rowVer) || String(row.RowVer), metaOf(req));
+          const result = await repo.update(key, id, values, str(body.rowVer), metaOf(req));
           return result === 'ok' ? { kind: 'ok' as const, moved } : { kind: result };
         });
         if (out.kind === 'notfound') throw new NotFoundError();

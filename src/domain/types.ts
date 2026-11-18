@@ -13,6 +13,9 @@ export interface Settings {
   baseCurrency: string;
   enabledCurrencies: string[];
   visibilityMode: 'private' | 'team';
+  accentColor: string;
+  firstDayOfWeek: number;
+  fiscalStartMonth: number;
 }
 export interface Stage { id: number; name: string; sortOrder: number; probability: number; type: 'open' | 'won' | 'lost' }
 export interface PicklistValue { id: number; code: string | null; label: string; active: boolean }
@@ -53,4 +56,6 @@ export interface Repo {
 
 export interface CrmStore {
   run<T>(ctx: RlsContext, fn: (repo: Repo) => Promise<T>): Promise<T>;
+  /** Admin configuration (settings, stages, picklists, FX, teams). Same one-transaction-per-request rule. */
+  runAdmin<T>(ctx: RlsContext, fn: (repo: import('./adminTypes').AdminRepo) => Promise<T>): Promise<T>;
 }

@@ -43,18 +43,26 @@ export function todayIn(timezone: string, now: Date = new Date()): string {
 
 export type AmountResult = { ok: true; value: number } | { ok: false; reason: 'format' | 'negative' };
 
-/** Parses an amount typed in the Settings locale. Grouping separators are optional; at most 2 decimals. */
-export function parseAmount(input: string, localeCode: string): AmountResult {
+/** Parses a decimal typed in the Settings locale. Grouping separators are optional. */
+export function parseDecimal(input: string, localeCode: string, maxDecimals: number): AmountResult {
   const parts = new Intl.NumberFormat(safeLocale(localeCode)).formatToParts(1234567.5);
   const group = parts.find((p) => p.type === 'group')?.value ?? ',';
   const decimal = parts.find((p) => p.type === 'decimal')?.value ?? '.';
   let s = input.trim().replace(/[\s\u00a0\u202f]/g, '');
   if (s.startsWith('-')) return { ok: false, reason: 'negative' };
   s = s.split(group).join('').replace(decimal, '.');
-  if (!/^\d+(\.\d{1,2})?$/.test(s)) return { ok: false, reason: 'format' };
+  if (!new RegExp(`^\\d+(\\.\\d{1,${maxDecimals}})?$`).test(s)) return { ok: false, reason: 'format' };
   const value = Number(s);
   if (!Number.isFinite(value) || value > 99_999_999_999_999) return { ok: false, reason: 'format' };
   return { ok: true, value };
+}
+export const parseAmount = (input: string, localeCode: string): AmountResult => parseDecimal(input, localeCode, 2);
+/** FX rates: up to 6 decimals. */
+export const parseRate = (input: string, localeCode: string): AmountResult => parseDecimal(input, localeCode, 6);
+
+/** Rate for form inputs, locale decimal separator, no grouping. */
+export function rateInput(rate: number, localeCode: string): string {
+  return new Intl.NumberFormat(safeLocale(localeCode), { useGrouping: false, minimumFractionDigits: 0, maximumFractionDigits: 6 }).format(rate);
 }
 
 export function isRealDate(s: string): boolean {

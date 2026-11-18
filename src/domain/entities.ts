@@ -66,12 +66,14 @@ export const ENTITIES: Record<EntityKey, EntityDef> = {
   },
 };
 export const ENTITY_LIST: EntityDef[] = Object.values(ENTITIES);
+/** SQL int upper bound: larger values would raise a conversion error (500). */
+export const MAX_INT = 2_147_483_647;
 export const PAGE_SIZES = [25, 50, 100];
 
 /** Parses the URL query into a safe ListQuery: unknown sort keys, bad numbers and bad enum values fall back to defaults. */
 export function parseListQuery(def: EntityDef, query: Record<string, unknown>, today: string, maxPageSize = 100): ListQuery {
   const str = (v: unknown) => (typeof v === 'string' ? v : '');
-  const sort = str(query.sort) in def.sorts ? str(query.sort) : def.defaultSort;
+  const sort = Object.hasOwn(def.sorts, str(query.sort)) ? str(query.sort) : def.defaultSort;
   const dir = query.dir === 'desc' ? 'desc' : query.dir === 'asc' ? 'asc' : def.defaultDir;
   const pageSizeRaw = Number(str(query.pageSize));
   const pageSize = PAGE_SIZES.includes(pageSizeRaw) && pageSizeRaw <= maxPageSize ? pageSizeRaw : 25;
@@ -80,7 +82,7 @@ export function parseListQuery(def: EntityDef, query: Record<string, unknown>, t
   const filters: Record<string, string> = {};
   for (const f of def.filters) {
     const v = str(query[f.key]).trim();
-    if (f.kind === 'int' && /^[1-9]\d{0,9}$/.test(v)) filters[f.key] = v;
+    if (f.kind === 'int' && /^[1-9]\d{0,9}$/.test(v) && Number(v) <= MAX_INT) filters[f.key] = v;
     else if (f.kind === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v))) filters[f.key] = v;
     else if (f.kind === 'enum') {
       if (f.values?.includes(v)) filters[f.key] = v;

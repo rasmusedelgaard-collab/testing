@@ -3,6 +3,7 @@ import { ENTITIES, type ColumnSpec } from '../domain/entities';
 import type { CrmStore, EntityKey, HistoryRow, ListQuery, Lookups, Meta, OwnerOption, PicklistValue, RefOption, Repo, Row, Settings, Stage, UpdateResult, Values } from '../domain/types';
 import { createRow, deleteRow, updateRows, type AuditRow } from '../services/audit';
 import { COMMON_COLS, COMMON_JOINS, filterClause, SQL } from './crmSql';
+import { SqlAdminRepo } from './sqlAdmin';
 import { withRlsContext, type RlsContext } from './withRlsContext';
 
 type Param = [name: string, type: unknown, value: unknown];
@@ -46,6 +47,9 @@ export class SqlRepo implements Repo {
       baseCurrency: kv.get('currency.base') ?? 'DKK',
       enabledCurrencies: (kv.get('currency.enabled') ?? 'DKK').split(',').map((c) => c.trim()).filter(Boolean),
       visibilityMode: kv.get('visibility.mode') === 'team' ? 'team' : 'private',
+      accentColor: kv.get('branding.accentColor') ?? '#1D4ED8',
+      firstDayOfWeek: Number(kv.get('locale.firstDayOfWeek') ?? 1) || 1,
+      fiscalStartMonth: Number(kv.get('fiscal.startMonth') ?? 1) || 1,
     };
     const stages: Stage[] = this.rows(res, 1).map((r) => ({ id: Number(r.StageId), name: String(r.Name), sortOrder: Number(r.SortOrder), probability: Number(r.Probability), type: r.StageType as Stage['type'] }));
     const picklists: Record<string, PicklistValue[]> = {};
@@ -99,7 +103,7 @@ export class SqlRepo implements Repo {
       where.push(`(${d.search.map((s) => `${s.sql} LIKE @q ESCAPE '\\'`).join(' OR ')})`);
       params.push(['q', sql.NVarChar(120), `%${escapeLike(q.q)}%`]);
     }
-    const sort = d.sorts[q.sort] ?? d.sorts[d.defaultSort]!;
+    const sort = (Object.hasOwn(d.sorts, q.sort) ? d.sorts[q.sort] : undefined) ?? d.sorts[d.defaultSort]!;
     const dir = q.dir === 'desc' ? 'DESC' : 'ASC';
     const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
     params.push(['off', sql.Int, (q.page - 1) * q.pageSize], ['ps', sql.Int, q.pageSize]);
@@ -207,4 +211,5 @@ export class SqlRepo implements Repo {
 
 export const sqlStore: CrmStore = {
   run: (ctx, fn) => withRlsContext(ctx, (tx) => fn(new SqlRepo(tx, ctx))),
+  runAdmin: (ctx, fn) => withRlsContext(ctx, (tx) => fn(new SqlAdminRepo(tx, ctx))),
 };

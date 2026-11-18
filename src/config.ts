@@ -139,13 +139,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   // The bypasses must never be reachable in production, live, on Azure, or next to a real database.
   const hasDbVars = Object.keys(env).some((k) => k.startsWith('DB_') && env[k]);
-  if (demoMode && v.DEMO_MODE) {
+  if (demoMode) {
     const why: string[] = [];
     if (isProduction) why.push('NODE_ENV=production');
     if (v.LIVE || onAzure) why.push('live/Azure environment');
     if (v.AUTH_MODE === 'test-access-code') why.push('AUTH_MODE=test-access-code');
     if (hasDbVars) why.push('DB_* variables are set');
-    if (why.length > 0) throw new ConfigError([`DEMO_MODE=true is refused: ${why.join(', ')}`]);
+    if (why.length > 0) throw new ConfigError([`${v.NODE_ENV === 'test' ? 'NODE_ENV=test (auth bypass)' : 'DEMO_MODE=true'} is refused: ${why.join(', ')}`]);
   }
   if (v.NODE_ENV === 'test' && (v.LIVE || onAzure)) {
     throw new ConfigError(['NODE_ENV=test (auth bypass) is refused in a live/Azure environment']);

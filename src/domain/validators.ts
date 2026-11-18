@@ -9,8 +9,9 @@ const s = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
 const req = (max: number, msgReq: string, msgMax: string) => z.preprocess(s, z.string().min(1, msgReq).max(max, msgMax));
 const opt = (max: number, msgMax: string, pattern?: RegExp, msgPattern?: string) =>
   z.preprocess(s, z.string().max(max, msgMax).refine((v) => v === '' || !pattern || pattern.test(v), msgPattern ?? 'Invalid value')).transform((v) => (v === '' ? null : v));
-const reqInt = (msgReq: string) => z.preprocess(s, z.string().min(1, msgReq).regex(/^[1-9]\d{0,9}$/, msgReq)).transform(Number);
-const optInt = (msg: string) => z.preprocess(s, z.string().regex(/^([1-9]\d{0,9})?$/, msg)).transform((v) => (v === '' ? null : Number(v)));
+const INT_MAX = 2_147_483_647;
+const reqInt = (msgReq: string) => z.preprocess(s, z.string().min(1, msgReq).regex(/^[1-9]\d{0,9}$/, msgReq).refine((v) => Number(v) <= INT_MAX, msgReq)).transform(Number);
+const optInt = (msg: string) => z.preprocess(s, z.string().regex(/^([1-9]\d{0,9})?$/, msg).refine((v) => v === '' || Number(v) <= INT_MAX, msg)).transform((v) => (v === '' ? null : Number(v)));
 const date = (msgReq: string, msgBad: string) => z.preprocess(s, z.string().min(1, msgReq).refine(isRealDate, msgBad));
 const optDate = (msgBad: string) => z.preprocess(s, z.string().refine((v) => v === '' || isRealDate(v), msgBad)).transform((v) => (v === '' ? null : v));
 

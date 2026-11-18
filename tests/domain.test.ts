@@ -6,7 +6,7 @@ import { createRow, deleteRow, updateRows, auditText } from '../src/services/aud
 import { isRealDate, makeFormatter, parseAmount, todayIn } from '../src/services/format';
 
 const lk = (locale = 'da-DK'): Lookups => ({
-  settings: { appName: 'CRM', localeCode: locale, timezone: 'Europe/Copenhagen', baseCurrency: 'DKK', enabledCurrencies: ['DKK', 'EUR'], visibilityMode: 'private' },
+  settings: { appName: 'CRM', localeCode: locale, timezone: 'Europe/Copenhagen', baseCurrency: 'DKK', enabledCurrencies: ['DKK', 'EUR'], visibilityMode: 'private', accentColor: '#1D4ED8', firstDayOfWeek: 1, fiscalStartMonth: 1 },
   stages: [{ id: 1, name: 'Qual', sortOrder: 1, probability: 10, type: 'open' }, { id: 6, name: 'Lost', sortOrder: 6, probability: 0, type: 'lost' }],
   picklists: { industry: [{ id: 100, code: null, label: 'Tech', active: true }, { id: 101, code: null, label: 'Old', active: false }], lost_reason: [{ id: 300, code: null, label: 'Price', active: true }], lead_source: [] },
 });

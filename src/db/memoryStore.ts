@@ -3,18 +3,22 @@ import { ENTITIES } from '../domain/entities';
 import type { CrmStore, EntityKey, HistoryRow, ListQuery, Lookups, Meta, OwnerOption, PicklistValue, RefOption, Repo, Row, Settings, Stage, UpdateResult, Value, Values } from '../domain/types';
 import { createRow, deleteRow, updateRows, type AuditRow } from '../services/audit';
 import type { RlsContext } from './withRlsContext';
+import type { FxRate, LogoInfo } from '../domain/adminTypes';
+import { MemoryAdminRepo } from './memoryAdmin';
 
 /**
  * In-memory CrmStore for demo mode and tests. Emulates the RLS rules of overview 5.2 (visibility, update,
  * delete, resulting-row) so UI behaviour and authorization paths can be exercised without SQL Server.
  * It is NOT a security boundary; the database is.
  */
-interface MUser { id: number; name: string; role: 'Admin' | 'Manager' | 'User'; teamId: number | null; active: boolean }
+export interface MUser { id: number; name: string; role: 'Admin' | 'Manager' | 'User'; teamId: number | null; active: boolean; email?: string | null; lastSignIn?: string | null; teamStatus?: 'ok' | 'none' | 'multiple' | 'overage' }
 type Raw = Row & { Id: number; Ver: number };
 
 export interface MemoryState {
   users: MUser[];
-  teams: Array<{ id: number; name: string }>;
+  teams: Array<{ id: number; name: string; groupId: string; active: boolean }>;
+  fx: FxRate[];
+  logo: { contentType: LogoInfo['contentType']; content: Buffer; sha256: string } | null;
   settings: Settings;
   stages: Stage[];
   picklists: Record<string, PicklistValue[]>;
@@ -23,7 +27,7 @@ export interface MemoryState {
   nextId: number;
 }
 
-const iso = () => new Date().toISOString();
+export const iso = () => new Date().toISOString();
 const hex = (n: number) => `0x${n.toString(16).padStart(16, '0')}`;
 
 export function seedState(): MemoryState {
@@ -32,8 +36,10 @@ export function seedState(): MemoryState {
   const common = (owner: number, team: number | null) => ({ OwnerId: owner, TeamId: team, CreatedBy: owner, ModifiedBy: owner, CreatedAt: '2026-11-01T09:00:00.000Z', ModifiedAt: '2026-11-01T09:00:00.000Z', Ver: 1 });
   const s: MemoryState = {
     users: [user(1, 'Demo Admin', 'Admin', 1), user(2, 'Demo Manager', 'Manager', 1), user(3, 'Demo User', 'User', 1), user(4, 'Anna Teammate', 'User', 1), user(5, 'Otto Otherteam', 'User', 2), user(6, 'Nina NoTeam', 'User', null)],
-    teams: [{ id: 1, name: 'Sales North' }, { id: 2, name: 'Sales South' }],
-    settings: { appName: 'CRM', localeCode: 'da-DK', timezone: 'Europe/Copenhagen', baseCurrency: 'DKK', enabledCurrencies: ['DKK', 'EUR', 'USD', 'SEK', 'NOK'], visibilityMode: 'private' },
+    teams: [{ id: 1, name: 'Sales North', groupId: '3f2b9c1e-7a4d-4e8b-9c0f-1a2b3c4d5e6f', active: true }, { id: 2, name: 'Sales South', groupId: '9d8e7f6a-5b4c-4d3e-8f2a-0b1c2d3e4f5a', active: true }],
+    fx: [],
+    logo: null,
+    settings: { appName: 'CRM', localeCode: 'da-DK', timezone: 'Europe/Copenhagen', baseCurrency: 'DKK', enabledCurrencies: ['DKK', 'EUR', 'USD', 'SEK', 'NOK'], visibilityMode: 'private', accentColor: '#1D4ED8', firstDayOfWeek: 1, fiscalStartMonth: 1 },
     stages: [
       { id: 1, name: 'Qualification', sortOrder: 1, probability: 10, type: 'open' }, { id: 2, name: 'Needs analysis', sortOrder: 2, probability: 25, type: 'open' },
       { id: 3, name: 'Proposal', sortOrder: 3, probability: 50, type: 'open' }, { id: 4, name: 'Negotiation', sortOrder: 4, probability: 75, type: 'open' },
@@ -62,10 +68,17 @@ export function seedState(): MemoryState {
 }
 
 export function createMemoryStore(state: MemoryState = seedState()): CrmStore & { state: MemoryState } {
-  return { state, run: async (ctx, fn) => fn(new MemoryRepo(state, ctx)) };
+  return {
+    state,
+    run: async (ctx, fn) => fn(new MemoryRepo(state, ctx)),
+    runAdmin: async (ctx, fn) => {
+      if (ctx.role !== 'Admin') throw new ForbiddenError(); // emulates fn_AdminWrite / route check
+      return fn(new MemoryAdminRepo(state, ctx));
+    },
+  };
 }
 
-class MemoryRepo implements Repo {
+export class MemoryRepo implements Repo {
   constructor(private s: MemoryState, private ctx: RlsContext) {}
 
   private get team() { return this.ctx.teamId; }
@@ -147,7 +160,7 @@ class MemoryRepo implements Repo {
   async list(entity: EntityKey, q: ListQuery) {
     const d = ENTITIES[entity];
     const all = this.s.data[entity].filter((r) => this.canSee(r)).map((r) => this.decorate(entity, r)).filter((r) => this.matches(entity, r, q));
-    const field = (d.sorts[q.sort] ?? d.sorts[d.defaultSort]!).field;
+    const field = ((Object.hasOwn(d.sorts, q.sort) ? d.sorts[q.sort] : undefined) ?? d.sorts[d.defaultSort]!).field;
     const sign = q.dir === 'desc' ? -1 : 1;
     all.sort((a, b) => {
       const x = a[field] ?? null, y = b[field] ?? null;
