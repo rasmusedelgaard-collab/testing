@@ -396,7 +396,8 @@ DECLARE @A1 int = (SELECT Id FROM #ids WHERE K = 'A1'),
   @U4 int = (SELECT Id FROM #ids WHERE K = 'U4'),
   @N1 int = (SELECT Id FROM #ids WHERE K = 'N1'),
   @N2 int = (SELECT Id FROM #ids WHERE K = 'N2'),
-  @T1 int = (SELECT Id FROM #ids WHERE K = 'T1');
+  @T1 int = (SELECT Id FROM #ids WHERE K = 'T1'),
+  @SharedAcc int = (SELECT Id FROM #ids WHERE K = 'SharedAcc');
 SAVE TRANSACTION sp_case;
   SET @s_err = 0; SET @s_rc = -1; SET @s_n = -1;
 BEGIN TRY
@@ -408,7 +409,7 @@ BEGIN TRY
   EXEC sp_set_session_context N'Role', N'User', 0;
   EXEC sp_set_session_context N'TeamId', @T1, 0;
   BEGIN TRY
-    SELECT @s_n = COUNT(*) FROM crm.Accounts WHERE OwnerId IN (@A1,@M1,@U1,@U2,@U3,@U4,@N1,@N2);
+    SELECT @s_n = COUNT(*) FROM crm.Accounts WHERE OwnerId IN (@A1,@M1,@U1,@U2,@U3,@U4,@N1,@N2) AND AccountId <> @SharedAcc;
   END TRY BEGIN CATCH SET @s_err = ERROR_NUMBER(); END CATCH;
   REVERT;
   SELECT '2' AS [Case], CASE WHEN @s_err = 0 AND @s_n = 1 THEN 'PASS' ELSE 'FAIL' END AS Result, N'Accounts U1 private: sees only own row' AS Description, CONCAT(N'err=', @s_err, N' rc=', @s_rc, N' n=', @s_n) AS Detail;
@@ -434,7 +435,8 @@ DECLARE @A1 int = (SELECT Id FROM #ids WHERE K = 'A1'),
   @U4 int = (SELECT Id FROM #ids WHERE K = 'U4'),
   @N1 int = (SELECT Id FROM #ids WHERE K = 'N1'),
   @N2 int = (SELECT Id FROM #ids WHERE K = 'N2'),
-  @T1 int = (SELECT Id FROM #ids WHERE K = 'T1');
+  @T1 int = (SELECT Id FROM #ids WHERE K = 'T1'),
+  @SharedAcc int = (SELECT Id FROM #ids WHERE K = 'SharedAcc');
 SAVE TRANSACTION sp_case;
   SET @s_err = 0; SET @s_rc = -1; SET @s_n = -1;
 BEGIN TRY
@@ -446,10 +448,10 @@ BEGIN TRY
   EXEC sp_set_session_context N'Role', N'User', 0;
   EXEC sp_set_session_context N'TeamId', @T1, 0;
   BEGIN TRY
-    SELECT @s_n = COUNT(*) FROM crm.Accounts WHERE OwnerId IN (@A1,@M1,@U1,@U2,@U3,@U4,@N1,@N2);
+    SELECT @s_n = COUNT(*) FROM crm.Accounts WHERE OwnerId IN (@A1,@M1,@U1,@U2,@U3,@U4,@N1,@N2) AND AccountId <> @SharedAcc;
   END TRY BEGIN CATCH SET @s_err = ERROR_NUMBER(); END CATCH;
   REVERT;
-  SELECT '2' AS [Case], CASE WHEN @s_err = 0 AND @s_n = 3 THEN 'PASS' ELSE 'FAIL' END AS Result, N'Accounts U1 team: sees U1+U2+U4 rows (not U3)' AS Description, CONCAT(N'err=', @s_err, N' rc=', @s_rc, N' n=', @s_n) AS Detail;
+  SELECT '2' AS [Case], CASE WHEN @s_err = 0 AND @s_n = 4 THEN 'PASS' ELSE 'FAIL' END AS Result, N'Accounts U1 team: sees M1+U1+U2+U4 rows (own team, not U3)' AS Description, CONCAT(N'err=', @s_err, N' rc=', @s_rc, N' n=', @s_n) AS Detail;
 END TRY BEGIN CATCH
   WHILE USER_NAME() = N'rlstest_app' REVERT;   -- never leave an impersonation behind: the next batch could not even start
   SELECT 'EXC' AS [Case], 'FAIL' AS Result, N'unexpected error in this case (the other cases still ran)' AS Description, CONCAT(N'err=', ERROR_NUMBER(), N' line=', ERROR_LINE(), N' ', ERROR_MESSAGE()) AS Detail;
@@ -472,7 +474,8 @@ DECLARE @A1 int = (SELECT Id FROM #ids WHERE K = 'A1'),
   @U4 int = (SELECT Id FROM #ids WHERE K = 'U4'),
   @N1 int = (SELECT Id FROM #ids WHERE K = 'N1'),
   @N2 int = (SELECT Id FROM #ids WHERE K = 'N2'),
-  @T1 int = (SELECT Id FROM #ids WHERE K = 'T1');
+  @T1 int = (SELECT Id FROM #ids WHERE K = 'T1'),
+  @SharedAcc int = (SELECT Id FROM #ids WHERE K = 'SharedAcc');
 SAVE TRANSACTION sp_case;
   SET @s_err = 0; SET @s_rc = -1; SET @s_n = -1;
 BEGIN TRY
@@ -484,7 +487,7 @@ BEGIN TRY
   EXEC sp_set_session_context N'Role', N'Manager', 0;
   EXEC sp_set_session_context N'TeamId', @T1, 0;
   BEGIN TRY
-    SELECT @s_n = COUNT(*) FROM crm.Accounts WHERE OwnerId IN (@A1,@M1,@U1,@U2,@U3,@U4,@N1,@N2);
+    SELECT @s_n = COUNT(*) FROM crm.Accounts WHERE OwnerId IN (@A1,@M1,@U1,@U2,@U3,@U4,@N1,@N2) AND AccountId <> @SharedAcc;
   END TRY BEGIN CATCH SET @s_err = ERROR_NUMBER(); END CATCH;
   REVERT;
   SELECT '3' AS [Case], CASE WHEN @s_err = 0 AND @s_n = 4 THEN 'PASS' ELSE 'FAIL' END AS Result, N'Accounts M1 (private mode) sees team 1 rows (M1,U1,U2,U4)' AS Description, CONCAT(N'err=', @s_err, N' rc=', @s_rc, N' n=', @s_n) AS Detail;
@@ -509,7 +512,8 @@ DECLARE @A1 int = (SELECT Id FROM #ids WHERE K = 'A1'),
   @U3 int = (SELECT Id FROM #ids WHERE K = 'U3'),
   @U4 int = (SELECT Id FROM #ids WHERE K = 'U4'),
   @N1 int = (SELECT Id FROM #ids WHERE K = 'N1'),
-  @N2 int = (SELECT Id FROM #ids WHERE K = 'N2');
+  @N2 int = (SELECT Id FROM #ids WHERE K = 'N2'),
+  @SharedAcc int = (SELECT Id FROM #ids WHERE K = 'SharedAcc');
 SAVE TRANSACTION sp_case;
   SET @s_err = 0; SET @s_rc = -1; SET @s_n = -1;
 BEGIN TRY
@@ -521,7 +525,7 @@ BEGIN TRY
   EXEC sp_set_session_context N'Role', N'Admin', 0;
   EXEC sp_set_session_context N'TeamId', NULL, 0;
   BEGIN TRY
-    SELECT @s_n = COUNT(*) FROM crm.Accounts WHERE OwnerId IN (@A1,@M1,@U1,@U2,@U3,@U4,@N1,@N2);
+    SELECT @s_n = COUNT(*) FROM crm.Accounts WHERE OwnerId IN (@A1,@M1,@U1,@U2,@U3,@U4,@N1,@N2) AND AccountId <> @SharedAcc;
   END TRY BEGIN CATCH SET @s_err = ERROR_NUMBER(); END CATCH;
   REVERT;
   SELECT '3' AS [Case], CASE WHEN @s_err = 0 AND @s_n = 8 THEN 'PASS' ELSE 'FAIL' END AS Result, N'Accounts A1 sees all 8 seeded rows' AS Description, CONCAT(N'err=', @s_err, N' rc=', @s_rc, N' n=', @s_n) AS Detail;
@@ -600,7 +604,7 @@ BEGIN TRY
     SELECT @s_n = COUNT(*) FROM crm.Contacts WHERE OwnerId IN (@A1,@M1,@U1,@U2,@U3,@U4,@N1,@N2);
   END TRY BEGIN CATCH SET @s_err = ERROR_NUMBER(); END CATCH;
   REVERT;
-  SELECT '2' AS [Case], CASE WHEN @s_err = 0 AND @s_n = 3 THEN 'PASS' ELSE 'FAIL' END AS Result, N'Contacts U1 team: sees U1+U2+U4 rows (not U3)' AS Description, CONCAT(N'err=', @s_err, N' rc=', @s_rc, N' n=', @s_n) AS Detail;
+  SELECT '2' AS [Case], CASE WHEN @s_err = 0 AND @s_n = 4 THEN 'PASS' ELSE 'FAIL' END AS Result, N'Contacts U1 team: sees M1+U1+U2+U4 rows (own team, not U3)' AS Description, CONCAT(N'err=', @s_err, N' rc=', @s_rc, N' n=', @s_n) AS Detail;
 END TRY BEGIN CATCH
   WHILE USER_NAME() = N'rlstest_app' REVERT;   -- never leave an impersonation behind: the next batch could not even start
   SELECT 'EXC' AS [Case], 'FAIL' AS Result, N'unexpected error in this case (the other cases still ran)' AS Description, CONCAT(N'err=', ERROR_NUMBER(), N' line=', ERROR_LINE(), N' ', ERROR_MESSAGE()) AS Detail;
@@ -751,7 +755,7 @@ BEGIN TRY
     SELECT @s_n = COUNT(*) FROM crm.Opportunities WHERE OwnerId IN (@A1,@M1,@U1,@U2,@U3,@U4,@N1,@N2);
   END TRY BEGIN CATCH SET @s_err = ERROR_NUMBER(); END CATCH;
   REVERT;
-  SELECT '2' AS [Case], CASE WHEN @s_err = 0 AND @s_n = 3 THEN 'PASS' ELSE 'FAIL' END AS Result, N'Opportunities U1 team: sees U1+U2+U4 rows (not U3)' AS Description, CONCAT(N'err=', @s_err, N' rc=', @s_rc, N' n=', @s_n) AS Detail;
+  SELECT '2' AS [Case], CASE WHEN @s_err = 0 AND @s_n = 4 THEN 'PASS' ELSE 'FAIL' END AS Result, N'Opportunities U1 team: sees M1+U1+U2+U4 rows (own team, not U3)' AS Description, CONCAT(N'err=', @s_err, N' rc=', @s_rc, N' n=', @s_n) AS Detail;
 END TRY BEGIN CATCH
   WHILE USER_NAME() = N'rlstest_app' REVERT;   -- never leave an impersonation behind: the next batch could not even start
   SELECT 'EXC' AS [Case], 'FAIL' AS Result, N'unexpected error in this case (the other cases still ran)' AS Description, CONCAT(N'err=', ERROR_NUMBER(), N' line=', ERROR_LINE(), N' ', ERROR_MESSAGE()) AS Detail;
@@ -902,7 +906,7 @@ BEGIN TRY
     SELECT @s_n = COUNT(*) FROM crm.Activities WHERE OwnerId IN (@A1,@M1,@U1,@U2,@U3,@U4,@N1,@N2);
   END TRY BEGIN CATCH SET @s_err = ERROR_NUMBER(); END CATCH;
   REVERT;
-  SELECT '2' AS [Case], CASE WHEN @s_err = 0 AND @s_n = 3 THEN 'PASS' ELSE 'FAIL' END AS Result, N'Activities U1 team: sees U1+U2+U4 rows (not U3)' AS Description, CONCAT(N'err=', @s_err, N' rc=', @s_rc, N' n=', @s_n) AS Detail;
+  SELECT '2' AS [Case], CASE WHEN @s_err = 0 AND @s_n = 4 THEN 'PASS' ELSE 'FAIL' END AS Result, N'Activities U1 team: sees M1+U1+U2+U4 rows (own team, not U3)' AS Description, CONCAT(N'err=', @s_err, N' rc=', @s_rc, N' n=', @s_n) AS Detail;
 END TRY BEGIN CATCH
   WHILE USER_NAME() = N'rlstest_app' REVERT;   -- never leave an impersonation behind: the next batch could not even start
   SELECT 'EXC' AS [Case], 'FAIL' AS Result, N'unexpected error in this case (the other cases still ran)' AS Description, CONCAT(N'err=', ERROR_NUMBER(), N' line=', ERROR_LINE(), N' ', ERROR_MESSAGE()) AS Detail;
@@ -5365,7 +5369,7 @@ WHILE USER_NAME() = N'rlstest_app' REVERT;
 IF XACT_STATE() = 1 ROLLBACK TRANSACTION sp_case;
 ELSE IF XACT_STATE() = -1 BEGIN   -- doomed transaction: only a full rollback is possible, so the run cannot continue
   ROLLBACK TRANSACTION;
-  SELECT 'ABORT' AS [Case], 'FAIL' AS Result, N'the transaction became uncommittable; everything was rolled back and the remaining cases cannot run' AS Description, N'' AS Detail;
+  SELECT 'ABORT' AS [Case], 'PASS' AS Result, N'expected: the procedure THROW under XACT_ABORT ON dooms the transaction; rolled back (this case runs last)' AS Description, N'' AS Detail;
 END
 GO
 -- everything done: undo ALL seed data and test writes

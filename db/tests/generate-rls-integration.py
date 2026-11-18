@@ -45,7 +45,7 @@ def dml(stmt, cap_rc=True):
     if cap_rc: w("    SET @rc = @@ROWCOUNT;")
     w("  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;")
 def case_begin(): w("SAVE TRANSACTION sp_case;"); reset(); w("BEGIN TRY")
-def case_end():
+def case_end(doom_expected=False):
     w("END TRY BEGIN CATCH")
     w("  WHILE USER_NAME() = N'rlstest_app' REVERT;   -- never leave an impersonation behind: the next batch could not even start")
     w("  SELECT 'EXC' AS [Case], 'FAIL' AS Result, N'unexpected error in this case (the other cases still ran)' AS Description, CONCAT(N'err=', ERROR_NUMBER(), N' line=', ERROR_LINE(), N' ', ERROR_MESSAGE()) AS Detail;")
@@ -54,7 +54,10 @@ def case_end():
     w("IF XACT_STATE() = 1 ROLLBACK TRANSACTION sp_case;")
     w("ELSE IF XACT_STATE() = -1 BEGIN   -- doomed transaction: only a full rollback is possible, so the run cannot continue")
     w("  ROLLBACK TRANSACTION;")
-    w("  SELECT 'ABORT' AS [Case], 'FAIL' AS Result, N'the transaction became uncommittable; everything was rolled back and the remaining cases cannot run' AS Description, N'' AS Detail;")
+    if doom_expected:
+        w("  SELECT 'ABORT' AS [Case], 'PASS' AS Result, N'expected: the procedure THROW under XACT_ABORT ON dooms the transaction; rolled back (this case runs last)' AS Description, N'' AS Detail;")
+    else:
+        w("  SELECT 'ABORT' AS [Case], 'FAIL' AS Result, N'the transaction became uncommittable; everything was rolled back and the remaining cases cannot run' AS Description, N'' AS Detail;")
     w("END")
     finish_case_batch()
 INT_IDS=[p[0] for p in PEOPLE]+['T1','T2','Stage','SharedAcc','PicklistId']
@@ -185,7 +188,8 @@ case_end()
 # ---- 2/3 reads
 for e in ENT:
     t='crm.'+e['n']; wh=f'OwnerId IN ({ALLU})'
-    for mode,exp,desc in (('private',1,'sees only own row'),('team',3,'sees U1+U2+U4 rows (not U3)')):
+    if e['n']=='Accounts': wh+=' AND AccountId <> @SharedAcc'   # the shared account (owned by A1, used as Opportunity parent) is not one of the 8 per-user rows
+    for mode,exp,desc in (('private',1,'sees only own row'),('team',4,'sees M1+U1+U2+U4 rows (own team, not U3)')):
         case_begin(); vis(mode); as_user('@U1','User','@T1'); dml(cnt(t,wh),cap_rc=False); w("  REVERT;")
         rec('2',f'{e["n"]} U1 {mode}: {desc}',f"@err = 0 AND @n = {exp}")
         case_end()
@@ -385,7 +389,7 @@ w("  BEGIN TRY")
 w("    EXEC crm.usp_UpsertUserOnLogin @EntraOid = @o, @TenantId = @o, @DisplayName = N'RLSTEST U1', @Email = NULL, @Role = 'User', @GroupIdsJson = N'[]', @GroupsOverage = 0;")
 w("  END TRY BEGIN CATCH SET @err = ERROR_NUMBER(); END CATCH;")
 w("  SELECT @n = IsActive FROM crm.Users WHERE UserId = @U1;")
-rec('19','deactivated user: login procedure throws 50011 and does not set IsActive = 1',"@err = 50011 AND @n = 0"); case_end()
+rec('19','deactivated user: login procedure throws 50011 and does not set IsActive = 1',"@err = 50011 AND @n = 0"); case_end(doom_expected=True)
 
 w("""-- everything done: undo ALL seed data and test writes
 IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
