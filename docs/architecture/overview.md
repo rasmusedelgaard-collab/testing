@@ -190,6 +190,9 @@ CREATE TABLE crm.Users (
   Email        nvarchar(254)    NULL,
   Role         varchar(10)      NOT NULL CONSTRAINT CK_Users_Role CHECK (Role IN ('Admin','Manager','User')),
   TeamId       int              NULL CONSTRAINT FK_Users_Teams REFERENCES crm.Teams(TeamId),
+  TeamStatus   varchar(10)      NOT NULL CONSTRAINT DF_Users_TeamStatus DEFAULT 'none'
+                 CONSTRAINT CK_Users_TeamStatus CHECK (TeamStatus IN ('ok','none','multiple','overage')),
+                 -- set at login; drives the "no team" / "in several teams" badge on Settings > Users & teams
   IsActive     bit              NOT NULL CONSTRAINT DF_Users_IsActive DEFAULT 1,
   LastSignInAt datetime2(3)     NULL,
   CreatedAt    datetime2(3)     NOT NULL CONSTRAINT DF_Users_CreatedAt DEFAULT SYSUTCDATETIME(),
@@ -402,31 +405,42 @@ CREATE INDEX IX_Sessions_ExpiresAt ON app.Sessions(ExpiresAt);
 CREATE PROCEDURE crm.usp_UpsertUserOnLogin
   @EntraOid uniqueidentifier, @TenantId uniqueidentifier,
   @DisplayName nvarchar(200), @Email nvarchar(254) = NULL,
-  @Role varchar(10), @GroupIdsJson nvarchar(max)          -- JSON array of group object IDs from the token
+  @Role varchar(10), @GroupIdsJson nvarchar(max),         -- JSON array of group object IDs from the token
+  @GroupsOverage bit = 0                                    -- 1 when the token signalled groups overage
 AS
 BEGIN
   SET NOCOUNT ON; SET XACT_ABORT ON;
   IF @Role NOT IN ('Admin','Manager','User') THROW 50010, 'Invalid role', 1;
 
-  DECLARE @TeamId int, @TeamMatches int;
-  SELECT @TeamId = MIN(t.TeamId), @TeamMatches = COUNT(*)
+  DECLARE @TeamId int, @TeamMatches int, @TeamStatus varchar(10);
+  SELECT @TeamMatches = COUNT(DISTINCT t.TeamId), @TeamId = MIN(t.TeamId)
   FROM crm.Teams t
   JOIN OPENJSON(@GroupIdsJson) g ON TRY_CAST(g.[value] AS uniqueidentifier) = t.EntraGroupId
   WHERE t.IsActive = 1;
 
+  -- A user must be in exactly ONE linked team group. Anything else fails closed (TeamId NULL = own records only).
+  SET @TeamStatus = CASE WHEN @GroupsOverage = 1 THEN 'overage'
+                         WHEN @TeamMatches = 1   THEN 'ok'
+                         WHEN @TeamMatches = 0   THEN 'none'
+                         ELSE 'multiple' END;
+  IF @TeamStatus <> 'ok' SET @TeamId = NULL;
+
   MERGE crm.Users WITH (HOLDLOCK) AS u
   USING (SELECT @EntraOid AS EntraOid) AS s ON u.EntraOid = s.EntraOid
   WHEN MATCHED THEN UPDATE SET DisplayName = @DisplayName, Email = @Email, Role = @Role, TeamId = @TeamId,
-       TenantId = @TenantId, IsActive = 1, LastSignInAt = SYSUTCDATETIME(), ModifiedAt = SYSUTCDATETIME()
-  WHEN NOT MATCHED THEN INSERT (EntraOid, TenantId, DisplayName, Email, Role, TeamId, LastSignInAt)
-       VALUES (@EntraOid, @TenantId, @DisplayName, @Email, @Role, @TeamId, SYSUTCDATETIME());
+       TeamStatus = @TeamStatus, TenantId = @TenantId, IsActive = 1,
+       LastSignInAt = SYSUTCDATETIME(), ModifiedAt = SYSUTCDATETIME()
+  WHEN NOT MATCHED THEN INSERT (EntraOid, TenantId, DisplayName, Email, Role, TeamId, TeamStatus, LastSignInAt)
+       VALUES (@EntraOid, @TenantId, @DisplayName, @Email, @Role, @TeamId, @TeamStatus, SYSUTCDATETIME());
 
-  SELECT UserId, TeamId, @TeamMatches AS TeamMatches FROM crm.Users WHERE EntraOid = @EntraOid;
+  SELECT UserId, TeamId, TeamStatus, @TeamMatches AS TeamMatches FROM crm.Users WHERE EntraOid = @EntraOid;
 END
 ```
-If `TeamMatches > 1`, the app logs a warning: "user in several team groups; lowest TeamId used".
-
-If the ID token signals groups overage (`_claim_names.groups` present, or `groups` missing while `hasgroups` is true), the app passes `@GroupIdsJson = '[]'`. The user therefore gets `TeamId = NULL` (fail closed: own records only) and the app logs an **error** with the `oid` (§12.2).
+**Exactly one team group (user decision 2026-11-18).**
+- `TeamStatus = 'multiple'` (the groups claim contains more than one linked, active team group): `TeamId = NULL`, so the user sees own records only. The app logs a **warning** with the `oid` and the match count: "user in several team groups; no team applied". Settings > Users & teams shows the warning badge "In {n} teams — check Entra groups" (UI spec).
+- `TeamStatus = 'none'`: `TeamId = NULL`, badge "No team — sees own records only".
+- If the ID token signals groups overage (`_claim_names.groups` present, or `groups` missing while `hasgroups` is true), the app passes `@GroupIdsJson = '[]'` and `@GroupsOverage = 1`. The user gets `TeamId = NULL` and `TeamStatus = 'overage'`, and the app logs an **error** with the `oid` (§12.2).
+- The badge is driven by `crm.Users.TeamStatus`, as stored at the user's last sign-in.
 
 ### 4.3 Deletes and links (no cascades)
 Each delete runs in one `withRlsContext` transaction:
@@ -489,7 +503,7 @@ All three keys are set with `@read_only = 1`. Visibility mode is **not** a conte
 User decisions (2026-11-18, ADR-0002):
 - In `team` mode a User can **read and update** team-mates' records, but **cannot delete** them. Delete stays with the owner, a Manager of the same team, and Admin.
 - **Nobody except Admin can move a record across teams.** `fn_RowWriteTarget` runs AFTER UPDATE as well as AFTER INSERT, so the resulting `TeamId` must equal the caller's `TeamId`.
-- **Owner reassignment rule (non-Admin, both modes):** the resulting `OwnerId` must be either the caller, or a user whose `crm.Users.TeamId` equals the caller's `TeamId` and whose `IsActive = 1`. The resulting `TeamId` must equal the caller's `TeamId`. So in `team` mode a User may reassign a team-mate's record to themselves or to any other **active** team-mate. They may not assign it to an inactive user or to anyone outside the team. In `private` mode a User may hand their **own** record to an active team-mate (and then loses sight of it, §9).
+- **Owner reassignment rule (applies to Managers and Users alike, both modes; only Admin is exempt, so only Admin can reassign across teams):** the resulting `OwnerId` must be either the caller, or a user whose `crm.Users.TeamId` equals the caller's `TeamId` and whose `IsActive = 1`. The resulting `TeamId` must equal the caller's `TeamId`. So in `team` mode a User may reassign a team-mate's record to themselves or to any other **active** team-mate. They may not assign it to an inactive user or to anyone outside the team. In `private` mode a User may hand their **own** record to an active team-mate (and then loses sight of it, §9).
 - Consequence of the rule: a record owned by a team-mate who has since been deactivated can be updated by a non-Admin only if the same update reassigns it to an active team-mate. The edit form shows the owner picker with "Current owner is inactive: choose a new owner" in that case.
 - A user with `TeamId = NULL` (no team group, or groups overage) never matches a team rule. They can read, update and delete only their own records.
 - Every edit is attributed: `ModifiedBy` on the row, and `AuditLog.ChangedBy` for audited fields (§7). The record page shows "Last modified by {name}".
@@ -698,7 +712,7 @@ Required assertions:
 8. **U1 team mode, owner reassignment:** UPDATE of U2's row with `OwnerId = U1` succeeds, and setting it back to `OwnerId = U2` succeeds; with `OwnerId = U3` fails with 33504; with `OwnerId = U4` (inactive team-mate) fails with 33504.
 9. **U1 team mode, other team:** an UPDATE or DELETE of U3's row affects 0 rows.
 10. U1 (either mode): INSERT with Owner U3 or TeamId 2 fails. INSERT with Owner U2 (active, same team) succeeds. INSERT with Owner U4 (inactive) fails.
-11. M1: UPDATE and DELETE of U2's row succeed. UPDATE/DELETE of U3's row affects 0 rows. UPDATE setting `TeamId = 2` fails.
+11. M1: UPDATE and DELETE of U2's row succeed. UPDATE/DELETE of U3's row affects 0 rows. UPDATE setting `TeamId = 2` fails. UPDATE of U2's row with `OwnerId = U1` succeeds; with `OwnerId = U3` (other team) fails with 33504.
 12. A1: UPDATE moving U2's row to team 2 with Owner U3 succeeds (only Admin can move across teams).
 13. A user with no team (context `TeamId` NULL) in team mode: sees, updates and deletes own rows only; another NULL-team user's rows are invisible.
 14. Non-admin: INSERT or UPDATE on Settings, FxRates, PipelineStages, PicklistValues, Teams or BrandingAssets fails with 33504. Admin succeeds.
@@ -755,7 +769,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON app.Sessions      TO crm_app_role;
 
 ## 8. Connection pool and session context
 
-Two pools are created in `src/db/pool.ts`. Both use the same managed identity.
+Two pools are created in `src/db/pool.ts`. Both use the same identity, chosen by `DB_AUTH_MODE` (§11): the managed identity in Azure, or the SQL login on the interim test host (§12.3).
 
 | Pool | Used by | Session context |
 |---|---|---|
@@ -909,7 +923,7 @@ User decision (2026-11-18): production Azure SQL is **serverless with auto-pause
 | Variable | Required | Example / default | Notes |
 |---|---|---|---|
 | `NODE_ENV` | yes | `production` | `development` / `test` / `production` |
-| `PORT` | no | `8080` | App Service sets it |
+| `PORT` | no | `8080` | App Service sets it. Under iisnode it is a **named pipe** path (e.g. `\\.\pipe\…`), not a number: pass `process.env.PORT` to `listen()` unchanged and validate it as "integer or non-empty string" |
 | `BASE_URL` | yes | `https://crm-prod.azurewebsites.net` | builds the redirect URI and post-logout URI |
 | `ENTRA_TENANT_ID` | yes | GUID | single tenant; also checked against the `tid` claim |
 | `ENTRA_CLIENT_ID` | yes | GUID | |
@@ -919,7 +933,8 @@ User decision (2026-11-18): production Azure SQL is **serverless with auto-pause
 | `SESSION_ABSOLUTE_HOURS` | no | `10` | |
 | `SQL_SERVER` | yes | `sql-crm-prod.database.windows.net` | |
 | `SQL_DATABASE` | yes | `sqldb-crm` | |
-| `SQL_AUTH` | yes | `msi` | `msi` maps to `azure-active-directory-msi-app-service`; `default` maps to `azure-active-directory-default` (local) |
+| `DB_AUTH_MODE` | yes | `managed-identity` | `managed-identity` → `azure-active-directory-msi-app-service` (Azure); `default-azure` → `azure-active-directory-default` (local dev); `sql-password` → SQL login (interim MonsterASP test host only, §12.3). Config validation rejects `sql-password` when `WEBSITE_SITE_NAME` indicates Azure App Service. |
+| `DB_USER`, `DB_PASSWORD` | only for `sql-password` | host app settings | Set in the host's control panel / app settings, **never** in the repo or `.env.example` values. Required when `DB_AUTH_MODE=sql-password`, rejected otherwise. Never logged. |
 | `SQL_POOL_MAX` | no | `10` | rlsPool size |
 | `LOG_LEVEL` | no | `info` | |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | prod | set by infra | |
@@ -965,10 +980,27 @@ User decision (2026-11-18): production Azure SQL is **serverless with auto-pause
 
 **Team (user decision 2026-11-18, ADR-0003):** a team is an Entra security group.
 - Each team group is assigned to the enterprise app, so it appears in the `groups` claim, which is limited to **groups assigned to the application**.
-- At login, `TeamId` is the intersection of the `groups` claim with active `crm.Teams.EntraGroupId` values (§4.2). Several matches: the lowest `TeamId` wins and a warning is logged.
+- At login, `TeamId` is the intersection of the `groups` claim with active `crm.Teams.EntraGroupId` values (§4.2). **A user must be in exactly one team group.** More than one match: `TeamId` is NULL (fail closed: own records only), a warning is logged with the `oid`, and the Users & teams page shows the warning badge.
 - With no match, `TeamId` is NULL (own records only).
 - **Overage** (`_claim_names` contains `groups`, or `hasgroups` is true): the app does **not** call Graph. `TeamId` is NULL (fail closed) and an error is logged with the `oid`, so an Admin can fix the group assignment.
 - Admins create teams in Settings > Users & teams > "Add team" (name + group object ID). Membership changes in Entra take effect at the user's next sign-in.
+
+### 12.3 Interim test hosting on MonsterASP.NET (until Azure go-live)
+
+User decision (2026-11-18): until the Azure environment is live, the **test** environment runs on MonsterASP.NET. **Test data only**: no customer or personal production data, ever.
+
+| Aspect | Interim host | Design consequence |
+|---|---|---|
+| Web server | Windows / IIS with **iisnode** | `web.config` routes to the built `dist/server.js`. The app listens on `process.env.PORT` exactly as given, which under iisnode is a named pipe (§11). `trust proxy` stays at 1 (IIS is the proxy). HTTPS is enforced at the host; the `__Host-` cookie still needs `Secure`, so the test site must be served over HTTPS. |
+| Database | Shared hosting MSSQL (SQL Server, RLS and `SESSION_CONTEXT` supported) | Same migrations and RLS. **Not serverless**: the 40613 retry and "waking up" logic (§8.1) simply never fires there, which is harmless. |
+| DB auth | SQL logins, no Entra/managed identity | `DB_AUTH_MODE=sql-password`, `DB_USER`/`DB_PASSWORD` from the host's app settings, never in the repo. |
+| Secrets | No Key Vault | `ENTRA_CLIENT_SECRET` and `SESSION_SECRET` set as host app settings. Use a separate "CRM (test-interim)" Entra app registration whose redirect URI is the MonsterASP URL; delete it at Azure go-live. |
+| Telemetry | No App Insights required | `APPLICATIONINSIGHTS_CONNECTION_STRING` optional; pino logs go to the iisnode log files. |
+
+**Database principals on the interim host:**
+- **Migrations** run as the database **owner login** supplied by the host. This replaces the Entra deployer identity of §6.
+- **The app should run as a separate low-privilege SQL user**, created by migration `003` in place of `CREATE USER … FROM EXTERNAL PROVIDER`: `CREATE USER crm_app_test WITH PASSWORD = …` (contained user) or a host-provided second login mapped to a user, added to `crm_app_role`. It then gets exactly the grants of §6, and RLS is fully meaningful.
+- **If the host does not allow a second login/user:** the app connects as the owner. This is a **documented test-only gap**: the RLS predicates still filter the owner's queries, but the owner *can* `ALTER SECURITY POLICY … STATE = OFF`, drop predicates or read `dbo` tables. So a SQL injection or compromised app could disable RLS. Acceptable only because the host holds test data only. The RLS integration script (§5.5) must still be run as a `WITHOUT LOGIN` user in `crm_app_role` (`EXECUTE AS USER`), so it remains a valid proof. This gap must not carry over to Azure, where `DB_AUTH_MODE=managed-identity` and `crm_app` are mandatory.
 
 ## 13. Deviations from the approved plan
 
