@@ -39,6 +39,9 @@ const dbSchema = z
     }
   });
 
+export const AUTH_MODES = ['entra', 'test-access-code'] as const;
+export type AuthMode = (typeof AUTH_MODES)[number];
+
 export interface DbConfig {
   server: string;
   database: string;
@@ -52,8 +55,11 @@ export interface DbConfig {
 export interface AppConfig {
   nodeEnv: 'development' | 'test' | 'production';
   isProduction: boolean;
-  /** True when running without Entra and SQL (NODE_ENV=test or DEMO_MODE=true). */
+  /** True when running without Entra and SQL (NODE_ENV=test or DEMO_MODE=true). Never in production. */
   demoMode: boolean;
+  /** 'entra' (normal) or 'test-access-code' (interim hosted test site: shared code + seeded DB users). */
+  authMode: AuthMode;
+  testAccessCode: string | null;
   port: string;
   logLevel: string;
   redirectUri: string;
@@ -73,6 +79,8 @@ const baseSchema = z.object({
   PORT: portOrPipe.default('3000'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   DEMO_MODE: bool.default(false),
+  AUTH_MODE: z.enum(AUTH_MODES).default('entra'),
+  TEST_ACCESS_CODE: z.string().optional(),
   REDIRECT_URI: z.url().optional(),
   ENTRA_TENANT_ID: guid.optional(),
   ENTRA_CLIENT_ID: guid.optional(),
@@ -126,10 +134,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new ConfigError(['NODE_ENV=test (auth bypass) is refused on Azure App Service']);
   }
 
+  const testAccess = !demoMode && v.AUTH_MODE === 'test-access-code';
   const redirectUri = v.REDIRECT_URI ?? (demoMode ? `http://localhost:${/^\d+$/.test(v.PORT) ? v.PORT : '3000'}/auth/redirect` : undefined);
-  if (!redirectUri) issues.push('REDIRECT_URI: required');
+  if (!redirectUri && !demoMode && !testAccess) issues.push('REDIRECT_URI: required');
   let baseUrl = '';
-  let secureCookies = false;
+  let secureCookies = isProduction;
   if (redirectUri) {
     const url = new URL(redirectUri);
     baseUrl = url.origin;
@@ -150,10 +159,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     issues.push('SESSION_SECRET: required');
   }
 
+  if (testAccess && (v.TEST_ACCESS_CODE ?? '').length < 16) {
+    issues.push('TEST_ACCESS_CODE: required (at least 16 characters) when AUTH_MODE=test-access-code');
+  }
+
   let db: DbConfig | null = null;
   if (!demoMode) {
-    for (const key of ['ENTRA_TENANT_ID', 'ENTRA_CLIENT_ID', 'ENTRA_CLIENT_SECRET'] as const) {
-      if (!v[key]) issues.push(`${key}: required`);
+    if (!testAccess) {
+      for (const key of ['ENTRA_TENANT_ID', 'ENTRA_CLIENT_ID', 'ENTRA_CLIENT_SECRET'] as const) {
+        if (!v[key]) issues.push(`${key}: required when AUTH_MODE=entra`);
+      }
     }
     const parsedDb = dbSchema.safeParse(env);
     if (parsedDb.success) db = loadDbConfig(env);
@@ -166,9 +181,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     nodeEnv: v.NODE_ENV,
     isProduction,
     demoMode,
+    authMode: v.AUTH_MODE,
+    testAccessCode: testAccess ? (v.TEST_ACCESS_CODE ?? null) : null,
     port: v.PORT,
     logLevel: v.LOG_LEVEL,
-    redirectUri: redirectUri as string,
+    redirectUri: redirectUri ?? '',
     baseUrl,
     secureCookies,
     entra: {
