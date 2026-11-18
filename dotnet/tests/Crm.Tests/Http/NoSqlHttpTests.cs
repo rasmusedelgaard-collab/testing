@@ -9,6 +9,21 @@ public sealed class NoSqlHttpTests : IDisposable
 
     public void Dispose() => _f.Dispose();
 
+    [Theory]
+    [InlineData("/accounts/+5")]
+    [InlineData("/accounts/005")]
+    [InlineData("/accounts/%205")]
+    [InlineData("/accounts/2147483648")]
+    [InlineData("/accounts/0/edit")]
+    [InlineData("/opportunities/+5/won")]
+    [InlineData("/settings/fx/005/edit")]
+    [InlineData("/settings/teams/+1/edit")]
+    public async Task Non_canonical_ids_never_match_a_route(string path)
+    {
+        var r = await HttpHelpers.NewClient(_f).GetAsync(path);
+        Assert.Equal(HttpStatusCode.NotFound, r.StatusCode);
+    }
+
     [Fact]
     public async Task Healthz_is_ok_without_a_database()
     {

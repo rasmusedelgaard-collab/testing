@@ -1,4 +1,4 @@
-@page "/settings/general/{handler?}"
+@page "/settings/general/{handler:regex(^logo$)?}"
 @model GeneralModel
 <partial name="_SettingsNav" model='"general"' />
 <h1>General</h1>

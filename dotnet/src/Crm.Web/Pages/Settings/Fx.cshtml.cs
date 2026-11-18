@@ -109,6 +109,7 @@ public sealed partial class FxModel(IRlsDb rls, IRlsContextAccessor identity, Br
     {
         if (verb == "edit") { throw new NotFoundException(); } // GET-only route
         var meta = MetaOf();
+        // RunAsync: exclusive branches (delete returns before the save branch runs)
         if (verb == "delete")
         {
             var deleted = await RunAsync(async (admin, _) => await admin.DeleteFxRateAsync(id!.Value, meta));

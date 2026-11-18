@@ -73,6 +73,33 @@ public sealed partial class SourceRulesTests
         Assert.Equal(["APP_POOL_ID", "WEBSITE_INSTANCE_ID"], keys);
     }
 
+    /// <summary>
+    /// Static half of the "one RlsDb.RunAsync per request" rule (RlsDb also throws on a second call at run time): no page handler
+    /// or helper method may call RunAsync(...) twice unless it is annotated as exclusive branches.
+    /// </summary>
+    [Fact]
+    public void Page_models_call_RunAsync_at_most_once_per_method()
+    {
+        var methodStart = new Regex(@"^    (?:public|private|protected|internal)[^=;{]*\(", RegexOptions.Multiline | RegexOptions.CultureInvariant);
+        var bad = new List<string>();
+        foreach (var f in Files("*.cshtml.cs").Where(f => Rel(f).StartsWith("Pages/", StringComparison.Ordinal)))
+        {
+            var text = File.ReadAllText(f);
+            var starts = methodStart.Matches(text).Select(m => m.Index).Append(text.Length).ToList();
+            for (var i = 0; i < starts.Count - 1; i++)
+            {
+                var body = text[starts[i]..starts[i + 1]];
+                var calls = Regex.Matches(body, @"\bRunAsync\b[^\n]*\(|\brls\.RunAsync\(").Count;
+                // Calls on mutually exclusive branches (each ending in a return) are allowed when the method says so: "RunAsync: exclusive branches".
+                if (calls > 1 && !body.Contains("RunAsync: exclusive branches", StringComparison.Ordinal))
+                {
+                    bad.Add($"{Rel(f)} (offset {starts[i]}, {calls} calls)");
+                }
+            }
+        }
+        Assert.Empty(bad);
+    }
+
     [Fact]
     public void Html_Raw_only_for_the_json_chart_blocks() => Assert.Equal(["Pages/Dashboard/Analytics.cshtml"], Files("*.cshtml").Where(f => File.ReadAllText(f).Contains("Html.Raw(", StringComparison.Ordinal)).Select(Rel).Order());
 

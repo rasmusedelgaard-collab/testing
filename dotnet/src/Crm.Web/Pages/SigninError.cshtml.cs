@@ -12,6 +12,6 @@ public sealed class SigninErrorModel : PageModel
     {
         // The reference is only displayed if it is a GUID (it is a correlation id, never free text).
         Reference = Guid.TryParse(@ref, out var g) ? g.ToString() : HttpContext.TraceIdentifier;
-        Response.StatusCode = code == 502 ? 502 : 400;
+        Response.StatusCode = code is 403 or 502 ? code.Value : 400;
     }
 }

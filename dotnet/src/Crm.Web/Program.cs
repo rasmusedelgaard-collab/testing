@@ -96,7 +96,11 @@ builder.Services.Configure<CookieTempDataProviderOptions>(o =>
 });
 builder.Services.Configure<WebEncoderOptions>(o => o.TextEncoderSettings = new TextEncoderSettings(UnicodeRanges.All));
 builder.Services.AddRateLimiter(RateLimitSetup.Configure);
-builder.Services.Configure<RouteOptions>(o => o.ConstraintMap["crmentity"] = typeof(CrmEntityConstraint));
+builder.Services.Configure<RouteOptions>(o =>
+{
+    o.ConstraintMap["crmentity"] = typeof(CrmEntityConstraint);
+    o.ConstraintMap["crmid"] = typeof(CrmIdConstraint);
+});
 builder.Services.AddHsts(o =>
 {
     o.MaxAge = TimeSpan.FromDays(365);
@@ -106,14 +110,14 @@ builder.Services.AddRazorPages(o =>
 {
     o.Conventions.AuthorizeFolder("/Settings", AuthSetup.AdminPolicy);
     // Extra routes for the generic entity pages (a Razor Page has one @page template).
-    o.Conventions.AddPageRoute("/Entity/Form", "{entity:crmentity}/{id:int:min(1)}/edit");
-    o.Conventions.AddPageRoute("/Entity/Detail", "opportunities/{id:int:min(1)}/{outcome:regex(^(won|lost)$)}");
-    o.Conventions.AddPageRoute("/Entity/Detail", "activities/{id:int:min(1)}/{verb:regex(^(done|undone)$)}");
+    o.Conventions.AddPageRoute("/Entity/Form", "{entity:crmentity}/{id:crmid}/edit");
+    o.Conventions.AddPageRoute("/Entity/Detail", "opportunities/{id:crmid}/{outcome:regex(^(won|lost)$)}");
+    o.Conventions.AddPageRoute("/Entity/Detail", "activities/{id:crmid}/{verb:regex(^(done|undone)$)}");
     o.Conventions.AddPageRoute("/Settings/Users", "settings/teams");
-    o.Conventions.AddPageRoute("/Settings/Fx", "settings/fx/{id:int:min(1)}");
-    o.Conventions.AddPageRoute("/Settings/Fx", "settings/fx/{id:int:min(1)}/{verb:regex(^(edit|delete)$)}");
-    o.Conventions.AddPageRoute("/Settings/Team", "settings/teams/{id:int:min(1)}");
-    o.Conventions.AddPageRoute("/Settings/Team", "settings/teams/{id:int:min(1)}/{verb:regex(^(deactivate|reactivate)$)}");
+    o.Conventions.AddPageRoute("/Settings/Fx", "settings/fx/{id:crmid}");
+    o.Conventions.AddPageRoute("/Settings/Fx", "settings/fx/{id:crmid}/{verb:regex(^(edit|delete)$)}");
+    o.Conventions.AddPageRoute("/Settings/Team", "settings/teams/{id:crmid}");
+    o.Conventions.AddPageRoute("/Settings/Team", "settings/teams/{id:crmid}/{verb:regex(^(deactivate|reactivate)$)}");
 }).AddMvcOptions(o => o.Filters.Add<AntiforgeryFailureFilter>());
 
 var app = builder.Build();

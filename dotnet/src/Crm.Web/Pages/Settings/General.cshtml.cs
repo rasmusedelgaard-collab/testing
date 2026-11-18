@@ -1,4 +1,5 @@
 using Crm.Web.Data;
+using Crm.Web.Infrastructure;
 using Crm.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -30,6 +31,9 @@ public sealed class GeneralModel(IRlsDb rls, IRlsContextAccessor identity, Brand
         return Page();
     }
 
+    /// <summary>GET /settings/general/logo does not exist (as in the Node app).</summary>
+    public IActionResult OnGetLogo() => throw new NotFoundException();
+
     public async Task<IActionResult> OnPostAsync(string? appName, string? accentColor)
     {
         var (name, accent, errors) = SettingsValidators.ValidateGeneral(appName, accentColor);
@@ -40,11 +44,11 @@ public sealed class GeneralModel(IRlsDb rls, IRlsContextAccessor identity, Brand
             return Invalid();
         }
         var meta = MetaOf();
-        await RunAsync((admin, _) => Task.Run(async () =>
+        await RunAsync(async (admin, _) =>
         {
             await admin.SaveSettingsAsync(new Dictionary<string, string> { ["app.name"] = name, ["branding.accentColor"] = accent }, meta);
             return 0;
-        }));
+        });
         Branding.Invalidate();
         Flash("Settings saved.");
         return SeeOther("/settings/general");

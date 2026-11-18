@@ -52,7 +52,7 @@ public sealed class DashboardTests(SqlServerFixture fx)
         var tiles = doc.QuerySelectorAll("li.tile").ToList();
         Assert.Equal(["Open pipeline", "Weighted pipeline", "Won this month", "Won this quarter", "Win rate (last 90 d)", "Activities due"], tiles.Select(t => t.QuerySelector(".tile-label")!.TextContent));
         var open = tiles[0];
-        Assert.Contains("DKK 100k", open.QuerySelector(".tile-value")!.TextContent, StringComparison.Ordinal);
+        Assert.Contains("DKK 100K", open.QuerySelector(".tile-value")!.TextContent, StringComparison.Ordinal);
         Assert.Contains("(DKK 100.000,00)", open.QuerySelector(".tile-value")!.TextContent, StringComparison.Ordinal);
         Assert.Contains("1 opportunity in SEK not included: no FX rate", open.QuerySelector(".tile-note")!.TextContent, StringComparison.Ordinal);
         Assert.Contains("Ask an administrator.", open.QuerySelector(".tile-note")!.TextContent, StringComparison.Ordinal);

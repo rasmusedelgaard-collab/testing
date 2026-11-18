@@ -14,6 +14,7 @@ public sealed class FormModel(IRlsDb rls, IRlsContextAccessor identity, TimeProv
         SetEntity(entity);
         var def = Def;
         var query = Request.Query;
+        // RunAsync: exclusive branches (the new-record branch returns before the edit branch runs)
         if (id is null)
         {
             var (lk, env) = await RunAsync(async repo =>

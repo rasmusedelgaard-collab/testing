@@ -147,7 +147,10 @@ public static class AuthSetup
         var log = ctx.HttpContext.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Crm.Web.Auth.Entra");
         log.LogWarning("sign-in failed: {Reason}", ctx.Failure?.GetType().Name ?? "unknown");
         ctx.HandleResponse();
-        var status = ctx.Failure is Exception e && e.Message.Contains("redeem", StringComparison.OrdinalIgnoreCase) ? 502 : 400;
+        // As the Node app: tenant mismatch 403, token redeem failure 502, everything else (state, nonce, idp error) 400.
+        var message = ctx.Failure?.Message ?? "";
+        var status = message.Contains("tenant mismatch", StringComparison.OrdinalIgnoreCase) ? 403
+            : message.Contains("redeem", StringComparison.OrdinalIgnoreCase) ? 502 : 400;
         ctx.Response.StatusCode = StatusCodes.Status303SeeOther;
         ctx.Response.Headers.Location = $"/signin-error?ref={RequestContextMiddleware.CorrelationId(ctx.HttpContext)}&code={status}";
         return Task.CompletedTask;

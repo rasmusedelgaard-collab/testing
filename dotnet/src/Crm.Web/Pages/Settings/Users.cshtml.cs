@@ -2,6 +2,7 @@ using System.Globalization;
 using Crm.Web.Config;
 using Crm.Web.Data;
 using Crm.Web.Domain;
+using Crm.Web.Infrastructure;
 using Crm.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -61,6 +62,7 @@ public sealed class UsersModel(IRlsDb rls, IRlsContextAccessor identity, Brandin
 
     public async Task<IActionResult> OnGetAsync()
     {
+        if (!Request.Path.Value!.TrimEnd('/').EndsWith("/users", StringComparison.OrdinalIgnoreCase)) { throw new NotFoundException(); } // /settings/teams is POST-only
         Apply(await RunAsync(ReadAsync));
         return Page();
     }

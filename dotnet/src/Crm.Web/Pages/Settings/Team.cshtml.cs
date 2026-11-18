@@ -17,8 +17,11 @@ public sealed class TeamModel(IRlsDb rls, IRlsContextAccessor identity, Branding
 
     public string GroupValue { get; private set; } = "";
 
+    private bool IsEditPath => Request.Path.Value!.TrimEnd('/').EndsWith("/edit", StringComparison.OrdinalIgnoreCase);
+
     public async Task<IActionResult> OnGetAsync(int id, string? verb)
     {
+        if (verb is null && !IsEditPath) { throw new NotFoundException(); } // /settings/teams/{id} is POST-only
         Setup("users", "Team");
         var t = await RunAsync(async (admin, _) => await admin.TeamAsync(id)) ?? throw new NotFoundException();
         Team = t;
@@ -39,6 +42,8 @@ public sealed class TeamModel(IRlsDb rls, IRlsContextAccessor identity, Branding
 
     public async Task<IActionResult> OnPostAsync(int id, string? verb, string? name, string? groupId, string? confirm)
     {
+        if (verb is null && IsEditPath) { throw new NotFoundException(); } // POST goes to /settings/teams/{id}
+        // RunAsync: exclusive branches (the deactivate/reactivate branch returns before the save branch runs)
         Setup("users", "Team");
         var meta = MetaOf();
         if (verb is "deactivate" or "reactivate")

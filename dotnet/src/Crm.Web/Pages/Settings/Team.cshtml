@@ -1,4 +1,4 @@
-@page "/settings/teams/{id:int:min(1)}/edit"
+@page "/settings/teams/{id:crmid}/edit"
 @model TeamModel
 <partial name="_SettingsNav" model='"users"' />
 @if (Model.Confirm is not null)

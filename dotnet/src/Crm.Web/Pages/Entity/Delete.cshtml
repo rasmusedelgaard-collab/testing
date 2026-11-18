@@ -1,4 +1,4 @@
-@page "/{entity:crmentity}/{id:int:min(1)}/delete"
+@page "/{entity:crmentity}/{id:crmid}/delete"
 @model DeleteModel
 <h1>Delete @Model.RecordName?</h1>
 <p>Delete <strong>@Model.RecordName</strong>? @Model.Notice This cannot be undone. The deletion is recorded in the audit log.</p>

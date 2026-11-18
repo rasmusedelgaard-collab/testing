@@ -107,10 +107,19 @@ public class PeriodsKpiTests
     [Fact]
     public void Compact_money_and_percent_are_pinned()
     {
-        Assert.Equal("DKK 120k", NumberFormats.CompactMoney(120000m, "DKK", "en-GB"));
-        Assert.Equal("DKK 1,2m", NumberFormats.CompactMoney(1_234_000m, "DKK", "da-DK"));
+        Assert.Equal("DKK 120K", NumberFormats.CompactMoney(120000m, "DKK", "en-GB"));
+        Assert.Equal("DKK 2.4M", NumberFormats.CompactMoney(2_400_000m, "DKK", "en-US"));
+        Assert.Equal("1,2 mio. kr.", NumberFormats.CompactMoney(1_234_000m, "DKK", "da-DK"));
+        Assert.Equal("2,4 mio. kr.", NumberFormats.CompactMoney(2_400_000m, "DKK", "da-DK"));
+        Assert.Equal("120 t kr.", NumberFormats.CompactMoney(120_000m, "DKK", "da-DK"));
+        Assert.Equal("2,5 mia. EUR", NumberFormats.CompactMoney(2_500_000_000m, "EUR", "da-DK"));
         Assert.Equal("DKK 950", NumberFormats.CompactMoney(950m, "DKK", "en-GB"));
-        Assert.Equal("EUR 2.5bn", NumberFormats.CompactMoney(2_500_000_000m, "EUR", "en-US"));
+        Assert.Equal("EUR 2.5B", NumberFormats.CompactMoney(2_500_000_000m, "EUR", "en-US"));
+        // Round before choosing the scale: never "1000K".
+        Assert.Equal("DKK 1M", NumberFormats.CompactMoney(999_960m, "DKK", "en-GB"));
+        Assert.Equal("1 mio. kr.", NumberFormats.CompactMoney(999_960m, "DKK", "da-DK"));
+        Assert.Equal("DKK 1K", NumberFormats.CompactMoney(999.96m, "DKK", "en-GB"));
+        Assert.Equal("DKK 999.9K", NumberFormats.CompactMoney(999_940m, "DKK", "en-GB"));
         Assert.Equal("50%", NumberFormats.Percent(0.5m, "en-GB"));
         Assert.Equal("66,7 %", NumberFormats.Percent(2m / 3m, "da-DK", 1));
         Assert.Equal("Nov 2026", NumberFormats.MonthLabel("2026-11", "en-GB"));
@@ -126,7 +135,7 @@ public class PeriodsKpiTests
         Assert.Equal(Charts.EmptyText, empty.Takeaway);
         var rows = new[] { Row(stage: 1, amt: 1000m), Row(stage: 3, amt: 5000m, n: 2), Row(stage: 3, cur: "SEK", amt: 1m) };
         var p = Charts.PipelineByStage(rows, Stages, Conv, "2026-11", c);
-        Assert.Equal("Prop holds the most value: DKK 5k", p.Takeaway);
+        Assert.Equal("Prop holds the most value: DKK 5K", p.Takeaway);
         Assert.Contains("1 opportunity in SEK not included: no FX rate", p.Notes);
         Assert.Equal(["Stage", "Opportunities", "Amount (DKK)"], p.TableColumns);
         var won = Charts.WonRevenueByMonth([Row("won", month: "2026-10", amt: 100m), Row("won", month: "2026-11", amt: 300m)], new DateRange("2026-10-01", "2026-12-31"), Conv, c);

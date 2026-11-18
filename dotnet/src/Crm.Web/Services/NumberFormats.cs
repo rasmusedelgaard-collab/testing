@@ -5,15 +5,33 @@ namespace Crm.Web.Services;
 /// <summary>Compact money and percent text for tiles and chart takeaways, pinned per locale profile (no host ICU).</summary>
 public static class NumberFormats
 {
-    /// <summary>"DKK 120k", "DKK 1,2m": values below 1,000 keep up to one decimal; the decimal separator follows the locale.</summary>
+    private static readonly string[] EnSuffix = ["", "K", "M", "B"];
+    private static readonly string[] DaSuffix = ["", " t", " mio.", " mia."];
+
+    /// <summary>
+    /// UX spec 3.x: en-GB/en-US "DKK 2.4M" (K, M, B); da-DK "2,4 mio. kr." ("t", "mio.", "mia."), like ICU. 0-1 decimals.
+    /// The value is rounded before the scale is chosen, so 999,960 shows "DKK 1M" and never "1000K".
+    /// </summary>
     public static string CompactMoney(decimal value, string currency, string locale)
     {
         var p = LocaleProfile.For(locale);
         var abs = Math.Abs(value);
-        var (div, suffix) = abs >= 1_000_000_000m ? (1_000_000_000m, "bn") : abs >= 1_000_000m ? (1_000_000m, "m") : abs >= 1_000m ? (1_000m, "k") : (1m, "");
-        var scaled = Math.Round(value / div, 1, MidpointRounding.AwayFromZero);
-        return $"{currency} {scaled.ToString("0.#", p.Number)}{suffix}";
+        var scale = abs >= 1_000_000_000m ? 3 : abs >= 1_000_000m ? 2 : abs >= 1_000m ? 1 : 0;
+        var rounded = Math.Round(abs / Pow1000(scale), 1, MidpointRounding.AwayFromZero);
+        if (rounded >= 1000m && scale < 3)
+        {
+            scale++;
+            rounded = Math.Round(abs / Pow1000(scale), 1, MidpointRounding.AwayFromZero);
+        }
+        var number = (value < 0 ? -rounded : rounded).ToString("0.#", p.Number);
+        if (p.Code == "da-DK")
+        {
+            return $"{number}{DaSuffix[scale]} {(currency == "DKK" ? "kr." : currency)}";
+        }
+        return $"{currency} {number}{EnSuffix[scale]}";
     }
+
+    private static decimal Pow1000(int n) => n switch { 0 => 1m, 1 => 1_000m, 2 => 1_000_000m, _ => 1_000_000_000m };
 
     public static string Percent(decimal fraction, string locale, int digits = 0)
     {

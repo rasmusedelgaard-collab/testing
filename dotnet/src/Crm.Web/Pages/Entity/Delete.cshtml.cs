@@ -46,20 +46,26 @@ public sealed class DeleteModel(IRlsDb rls, IRlsContextAccessor identity, TimePr
         SetEntity(entity);
         var meta = MetaOf();
         var def = Def;
-        bool done;
+        string outcome;
         try
         {
-            done = await RunAsync(async repo =>
+            outcome = await RunAsync(async repo =>
             {
                 var row = await repo.GetAsync(def.Key, id);
-                return row is not null && await repo.RemoveAsync(def.Key, id, meta);
+                if (row is null) { return "missing"; }
+                if (!EntityViews.CanDelete(Ctx, row)) { return "forbidden"; } // e.g. a team-mate's record in team mode (as Node: 403)
+                return await repo.RemoveAsync(def.Key, id, meta) ? "ok" : "missing";
             });
         }
         catch (ConflictException e) when (e is not EditConflictException)
         {
             throw new ConflictException(FkMessage[def.Key], e);
         }
-        if (!done)
+        if (outcome == "forbidden")
+        {
+            throw new ForbiddenException();
+        }
+        if (outcome != "ok")
         {
             throw new NotFoundException();
         }
