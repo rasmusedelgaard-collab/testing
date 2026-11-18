@@ -26,6 +26,8 @@ unit tests use) is also demo mode and additionally enables `GET /__test/login?ro
 | `npm run dev` | Run with reload (tsx), reads `.env` |
 | `npm run build` | Compile to `dist/` and copy views and public assets |
 | `npm start` | Run the compiled app (`node dist/server.js`) |
+| `npm run package` | Build + assemble `package/` (dist, production node_modules, web.config, db scripts) for the MonsterASP deploy branch |
+| `npm run package` | Build + assemble `package/` (dist, production node_modules, web.config, db scripts) for the MonsterASP deploy branch |
 | `npm test` | Unit tests (vitest) |
 | `npm run lint` | ESLint, including the restriction on importing the DB pool |
 | `npm run typecheck` | `tsc --noEmit` (strict) |
@@ -82,6 +84,12 @@ For a host without Entra. Testers enter a shared access code (max 5 wrong attemp
 one of the seeded test users. The session is built from the user's `crm.Users` row exactly as an Entra login would,
 so RLS behaves identically. Every page shows "TEST ENVIRONMENT — test data only". Run `npm run db:seed:test` once.
 Test data only; never use this mode with real data.
+
+## Deploying the interim test site
+
+The TEST site runs on MonsterASP.NET (IIS + iisnode, branch `deploy` built by GitHub Actions). Build the deploy folder locally with
+`npm run package` (output in `package/`, git-ignored). Setup, secrets handling, migrations, rollback and troubleshooting:
+[docs/deploy/monsterasp.md](docs/deploy/monsterasp.md).
 
 ## Data-access rules (enforced by lint and tests)
 
