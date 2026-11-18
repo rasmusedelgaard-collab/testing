@@ -1,9 +1,16 @@
 import { createApp } from './app';
-import { getConfig } from './config';
+import { ConfigError, getConfig, type AppConfig } from './config';
 import { closeDatabase } from './db/system';
 import { logger } from './logger';
 
-const config = getConfig();
+let config: AppConfig;
+try {
+  config = getConfig();
+} catch (err) {
+  console.error(err instanceof ConfigError ? err.message : err);
+  process.exit(1);
+}
+logger.level = config.logLevel;
 if (config.demoMode) logger.warn('DEMO MODE: fake users, in-memory sessions, no database. Never use outside local development.');
 if (!config.demoMode && config.authMode === 'test-access-code') {
   logger.warn('TEST ACCESS CODE MODE: shared-code sign-in instead of Entra. Test data only.');

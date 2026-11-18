@@ -36,6 +36,18 @@ export function createApp(deps: AppDeps): Express {
   app.set('views', path.join(__dirname, 'views'));
 
   app.use(requestContext);
+
+  // View defaults first, so error pages render even when the session store or database is down.
+  const testBanner = !config.demoMode && config.authMode === 'test-access-code';
+  app.use((_req, res, next) => {
+    res.locals.appName = 'CRM';
+    res.locals.testBanner = testBanner;
+    res.locals.demoBanner = config.demoMode;
+    res.locals.currentUser = undefined;
+    res.locals.activeNav = '';
+    res.locals.csrfField = () => '';
+    next();
+  });
   app.use(securityHeaders(config));
   app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1h', index: false }));
 
@@ -51,16 +63,6 @@ export function createApp(deps: AppDeps): Express {
   app.use(sessions.cleanup);
   app.use(express.urlencoded({ extended: false, limit: '100kb' }));
   app.use(csrfProtection);
-
-  const testBanner = !config.demoMode && config.authMode === 'test-access-code';
-  app.use((_req, res, next) => {
-    res.locals.appName = 'CRM';
-    res.locals.testBanner = testBanner;
-    res.locals.demoBanner = config.demoMode;
-    res.locals.currentUser = undefined;
-    res.locals.activeNav = '';
-    next();
-  });
 
   // Authentication, by mode.
   let loginPath = '/auth/login';
