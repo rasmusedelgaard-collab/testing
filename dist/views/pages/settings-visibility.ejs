@@ -1,0 +1,14 @@
+<%- include('../partials/head') %>
+<%- include('../partials/settings-nav') %>
+<h1>Visibility</h1>
+<%- include('../partials/error-summary') %>
+<form method="post" action="/settings/visibility" class="form">
+  <%- csrfField() %>
+  <fieldset><legend>Who can see records</legend>
+    <label class="inline"><input type="radio" name="mode" value="private"<%- mode === 'private' ? ' checked' : '' %>> Private: users see only the records they own.</label><br>
+    <label class="inline"><input type="radio" name="mode" value="team"<%- mode === 'team' ? ' checked' : '' %>> Team: users see and edit all records owned by their team. Only the owner, Managers and Admins can delete.</label>
+  </fieldset>
+  <p class="muted">Managers always see their team's records. Admins see all records.</p>
+  <div class="actions"><button type="submit" class="button primary">Save</button></div>
+</form>
+<%- include('../partials/foot') %>

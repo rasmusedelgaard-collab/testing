@@ -1,0 +1,62 @@
+<%- include('../partials/head') %>
+<div class="page-header">
+  <h1><%= def.plural %> (<%= total %>)</h1>
+  <a class="button primary" href="<%= def.path %>/new">New <%= def.singular %></a>
+</div>
+<form class="filters" method="get" action="<%= def.path %>">
+  <div class="field"><label for="f-q">Search</label><input id="f-q" name="q" type="search" value="<%= q.q %>" maxlength="100"></div>
+  <% filters.forEach((f) => { %>
+  <div class="field"><label for="f-<%= f.name %>"><%= f.label %></label>
+    <select id="f-<%= f.name %>" name="<%= f.name %>">
+      <% f.options.forEach((o) => { %><option value="<%= o.value %>"<%- o.value === f.value ? ' selected' : '' %>><%= o.label %></option><% }) %>
+    </select></div>
+  <% }) %>
+  <input type="hidden" name="sort" value="<%= q.sort %>"><input type="hidden" name="dir" value="<%= q.dir %>">
+  <div class="field"><label for="pageSize">Rows</label>
+    <select id="pageSize" name="pageSize"><% pageSizes.forEach((n) => { %><option value="<%= n %>"<%- n === q.pageSize ? ' selected' : '' %>><%= n %></option><% }) %></select></div>
+  <button type="submit" class="button secondary">Apply</button>
+  <a href="<%= clearHref %>">Clear filters</a>
+</form>
+<p role="status" class="muted"><%= total %> <%= total === 1 ? def.singular : def.plural.toLowerCase() %> found</p>
+<% if (rows.length === 0) { %>
+  <% if (isFiltered) { %>
+  <p>No <%= def.plural.toLowerCase() %> match these filters.</p><p><a class="button secondary" href="<%= clearHref %>">Clear filters</a></p>
+  <% } else { %>
+  <p>No <%= def.plural.toLowerCase() %> yet.</p><p><a class="button primary" href="<%= def.path %>/new">New <%= def.singular %></a></p>
+  <% } %>
+<% } else { %>
+<div class="table-wrap">
+<table class="data">
+  <caption class="visually-hidden"><%= def.plural %></caption>
+  <thead><tr>
+    <% columns.forEach((c) => { %>
+    <th scope="col"<%- c.href ? ` aria-sort="${c.aria}"` : '' %>><% if (c.href) { %><a href="<%= c.href %>"><%= c.label %></a><% } else { %><%= c.label %><% } %></th>
+    <% }) %>
+  </tr></thead>
+  <tbody>
+  <% rows.forEach((r) => { %>
+  <tr>
+    <% r.cells.forEach((c, ci) => { %>
+    <td data-label="<%= columns[ci].label %>"<%- c.right ? ' class="num"' : '' %>>
+      <% if (c.doneForm) { %>
+      <form method="post" action="<%= c.doneForm.action %>" class="inline-form">
+        <%- csrfField() %><input type="hidden" name="returnTo" value="<%= c.doneForm.returnTo %>">
+        <button type="submit" class="button link"><%= c.doneForm.checked ? '☑ Done' : '☐ Mark done' %><span class="visually-hidden">: <%= c.doneForm.context %></span></button>
+      </form>
+      <% } else if (c.href) { %><a href="<%= c.href %>"><%= c.text %></a><% } else { %><%= c.text %><% } %>
+      <% if (c.note) { %><br><span class="badge warn"><%= c.note %></span><% } %>
+    </td>
+    <% }) %>
+  </tr>
+  <% }) %>
+  </tbody>
+</table>
+</div>
+<nav class="pagination" aria-label="Pagination">
+  <span>Showing <%= from %>–<%= to %> of <%= total %></span>
+  <% if (prevHref) { %><a class="button secondary" href="<%= prevHref %>">Previous</a><% } %>
+  <span>Page <%= page %> of <%= pageCount %></span>
+  <% if (nextHref) { %><a class="button secondary" href="<%= nextHref %>">Next</a><% } %>
+</nav>
+<% } %>
+<%- include('../partials/foot') %>

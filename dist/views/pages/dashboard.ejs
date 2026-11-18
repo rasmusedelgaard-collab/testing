@@ -1,0 +1,50 @@
+<%- include('../partials/head') %>
+<div class="page-header">
+  <h1><%= greeting %></h1>
+  <p class="muted">Data as of <%= asOf %></p>
+</div>
+<section aria-label="Key figures">
+<ul class="tiles">
+  <% tiles.forEach((t, ti) => { %>
+  <li class="tile">
+    <a href="<%= t.href %>" class="tile-link" title="<%= t.full ? t.label + ': ' + t.full : t.label %>"<%- t.notes.length ? ` aria-describedby="${t.notes.map((_, ni) => 'tn-' + ti + '-' + ni).join(' ')}"` : '' %>>
+      <span class="tile-label"><%= t.label %></span>
+      <span class="tile-value<%= t.wrap ? ' wrap' : '' %>"><%= t.short %><% if (t.full) { %><span class="visually-hidden"> (<%= t.full %>)</span><% } %></span>
+      <span class="tile-context<%= t.danger ? ' danger' : '' %>"><%= t.context %></span>
+    </a>
+    <% t.notes.forEach((n, ni) => { %><p class="tile-note"><span id="tn-<%= ti %>-<%= ni %>"><span aria-hidden="true">⚠ </span><%= n %></span><% if (t.excluded && n.includes('not included')) { %> <% if (isAdmin) { %><a href="/settings/fx">Add FX rates<span class="visually-hidden"> for <%= t.fxCurrencies %></span></a><% } else { %>Ask an administrator.<% } %><% } %></p><% }) %>
+  </li>
+  <% }) %>
+</ul>
+</section>
+<div class="dash-grid">
+<section aria-labelledby="my-opps-h">
+  <h2 id="my-opps-h">My open opportunities</h2>
+  <% if (opps.length === 0) { %><p class="muted">No open opportunities yet. <a href="/opportunities/new">New opportunity</a></p><% } else { %>
+  <div class="table-wrap"><table class="data">
+    <caption class="visually-hidden">My open opportunities, earliest close date first</caption>
+    <thead><tr><% oppColumns.forEach((c) => { %><th scope="col"><%= c %></th><% }) %></tr></thead>
+    <tbody><% opps.forEach((r) => { %><tr><% r.cells.forEach((c, ci) => { %><td data-label="<%= oppColumns[ci] %>"<%- c.right ? ' class="num"' : '' %>><% if (c.href) { %><a href="<%= c.href %>"><%= c.text %></a><% } else { %><%= c.text %><% } %><% if (c.note) { %><br><span class="badge warn"><%= c.note %></span><% } %></td><% }) %></tr><% }) %></tbody>
+  </table></div>
+  <p><a href="/opportunities?status=open&amp;owner=<%= locals.currentUser ? currentUser.userId : '' %>">View all my opportunities (<%= oppTotal %>)</a></p>
+  <% } %>
+</section>
+<section aria-labelledby="upcoming-h">
+  <h2 id="upcoming-h">Upcoming activities</h2>
+  <% if (upcoming.every((u) => u.rows.length === 0)) { %><p class="muted">Nothing due. You're all caught up.</p><% } %>
+  <% upcoming.forEach((u) => { %>
+  <% if (u.rows.length > 0) { %>
+  <h3><%= u.title %> (<%= u.total %>)</h3>
+  <div class="table-wrap"><table class="data">
+    <caption class="visually-hidden"><%= u.title %> activities</caption>
+    <thead><tr><% actColumns.forEach((c) => { %><th scope="col"><%= c %></th><% }) %></tr></thead>
+    <tbody><% u.rows.forEach((r) => { %><tr><% r.cells.forEach((c, ci) => { %><td data-label="<%= actColumns[ci] %>">
+      <% if (c.doneForm) { %><form method="post" action="<%= c.doneForm.action %>" class="inline-form"><%- csrfField() %><input type="hidden" name="returnTo" value="<%= c.doneForm.returnTo %>"><button type="submit" class="button link"><%= c.doneForm.checked ? '☑ Done' : '☐ Mark done' %><span class="visually-hidden">: <%= c.doneForm.context %></span></button></form>
+      <% } else if (c.href) { %><a href="<%= c.href %>"><%= c.text %></a><% } else { %><%= c.text %><% } %></td><% }) %></tr><% }) %></tbody>
+  </table></div>
+  <p><a href="<%= u.viewAll %>">View all</a></p>
+  <% } %>
+  <% }) %>
+</section>
+</div>
+<%- include('../partials/foot') %>

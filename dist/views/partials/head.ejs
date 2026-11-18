@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><%= title %> – <%= appName %></title>
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="/css/theme.css?v=<%= locals.themeVersion || '' %>">
+  <script src="/js/boot.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to main content</a>
+<% if (locals.testBanner) { %>
+<div class="env-banner" role="note"><strong>TEST ENVIRONMENT — test data only</strong></div>
+<% } else if (locals.demoBanner) { %>
+<div class="env-banner" role="note"><strong>DEMO MODE — no database, fake users</strong></div>
+<% } %>
+<% const user = locals.currentUser; %>
+<header class="topbar">
+  <% if (user) { %>
+  <button type="button" class="menu-button" id="menu-button" aria-expanded="false" aria-controls="main-nav">Menu</button>
+  <% } %>
+  <a class="brand" href="/"><% if (locals.logoUrl) { %><img class="logo" src="<%= logoUrl %>" alt="" height="32"> <% } %><%= appName %></a>
+  <% if (user) { %>
+  <form class="search" action="/search" method="get" role="search">
+    <label class="visually-hidden" for="q">Search all records</label>
+    <input id="q" name="q" type="search" placeholder="Search all records..." autocomplete="off">
+  </form>
+  <details class="menu new-menu">
+    <summary>+ New</summary>
+    <ul>
+      <li><a href="/accounts/new">Account</a></li>
+      <li><a href="/contacts/new">Contact</a></li>
+      <li><a href="/opportunities/new">Opportunity</a></li>
+      <li><a href="/activities/new">Activity</a></li>
+    </ul>
+  </details>
+  <details class="menu user-menu">
+    <% const initials = user.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase(); %>
+    <summary aria-label="<%= initials %> – account menu for <%= user.name %>"><span class="avatar" aria-hidden="true"><%= initials %></span></summary>
+    <div class="menu-panel">
+      <p class="user-name"><%= user.name %></p>
+      <% if (user.email) { %><p class="muted"><%= user.email %></p><% } %>
+      <p><span class="badge">Role: <%= user.role %></span></p>
+      <form method="post" action="/auth/signout">
+        <%- csrfField() %>
+        <button type="submit" class="button secondary">Sign out</button>
+      </form>
+    </div>
+  </details>
+  <% } %>
+</header>
+<div class="shell<%= user ? ' with-nav' : '' %>">
+<% if (user) { %>
+  <nav id="main-nav" class="nav" aria-label="Main">
+    <ul>
+      <% const items = [['dashboard', '/', 'Dashboard'], ['accounts', '/accounts', 'Accounts'], ['contacts', '/contacts', 'Contacts'], ['opportunities', '/opportunities', 'Opportunities'], ['activities', '/activities', 'Activities'], ['analytics', '/analytics', 'Analytics']]; %>
+      <% items.forEach(([key, href, label]) => { %>
+      <li><a href="<%= href %>"<%- activeNav === key ? ' aria-current="page"' : '' %>><%= label %></a></li>
+      <% }) %>
+    </ul>
+    <% if (user.role === 'Admin') { %>
+    <ul class="nav-settings">
+      <li><a href="/settings/general"<%- activeNav === 'settings' ? ' aria-current="page"' : '' %>>Settings</a></li>
+    </ul>
+    <% } %>
+  </nav>
+<% } %>
+  <main id="main" tabindex="-1">
+<% if (locals.flash) { %><p class="flash<%= flash.kind === 'error' ? ' flash-error' : '' %>" role="<%= flash.kind === 'error' ? 'alert' : 'status' %>"><%= flash.message %></p><% } %>

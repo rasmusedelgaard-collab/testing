@@ -1,0 +1,30 @@
+<%- include('../partials/head') %>
+<%- include('../partials/settings-nav') %>
+<h1>Currency &amp; locale</h1>
+<%- include('../partials/error-summary') %>
+<% (locals.warnings || []).forEach((w) => { %><p class="flash-warn" role="status"><span aria-hidden="true">⚠ </span><%= w %></p><% }) %>
+<form method="post" action="/settings/locale" class="form" novalidate>
+  <%- csrfField() %>
+  <div class="field<%= errors.base ? ' has-error' : '' %>"><label for="f-base">Base currency</label>
+    <span class="help">Dashboard and analytics totals are converted to this currency. Changing it makes existing FX rates (which are stored per base currency) unused until you enter new ones.</span>
+    <%- errHtml('base') %>
+    <select id="f-base"<%- invalidAttrs('base') %> name="base"><% currencies.forEach((c) => { %><option<%- c === values.base ? ' selected' : '' %>><%= c %></option><% }) %></select></div>
+  <fieldset><legend>Enabled currencies</legend>
+    <% currencies.forEach((c) => { %><label class="inline"><input type="checkbox" name="enabled" value="<%= c %>"<%- (values.enabled || []).includes(c) ? ' checked' : '' %>> <%= c %></label><% }) %>
+    <span class="help">The base currency is always enabled.</span></fieldset>
+  <div class="field<%= errors.locale ? ' has-error' : '' %>"><label for="f-locale">Locale</label>
+    <%- errHtml('locale') %>
+    <select id="f-locale"<%- invalidAttrs('locale') %> name="locale"><% locales.forEach((l) => { %><option<%- l === values.locale ? ' selected' : '' %>><%= l %></option><% }) %></select></div>
+  <div class="field<%= errors.timezone ? ' has-error' : '' %>"><label for="f-timezone">Timezone</label>
+    <%- errHtml('timezone') %>
+    <select id="f-timezone"<%- invalidAttrs('timezone') %> name="timezone"><% zones.forEach((z) => { %><option<%- z === values.timezone ? ' selected' : '' %>><%= z %></option><% }) %></select></div>
+  <div class="field<%= errors.firstDay ? ' has-error' : '' %>"><label for="f-firstDay">First day of the week</label>
+    <%- errHtml('firstDay') %>
+    <select id="f-firstDay"<%- invalidAttrs('firstDay') %> name="firstDay"><% days.forEach((d, i) => { %><option value="<%= i + 1 %>"<%- String(values.firstDay) === String(i + 1) ? ' selected' : '' %>><%= d %></option><% }) %></select></div>
+  <div class="field<%= errors.fiscalStart ? ' has-error' : '' %>"><label for="f-fiscalStart">Fiscal year starts in</label>
+    <%- errHtml('fiscalStart') %>
+    <select id="f-fiscalStart"<%- invalidAttrs('fiscalStart') %> name="fiscalStart"><% months.forEach((m, i) => { %><option value="<%= i + 1 %>"<%- String(values.fiscalStart) === String(i + 1) ? ' selected' : '' %>><%= m %></option><% }) %></select></div>
+  <% if (preview) { %><p class="muted">Preview (saved settings): <strong><%= preview %></strong></p><% } %>
+  <div class="actions"><button type="submit" class="button primary">Save</button></div>
+</form>
+<%- include('../partials/foot') %>

@@ -1,0 +1,36 @@
+<%- include('../partials/head') %>
+<h1>Analytics</h1>
+<form method="get" action="/analytics" class="filters">
+  <input type="hidden" name="shown" value="<%= period %>">
+  <div class="field"><label for="f-period">Period</label>
+    <select id="f-period" name="period"><% periods.forEach((p) => { %><option value="<%= p.value %>"<%- p.value === period ? ' selected' : '' %>><%= p.label %></option><% }) %></select></div>
+  <div class="field<%= error ? ' has-error' : '' %>"><label for="f-from">From</label><input id="f-from" name="from" type="date" data-custom-for="f-period" value="<%= from %>"<%- error ? ' aria-invalid="true" aria-describedby="e-range"' : '' %>></div>
+  <div class="field<%= error ? ' has-error' : '' %>"><label for="f-to">To</label><input id="f-to" name="to" type="date" data-custom-for="f-period" value="<%= to %>"<%- error ? ' aria-invalid="true" aria-describedby="e-range"' : '' %>></div>
+  <div class="field"><label for="f-owner">Owner</label>
+    <select id="f-owner" name="owner"><option value="">All I can see</option><% teamOptions.forEach((t) => { %><option value="<%= t.value %>"<%- t.value === ownerValue ? ' selected' : '' %>><%= t.label %></option><% }) %><% owners.forEach((o) => { %><option value="<%= o.id %>"<%- o.id === ownerValue ? ' selected' : '' %>><%= o.label %></option><% }) %></select></div>
+  <button type="submit" class="button secondary">Apply</button>
+</form>
+<% if (error) { %><p class="field-error" id="e-range" role="alert"><span aria-hidden="true">⚠ </span><%= error %> Showing this quarter instead.</p><% } %>
+<p class="muted" id="range-text">Close dates from <%= rangeText %>. Changing the dates switches the period to Custom. Amounts are in the base currency at each deal's FX rate (see Settings &gt; FX rates).</p>
+<% if (fxMissing) { %><p class="flash-warn"><span aria-hidden="true">⚠ </span>Some opportunities are left out of the money charts because no FX rate exists. <% if (isAdmin) { %><a href="/settings/fx">Add FX rates</a><% } else { %>Ask an administrator.<% } %></p><% } %>
+<div class="charts">
+<% charts.forEach((ch) => { %>
+<figure class="chart" id="fig-<%= ch.id %>">
+  <figcaption><strong><%= ch.title %></strong><br><span class="muted"><%= ch.takeaway %></span></figcaption>
+  <% ch.notes.forEach((n) => { %><p class="tile-note"><span aria-hidden="true">⚠ </span><%= n %></p><% }) %>
+  <% if (!ch.empty) { %>
+  <div class="chart-box js-only"><canvas role="img" aria-label="<%= ch.ariaLabel %>" data-chart="chart-<%= ch.id %>"></canvas></div>
+  <script type="application/json" id="chart-<%= ch.id %>-data"><%- ch.json %></script>
+  <% } %>
+  <details class="chart-table" open>
+    <summary>Show as table</summary>
+    <table class="data">
+      <caption class="visually-hidden"><%= ch.title %></caption>
+      <thead><tr><% ch.table.columns.forEach((c) => { %><th scope="col"><%= c %></th><% }) %></tr></thead>
+      <tbody><% ch.table.rows.forEach((r) => { %><tr><% r.cells.forEach((c, i) => { %><td data-label="<%= ch.table.columns[i] %>"<%- i > 0 ? ' class="num"' : '' %>><%= c %><% if (i === r.cells.length - 1 && r.flag) { %> <span class="badge warn"><%= r.flag %></span><% } %></td><% }) %></tr><% }) %></tbody>
+    </table>
+  </details>
+</figure>
+<% }) %>
+</div>
+<%- include('../partials/foot') %>

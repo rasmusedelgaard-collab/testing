@@ -1,0 +1,38 @@
+<%- include('../partials/head') %>
+<%- include('../partials/settings-nav') %>
+<h1>Pipeline stages</h1>
+<%- include('../partials/error-summary') %>
+<form method="post" action="/settings/stages" novalidate>
+  <%- csrfField() %>
+  <input type="hidden" name="n" value="<%= rows.length %>">
+  <div class="table-wrap"><table class="data">
+    <caption class="visually-hidden">Pipeline stages in order</caption>
+    <thead><tr><th scope="col">Order</th><th scope="col">Stage name</th><th scope="col">Probability</th><th scope="col">Type</th><th scope="col">Opportunities</th><th scope="col"><span class="visually-hidden">Remove</span></th></tr></thead>
+    <tbody>
+    <% rows.forEach((r, i) => { %>
+    <tr>
+      <td data-label="Order"><input type="hidden" name="id_<%= i %>" value="<%= r.id %>">
+        <button type="submit" id="up-<%= i %>"<%- focus === 'up-' + i ? ' data-autofocus' : '' %> class="button secondary" name="action" value="up:<%= i %>" aria-label="Move <%= r.name || 'stage' %> up"<%- i === 0 ? ' disabled' : '' %>>↑</button>
+        <button type="submit" id="down-<%= i %>"<%- focus === 'down-' + i ? ' data-autofocus' : '' %> class="button secondary" name="action" value="down:<%= i %>" aria-label="Move <%= r.name || 'stage' %> down"<%- i === rows.length - 1 ? ' disabled' : '' %>>↓</button></td>
+      <td data-label="Stage name"><label class="visually-hidden" for="f-name<%= i %>">Stage name <%= i + 1 %></label>
+        <%- errHtml('name' + i) %>
+        <% if (links['name' + i]) { %><a href="<%= links['name' + i] %>">View these opportunities</a><br><% } %>
+        <input id="f-name<%= i %>"<%- focus === 'f-name' + i ? ' data-autofocus' : '' %> name="name_<%= i %>" type="text" maxlength="60" value="<%= r.name %>"<%- invalidAttrs('name' + i) %>></td>
+      <td data-label="Probability"><label class="visually-hidden" for="f-prob<%= i %>">Probability <%= i + 1 %> (percent)</label>
+        <%- errHtml('prob' + i) %>
+        <input id="f-prob<%= i %>" name="prob_<%= i %>" type="text" inputmode="numeric" size="4" value="<%= r.type === 'won' ? 100 : r.type === 'lost' ? 0 : r.prob %>"<%- invalidAttrs('prob' + i) %>> %</td>
+      <td data-label="Type"><fieldset class="plain"><legend class="visually-hidden">Type of stage <%= i + 1 %></legend>
+        <% ['open', 'won', 'lost'].forEach((t) => { %><label class="inline"><input type="radio" name="type_<%= i %>" value="<%= t %>"<%- r.type === t ? ' checked' : '' %>> <%= t.charAt(0).toUpperCase() + t.slice(1) %></label><% }) %></fieldset></td>
+      <td data-label="Opportunities" class="num"><%= r.used %></td>
+      <td data-label="Remove"><button type="submit" class="button link" name="action" value="remove:<%= i %>" aria-label="Remove stage <%= r.name || i + 1 %>">Remove</button></td>
+    </tr>
+    <% }) %>
+    </tbody>
+  </table></div>
+  <p class="muted">Exactly one Won stage (probability 100) and one Lost stage (probability 0). A stage in use cannot be removed until its opportunities are moved to another stage.</p>
+  <div class="actions">
+    <button type="submit" class="button secondary" name="action" value="add">Add stage</button>
+    <button type="submit" class="button primary" name="action" value="save">Save stages</button>
+  </div>
+</form>
+<%- include('../partials/foot') %>

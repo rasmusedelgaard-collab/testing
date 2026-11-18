@@ -1,0 +1,31 @@
+<%- include('../partials/head') %>
+<%- include('../partials/settings-nav') %>
+<h1>General</h1>
+<%- include('../partials/error-summary') %>
+<form method="post" action="/settings/general" class="form" novalidate>
+  <%- csrfField() %>
+  <div class="field<%= errors.appName ? ' has-error' : '' %>">
+    <label for="f-appName">CRM name (required)</label>
+    <% if (errors.appName) { %><span class="field-error" id="e-appName"><span aria-hidden="true">⚠ </span><%= errors.appName %></span><% } %>
+    <input id="f-appName" name="appName" type="text" maxlength="40" required value="<%= values.appName %>"<%- errors.appName ? ' aria-invalid="true" aria-describedby="e-appName"' : '' %>>
+  </div>
+  <div class="field<%= errors.accentColor ? ' has-error' : '' %>">
+    <label for="f-accentColor">Accent colour</label>
+    <span class="help" id="h-accentColor">Used for links and buttons. It must have a contrast of at least 4.5:1 against both white and the light grey page background (#F9FAFB).</span>
+    <% if (errors.accentColor) { %><span class="field-error" id="e-accentColor"><span aria-hidden="true">⚠ </span><%= errors.accentColor %></span><% } %>
+    <input id="f-accentColor" name="accentColor" type="text" maxlength="7" pattern="#[0-9A-Fa-f]{6}" value="<%= values.accentColor %>" aria-describedby="h-accentColor<%= errors.accentColor ? ' e-accentColor' : '' %>"<%- errors.accentColor ? ' aria-invalid="true"' : '' %>>
+  </div>
+  <div class="actions"><button type="submit" class="button primary">Save</button></div>
+</form>
+<h2>Logo</h2>
+<% if (logo) { %><p><img class="logo-preview" src="/branding/logo?v=<%= logo.sha256.slice(0, 12) %>" alt="Current logo" height="48"></p><% } else { %><p class="muted">No logo uploaded.</p><% } %>
+<form method="post" action="/settings/general/logo" enctype="multipart/form-data" class="form">
+  <div class="field">
+    <label for="f-logo">Logo file (PNG, 500 KB or smaller)</label>
+    <%- errHtml('logo') %>
+    <input id="f-logo"<%- invalidAttrs('logo') %> name="logo" type="file" accept="image/png">
+  </div>
+  <input type="hidden" name="_csrf" value="<%= csrfToken() %>">
+  <div class="actions"><button type="submit" class="button secondary">Upload logo</button></div>
+</form>
+<%- include('../partials/foot') %>
