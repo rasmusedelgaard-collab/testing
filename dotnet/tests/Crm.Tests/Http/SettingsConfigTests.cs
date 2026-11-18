@@ -323,7 +323,7 @@ public sealed class SettingsConfigTests(SqlServerFixture fx)
         var forgedRes = await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(forged, "save"));
         await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, forgedRes);
         Assert.Contains("The stage list is out of date. Reload the page and try again.", await TextAsync(forgedRes), StringComparison.Ordinal);
-        var dupIds = rows.Append(rows[0]).ToList();
+        var dupIds = rows.Append(rows[0] with { Name = "Other name" }).ToList();
         Assert.Contains("The stage list is out of date.", await TextAsync(await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(dupIds, "save"))), StringComparison.Ordinal);
         Assert.Equal(rows, ReadStages(await HttpHelpers.ParseAsync(await c.GetAsync("/settings/stages"))));
         // removing the in-use stage through a forged Save is refused by the repository as well
