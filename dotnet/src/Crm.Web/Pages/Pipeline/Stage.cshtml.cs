@@ -37,19 +37,10 @@ public sealed class StageModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
             Flash("Choose a stage from the list.", "error");
             return SeeOther(back);
         }
-        var res = await RunAsync(async repo =>
+        StageResult res;
+        try
         {
-            try
-            {
-                return await MoveAsync(repo);
-            }
-            catch (ForbiddenException)
-            {
-                // The database refused the resulting row (33504, row-level security): say so on the board instead of showing a 403 page.
-                return new StageResult("forbidden");
-            }
-
-            async Task<StageResult> MoveAsync(CrmRepo repo)
+            res = await RunAsync(async repo =>
             {
                 var row = await repo.GetAsync(def.Key, id);
                 if (row is null) { return new StageResult("notfound"); }
@@ -70,8 +61,13 @@ public sealed class StageModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
                 values["OwnerId"] = row.Int("OwnerId");
                 var r = await repo.UpdateAsync(def.Key, id, values, rowVer, meta);
                 return new StageResult(r == UpdateResult.Ok ? "ok" : r == UpdateResult.Conflict ? "conflict" : "notfound", name, target.Name);
-            }
-        });
+            });
+        }
+        catch (ForbiddenException)
+        {
+            // The database refused the resulting row (33504, row-level security; the transaction was rolled back): say so on the board instead of a 403 page.
+            res = new StageResult("forbidden");
+        }
         switch (res.Kind)
         {
             case "notfound": throw new NotFoundException();

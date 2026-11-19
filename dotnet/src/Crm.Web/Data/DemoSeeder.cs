@@ -101,64 +101,48 @@ public sealed class DemoSeeder(TimeProvider time, TextWriter output)
         return await conn.QuerySingleAsync<int>(new CommandDefinition("SELECT UserId FROM crm.Users WHERE EntraOid = @oid", new { oid }, tx, cancellationToken: ct)).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Fills #demo with the (entity type, id) pairs the given run inserted, read from its 'C' audit rows, and returns how many of them still exist.
-    /// </summary>
-    private static async Task<int> LoadTrackedAsync(SqlConnection conn, SqlTransaction tx, Guid runId, CancellationToken ct)
-    {
-        await conn.ExecuteAsync(new CommandDefinition(
-            """
-            DROP TABLE IF EXISTS #demo;
-            CREATE TABLE #demo (EntityType varchar(20) NOT NULL, EntityId int NOT NULL, PRIMARY KEY (EntityType, EntityId));
-            INSERT #demo (EntityType, EntityId)
-              SELECT DISTINCT EntityType, EntityId FROM crm.AuditLog
-              WHERE Action = 'C' AND CorrelationId = @runId AND EntityType IN ('account', 'contact', 'opportunity', 'activity', 'fxrate');
-            """, new { runId }, tx, cancellationToken: ct)).ConfigureAwait(false);
-        return await CountTrackedAsync(conn, tx, ct).ConfigureAwait(false);
-    }
+    private static string Tracked(string entityType) =>
+        // entityType is always a literal at the call sites below, never external input (no interpolation: SQL is concatenated from fixed fragments).
+        "(SELECT EntityId FROM crm.AuditLog WHERE Action = 'C' AND CorrelationId = @runId AND EntityType = '" + entityType + "')";
 
-    private static async Task<int> CountTrackedAsync(SqlConnection conn, SqlTransaction tx, CancellationToken ct) =>
+    /// <summary>How many of the records the given run inserted (its 'C' audit rows) still exist.</summary>
+    private static async Task<int> LoadTrackedAsync(SqlConnection conn, SqlTransaction tx, Guid runId, CancellationToken ct) =>
+        await CountTrackedAsync(conn, tx, runId, ct).ConfigureAwait(false);
+
+    private static async Task<int> CountTrackedAsync(SqlConnection conn, SqlTransaction tx, Guid runId, CancellationToken ct) =>
         await conn.ExecuteScalarAsync<int>(new CommandDefinition(
-            """
-            SELECT (SELECT COUNT(*) FROM crm.Accounts      x JOIN #demo d ON d.EntityType = 'account'     AND d.EntityId = x.AccountId)
-                 + (SELECT COUNT(*) FROM crm.Contacts      x JOIN #demo d ON d.EntityType = 'contact'     AND d.EntityId = x.ContactId)
-                 + (SELECT COUNT(*) FROM crm.Opportunities x JOIN #demo d ON d.EntityType = 'opportunity' AND d.EntityId = x.OpportunityId)
-                 + (SELECT COUNT(*) FROM crm.Activities    x JOIN #demo d ON d.EntityType = 'activity'    AND d.EntityId = x.ActivityId)
-            """, transaction: tx, cancellationToken: ct)).ConfigureAwait(false);
+            "SELECT (SELECT COUNT(*) FROM crm.Accounts WHERE AccountId IN " + Tracked("account") + ")"
+            + " + (SELECT COUNT(*) FROM crm.Contacts WHERE ContactId IN " + Tracked("contact") + ")"
+            + " + (SELECT COUNT(*) FROM crm.Opportunities WHERE OpportunityId IN " + Tracked("opportunity") + ")"
+            + " + (SELECT COUNT(*) FROM crm.Activities WHERE ActivityId IN " + Tracked("activity") + ")", new { runId }, tx, cancellationToken: ct)).ConfigureAwait(false);
 
     /// <summary>
-    /// Removes exactly the records the previous run inserted (see #demo), nothing else. A parent that something not inserted by the seeder still
+    /// Removes exactly the records the previous run inserted (its audit rows), nothing else. A parent that something not inserted by the seeder still
     /// references (for example a note a person added to a demo account) is kept. Audit rows are append-only by design and stay.
     /// Demo users and teams stay too (audit rows reference them).
     /// </summary>
-    private static async Task ResetAsync(SqlConnection conn, SqlTransaction tx, Guid? runId, TextWriter output, CancellationToken ct)
+    private static async Task ResetAsync(SqlConnection conn, SqlTransaction tx, Guid? previousRun, TextWriter output, CancellationToken ct)
     {
-        if (runId is null)
+        if (previousRun is not { } runId)
         {
             return;
         }
-        async Task<int> Del(string sql) => await conn.ExecuteAsync(new CommandDefinition(sql, transaction: tx, cancellationToken: ct)).ConfigureAwait(false);
-        var act = await Del("DELETE x FROM crm.Activities x JOIN #demo d ON d.EntityType = 'activity' AND d.EntityId = x.ActivityId").ConfigureAwait(false);
-        var opp = await Del("""
-            DELETE o FROM crm.Opportunities o JOIN #demo d ON d.EntityType = 'opportunity' AND d.EntityId = o.OpportunityId
-              WHERE NOT EXISTS (SELECT 1 FROM crm.Activities a WHERE a.OpportunityId = o.OpportunityId)
-            """).ConfigureAwait(false);
-        var con = await Del("""
-            DELETE c FROM crm.Contacts c JOIN #demo d ON d.EntityType = 'contact' AND d.EntityId = c.ContactId
-              WHERE NOT EXISTS (SELECT 1 FROM crm.Opportunities o WHERE o.PrimaryContactId = c.ContactId)
-                AND NOT EXISTS (SELECT 1 FROM crm.Activities a WHERE a.ContactId = c.ContactId)
-            """).ConfigureAwait(false);
-        var acc = await Del("""
-            DELETE a FROM crm.Accounts a JOIN #demo d ON d.EntityType = 'account' AND d.EntityId = a.AccountId
-              WHERE NOT EXISTS (SELECT 1 FROM crm.Contacts c WHERE c.AccountId = a.AccountId)
-                AND NOT EXISTS (SELECT 1 FROM crm.Opportunities o WHERE o.AccountId = a.AccountId)
-                AND NOT EXISTS (SELECT 1 FROM crm.Activities x WHERE x.AccountId = a.AccountId)
-            """).ConfigureAwait(false);
+        async Task<int> Del(string sql) => await conn.ExecuteAsync(new CommandDefinition(sql, new { runId }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        var act = await Del("DELETE FROM crm.Activities WHERE ActivityId IN " + Tracked("activity")).ConfigureAwait(false);
+        var opp = await Del("DELETE o FROM crm.Opportunities o WHERE o.OpportunityId IN " + Tracked("opportunity")
+            + " AND NOT EXISTS (SELECT 1 FROM crm.Activities a WHERE a.OpportunityId = o.OpportunityId)").ConfigureAwait(false);
+        var con = await Del("DELETE c FROM crm.Contacts c WHERE c.ContactId IN " + Tracked("contact")
+            + " AND NOT EXISTS (SELECT 1 FROM crm.Opportunities o WHERE o.PrimaryContactId = c.ContactId)"
+            + " AND NOT EXISTS (SELECT 1 FROM crm.Activities a WHERE a.ContactId = c.ContactId)").ConfigureAwait(false);
+        var acc = await Del("DELETE a FROM crm.Accounts a WHERE a.AccountId IN " + Tracked("account")
+            + " AND NOT EXISTS (SELECT 1 FROM crm.Contacts c WHERE c.AccountId = a.AccountId)"
+            + " AND NOT EXISTS (SELECT 1 FROM crm.Opportunities o WHERE o.AccountId = a.AccountId)"
+            + " AND NOT EXISTS (SELECT 1 FROM crm.Activities x WHERE x.AccountId = a.AccountId)").ConfigureAwait(false);
         // FX: only the (currency, month) rates this run inserted; a rate somebody else entered for the same month was never touched by the seeder.
-        var fx = await Del("DELETE f FROM crm.FxRates f JOIN #demo d ON d.EntityType = 'fxrate' AND d.EntityId = f.FxRateId").ConfigureAwait(false);
+        var fx = await Del("DELETE FROM crm.FxRates WHERE FxRateId IN " + Tracked("fxrate")).ConfigureAwait(false);
         await conn.ExecuteAsync(new CommandDefinition("DELETE FROM crm.Settings WHERE SettingKey IN (@m, @r)", new { m = DemoMarker.MarkerKey, r = DemoMarker.RunIdKey }, tx, cancellationToken: ct)).ConfigureAwait(false);
         output.WriteLine($"Reset (run {runId}): removed {acc} accounts, {con} contacts, {opp} opportunities, {act} activities and {fx} FX rates that the seeder inserted.");
-        var left = await CountTrackedAsync(conn, tx, ct).ConfigureAwait(false);
+        var left = await CountTrackedAsync(conn, tx, runId, ct).ConfigureAwait(false);
         if (left > 0)
         {
             output.WriteLine($"Note: {left} demo records were kept because rows created by real users still reference them.");

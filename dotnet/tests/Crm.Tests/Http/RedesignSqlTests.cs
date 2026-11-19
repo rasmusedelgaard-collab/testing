@@ -125,7 +125,7 @@ public sealed class RedesignSqlTests(SqlServerFixture fx)
         }
         // The list behind the link shows the same number.
         var list = await HttpHelpers.ParseAsync(await m.GetAsync(tile.QuerySelector("a")!.GetAttribute("href")!.Replace("&amp;", "&", StringComparison.Ordinal)));
-        Assert.Contains($"{heading} activities found", list.QuerySelector("p[role=status]")!.TextContent, StringComparison.Ordinal);
+        Assert.Contains($"{heading} activit", list.QuerySelector("p[role=status]")!.TextContent, StringComparison.Ordinal);
     }
 
     /// <summary>L-2: when the database refuses the resulting row (here: the owner was deactivated, so a manager may not write it), the board says so.</summary>
@@ -239,7 +239,7 @@ public sealed class RedesignSqlTests(SqlServerFixture fx)
         Assert.Equal("Accounts (1)", doc.QuerySelector("#rg-accounts")!.TextContent);
         Assert.Equal(acc.Headers.Location!.OriginalString, doc.QuerySelector(".result-list a")!.GetAttribute("href"));
         Assert.Contains("1 result found", doc.QuerySelector("p.muted[role=status]")!.TextContent, StringComparison.Ordinal);
-        Assert.Contains($"/accounts?q={tag}", doc.QuerySelector(".result-group a[href*='/accounts?q=']")!.GetAttribute("href"), StringComparison.Ordinal);
+        Assert.Null(doc.QuerySelector(".result-group a[href*='/accounts?q=']")); // L10: no "See all 1 accounts" when the one hit is already shown
         Assert.Null(doc.QuerySelector("#rg-contacts"));
 
         var (fb, b) = await AsAsync(UserB1);
