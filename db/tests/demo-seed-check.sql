@@ -78,9 +78,10 @@ GO
 SELECT 'D9' AS [Case], CASE WHEN lost > 0 AND lost = withReason THEN 'PASS' ELSE 'FAIL' END AS Result,
   'Every lost deal has a reason from the lost_reason picklist' AS Description,
   CONCAT('lost=', lost, ' withReason=', withReason) AS Detail
-FROM (SELECT COUNT(*) AS lost,
-        SUM(CASE WHEN o.LostReasonValueId IN (SELECT v.ValueId FROM crm.PicklistValues v JOIN crm.Picklists p ON p.PicklistId = v.PicklistId WHERE p.Code = 'lost_reason') THEN 1 ELSE 0 END) AS withReason
-      FROM crm.Opportunities o JOIN crm.PipelineStages s ON s.StageId = o.StageId WHERE s.StageType = 'lost') t;
+FROM (SELECT COUNT(*) AS lost, COUNT(v.ValueId) AS withReason
+      FROM crm.Opportunities o
+      JOIN crm.PipelineStages s ON s.StageId = o.StageId AND s.StageType = 'lost'
+      LEFT JOIN (SELECT pv.ValueId FROM crm.PicklistValues pv JOIN crm.Picklists p ON p.PicklistId = pv.PicklistId WHERE p.Code = 'lost_reason') v ON v.ValueId = o.LostReasonValueId) t;
 GO
 EXEC sp_set_session_context @key = N'UserId', @value = NULL, @read_only = 0;
 EXEC sp_set_session_context @key = N'Role',   @value = NULL, @read_only = 0;
