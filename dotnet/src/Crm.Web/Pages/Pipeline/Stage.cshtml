@@ -1,0 +1,6 @@
+@page "/opportunities/{id:crmid}/stage"
+@model Crm.Web.Pages.Pipeline.StageModel
+@if (Model.Confirm is not null)
+{
+<partial name="_Confirm" model="Model.Confirm" />
+}

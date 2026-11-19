@@ -1,7 +1,39 @@
 @page "/search"
-@{
-    ViewData["Title"] = "Search";
+@model SearchModel
+<div class="page-header"><div class="titles"><h1>Search</h1></div></div>
+<partial name="_Flash" />
+<form method="get" action="/search" class="search-page" role="search">
+  <div class="field"><label for="search-q">Search all records</label><input id="search-q" name="q" type="search" value="@Model.Text" maxlength="100" autocomplete="off"></div>
+  <button type="submit" class="button primary">@Ui.Icon("search") Search</button>
+</form>
+@if (Model.Text.Length == 0)
+{
+<p class="muted">Search names, accounts, emails and subjects.</p>
 }
-<h1>Search</h1>
-<p class="muted">This section is built in a later increment.</p>
-<p><a class="button secondary" href="/">Go to dashboard</a></p>
+else
+{
+<h2>Results for “@Model.Text”</h2>
+<p role="status" class="muted">@Model.TotalResults @(Model.TotalResults == 1 ? "result" : "results") found</p>
+@if (Model.Groups.Count == 0)
+{
+<div class="empty">@Ui.Ring("search", "r56")<h2>No records match “@Model.Text”.</h2><p>Check the spelling or try a shorter word.</p></div>
+}
+@foreach (var g in Model.Groups)
+{
+<section class="result-group" aria-labelledby="rg-@g.Key">
+  <div class="panel-head"><h2 id="rg-@g.Key">@g.Plural (@g.Total)</h2><p><a href="@g.SeeAllHref">See all @g.Total @g.Plural.ToLowerInvariant()</a></p></div>
+  <ul class="result-list">
+  @foreach (var h in g.Hits)
+  {
+    <li>
+      @if (h.Icon.Length > 0){@Ui.Ring(h.Icon, "r24")}
+      <a href="@h.Href"><strong>@h.Name</strong></a>
+      @if (h.StageName.Length > 0){@Ui.StageChip(h.StageName, h.StageType, h.StageIndex, h.StageCount)}
+      @if (h.Detail.Length > 0){<span class="muted">@h.Detail</span>}
+      @if (h.Owner.Length > 0){@Ui.Owner(h.Owner)}
+    </li>
+  }
+  </ul>
+</section>
+}
+}
