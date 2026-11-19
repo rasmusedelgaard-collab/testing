@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+<!-- DAFA CRM line icons: 24 unit grid, 1.5 stroke, round caps and joins, no fills. Colour comes from the page (currentColor). -->
+<symbol id="i-dashboard" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7"/><rect x="13.5" y="3.5" width="7" height="7"/><rect x="3.5" y="13.5" width="7" height="7"/><rect x="13.5" y="13.5" width="7" height="7"/></symbol>
+<symbol id="i-pipeline" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="5" height="15"/><rect x="9.5" y="4.5" width="5" height="9"/><rect x="15.5" y="4.5" width="5" height="12"/></symbol>
+<symbol id="i-accounts" viewBox="0 0 24 24"><path d="M5 21V4h10v17M15 9h4v12M3 21h18M8.5 8h3M8.5 12h3M8.5 16h3"/></symbol>
+<symbol id="i-opportunities" viewBox="0 0 24 24"><rect x="3.5" y="7.5" width="17" height="12"/><path d="M9 7.5v-2h6v2M3.5 13h17"/></symbol>
+<symbol id="i-contacts" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20.5c0-3.8 3.4-6 7.5-6s7.5 2.2 7.5 6"/></symbol>
+<symbol id="i-activities" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="15"/><path d="M3.5 10h17M8 3.5v4M16 3.5v4M9 15l2 2 4-4"/></symbol>
+<symbol id="i-analytics" viewBox="0 0 24 24"><path d="M4 20h16M7 20v-7M12 20V5M17 20v-10"/></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h9M19 7h1M4 17h1M11 17h9"/><circle cx="16" cy="7" r="2.5"/><circle cx="8" cy="17" r="2.5"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.4-4.4"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20l1-4.5L16 4.5l3.5 3.5L8.5 19zM13.5 7l3.5 3.5"/></symbol>
+<symbol id="i-delete" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13M10 11v6M14 11v6"/></symbol>
+<symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="18" cy="12" r="1"/></symbol>
+<symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
+<symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+<symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="i-call" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></symbol>
+<symbol id="i-meeting" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.2 2.7-5 6-5s6 1.8 6 5"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14.5c2.6 0 4.5 1.5 4.5 4.5"/></symbol>
+<symbol id="i-task" viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/><path d="M8.5 12l2.5 2.5 4.5-5"/></symbol>
+<symbol id="i-note" viewBox="0 0 24 24"><path d="M6 3.5h9l4 4v13H6zM14.5 3.5v5h5M9 13h7M9 17h7"/></symbol>
+<symbol id="i-change" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4.5h4.5M12 8v4.5l3 1.5"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></symbol>
+<symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 4L2.5 20h19zM12 10v5M12 17.5v.5"/></symbol>
+<symbol id="i-error" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></symbol>
+<symbol id="i-success" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></symbol>
+<symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="15"/><path d="M3.5 10h17M8 3.5v4M16 3.5v4"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="i-trend-up" viewBox="0 0 24 24"><path d="M4 17l6-6 4 4 6-7M15 8h5v5"/></symbol>
+<symbol id="i-trend-down" viewBox="0 0 24 24"><path d="M4 7l6 6 4-4 6 7M15 16h5v-5"/></symbol>
+<symbol id="i-trend-flat" viewBox="0 0 24 24"><path d="M4 12h16M16 8l4 4-4 4"/></symbol>
+<symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 8v6l-4-2v-4z"/></symbol>
+<symbol id="i-sort" viewBox="0 0 24 24"><path d="M8 5v14M5 8l3-3 3 3M16 19V5M13 16l3 3 3-3"/></symbol>
+<symbol id="i-sort-asc" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+<symbol id="i-sort-desc" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+<symbol id="i-drag" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></symbol>
+<symbol id="i-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z"/></symbol>
+<symbol id="i-signout" viewBox="0 0 24 24"><path d="M10 4.5H5v15h5M15 8l4 4-4 4M19 12H9"/></symbol>
+<symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4.5h5.5V10M19.5 4.5L11 13M17.5 14v5.5h-13v-13H10"/></symbol>
+<symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
+<symbol id="i-mail" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13"/><path d="M3.5 7l8.5 6 8.5-6"/></symbol>
+</svg>

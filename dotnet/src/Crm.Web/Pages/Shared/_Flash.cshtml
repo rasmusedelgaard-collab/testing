@@ -1,0 +1,9 @@
+@{
+    var flash = TempData["Flash"] as string;
+    var kind = TempData["FlashKind"] as string;
+    Context.Items["FlashRendered"] = true;
+}
+@if (!string.IsNullOrEmpty(flash))
+{
+<p class="flash@(kind == "error" ? " flash-error" : "")" role="@(kind == "error" ? "alert" : "status")" tabindex="-1">@Ui.Ring(kind == "error" ? "error" : "success")@flash</p>
+}

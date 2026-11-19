@@ -12,7 +12,10 @@ public sealed class GeneralModel(IRlsDb rls, IRlsContextAccessor identity, Brand
 {
     public string AppName { get; private set; } = "CRM";
 
-    public string AccentColor { get; private set; } = "#1D4ED8";
+    public string AccentColor { get; private set; } = Color.DefaultAccent;
+
+    /// <summary>Set when the saved accent no longer passes the contrast rule (it is ignored by theme.css until fixed).</summary>
+    public string? AccentProblem { get; private set; }
 
     public string? LogoSha { get; private set; }
 
@@ -21,13 +24,23 @@ public sealed class GeneralModel(IRlsDb rls, IRlsContextAccessor identity, Brand
         var (map, sha) = await RunAsync(async (admin, _) => (await admin.SettingsMapAsync(), await admin.LogoShaAsync()));
         LogoSha = sha;
         AppName = keepValues ? appName ?? "" : map.GetValueOrDefault("app.name") ?? "CRM";
-        AccentColor = keepValues ? accent ?? "" : map.GetValueOrDefault("branding.accentColor") ?? "#1D4ED8";
+        var stored = map.GetValueOrDefault("branding.accentColor");
+        if (!keepValues && stored is not null && Color.EffectiveAccent(stored) is null && !stored.Equals(Color.LegacyAccent, StringComparison.OrdinalIgnoreCase) && !stored.Equals(Color.DefaultAccent, StringComparison.OrdinalIgnoreCase))
+        {
+            AccentProblem = SettingsValidators.ValidateGeneral("x", stored).Errors.GetValueOrDefault("accentColor");
+        }
+        // The old default is "not set": show the DAFA blue that is actually in use (B-12).
+        AccentColor = keepValues ? accent ?? "" : stored is null || stored.Equals(Color.LegacyAccent, StringComparison.OrdinalIgnoreCase) ? Color.DefaultAccent : stored;
         Setup("general", "General settings");
     }
 
     public async Task<IActionResult> OnGetAsync()
     {
         await LoadAsync(false);
+        if (AccentProblem is not null)
+        {
+            Errors = new Dictionary<string, string> { ["accentColor"] = AccentProblem };
+        }
         return Page();
     }
 

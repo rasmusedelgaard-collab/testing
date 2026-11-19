@@ -7,14 +7,30 @@ namespace Crm.Web.Infrastructure;
 
 public static class BrandingEndpoints
 {
+    /// <summary>
+    /// The Admin accent applies to the Light theme only (Dark keeps white, because no accent that passes in Light can pass on the dark gray).
+    /// An unset (legacy default) or too-light accent emits no override, so the DAFA blue from app.css shows.
+    /// </summary>
+    public static string ThemeCss(string storedAccent)
+    {
+        var accent = Color.EffectiveAccent(storedAccent);
+        var preview = accent ?? Color.DefaultAccent;
+        var css = $":root {{ --accent-preview: {preview}; }}\n";
+        if (accent is null)
+        {
+            return css;
+        }
+        var vars = $"--action: {accent}; --action-hover: {Color.Darken(accent)};";
+        return css + $"@media (prefers-color-scheme: light) {{ :root:not([data-theme=\"dark\"]) {{ {vars} }} }}\n:root[data-theme=\"light\"] {{ {vars} }}\n";
+    }
+
     public static void Map(IEndpointRouteBuilder app)
     {
         // Accent colour as a stylesheet, because the CSP forbids inline styles. Validated on write and re-checked here.
         app.MapGet("/css/theme.css", async (HttpContext ctx, BrandingCache branding) =>
         {
             var b = await branding.GetAsync(ctx.RequestAborted);
-            var color = Color.IsHexColor(b.AccentColor) ? b.AccentColor : "#1D4ED8";
-            var css = $":root {{ --color-primary: {color}; --color-primary-hover: {Color.Darken(color)}; }}\n";
+            var css = ThemeCss(b.AccentColor);
             var etag = "\"" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(css)))[..16] + "\"";
             ctx.Response.Headers.CacheControl = "no-cache";
             ctx.Response.Headers.ETag = etag;

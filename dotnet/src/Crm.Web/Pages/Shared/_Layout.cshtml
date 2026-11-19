@@ -3,22 +3,25 @@
 @using Crm.Web.Data
 @inject CrmConfig Config
 @inject BrandingCache Branding
+@inject TimeProvider Clock
 @{
     var branding = await Branding.GetAsync(Context.RequestAborted);
     var themeVersion = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(branding.AccentColor)))[..8];
     var user = CrmPrincipal.ToSessionUser(User);
+    var bare = user is null || ViewData["Bare"] is true;
     var activeNav = ViewData["ActiveNav"] as string ?? "";
-    var settingsNav = ViewData["SettingsNav"] as string ?? "";
     var scripts = ViewData["Scripts"] as string[] ?? [];
     var title = ViewData["Title"] as string ?? "";
-    var flash = TempData["Flash"] as string;
-    var flashKind = TempData["FlashKind"] as string;
+    var theme = Context.Request.Cookies["theme"] is "light" or "dark" ? Context.Request.Cookies["theme"] : null;
+    var themeChoice = theme ?? "system";
+    var returnTo = Context.Request.Path.Value + Context.Request.QueryString.Value;
 }
 <!DOCTYPE html>
-<html lang="en" class="no-js">
+<html lang="en" class="no-js" data-theme="@theme">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>@title – @branding.AppName</title>
   <link rel="stylesheet" href="/css/app.css">
   <link rel="stylesheet" href="/css/theme.css?v=@themeVersion">
@@ -30,68 +33,110 @@
 {
 <div class="env-banner" role="note"><strong>TEST ENVIRONMENT — test data only</strong></div>
 }
-<header class="topbar">
-  @if (user is not null)
-  {
-  <button type="button" class="menu-button" id="menu-button" aria-expanded="false" aria-controls="main-nav">Menu</button>
-  }
-  <a class="brand" href="/">@if (branding.LogoSha is not null){<img class="logo" src="/branding/logo?v=@branding.LogoSha[..12]" alt="" height="32"> }@branding.AppName</a>
-  @if (user is not null)
-  {
-  var initials = string.Concat(user.Name.Split(' ').Select(p => p.Length == 0 ? "" : char.ConvertFromUtf32(char.ConvertToUtf32(p, 0))).Take(2)).ToUpperInvariant();
-  <form class="search" action="/search" method="get" role="search">
-    <label class="visually-hidden" for="q">Search all records</label>
-    <input id="q" name="q" type="search" placeholder="Search all records..." autocomplete="off">
-  </form>
-  <details class="menu new-menu">
-    <summary>+ New</summary>
-    <ul>
-      <li><a href="/accounts/new">Account</a></li>
-      <li><a href="/contacts/new">Contact</a></li>
-      <li><a href="/opportunities/new">Opportunity</a></li>
-      <li><a href="/activities/new">Activity</a></li>
-    </ul>
-  </details>
-  <details class="menu user-menu">
-    <summary aria-label="@initials – account menu for @user.Name"><span class="avatar" aria-hidden="true">@initials</span></summary>
-    <div class="menu-panel">
-      <p class="user-name">@user.Name</p>
-      @if (!string.IsNullOrEmpty(user.Email)){<p class="muted">@user.Email</p>}
-      <p><span class="badge">Role: @user.Role</span></p>
-      <form method="post" asp-page="/Auth/Signout">
-        <button type="submit" class="button secondary">Sign out</button>
-      </form>
-    </div>
-  </details>
-  }
-</header>
-<div class="shell@(user is not null ? " with-nav" : "")">
-@if (user is not null)
+@if (bare)
 {
-  var items = new[] { ("dashboard", "/", "Dashboard"), ("accounts", "/accounts", "Accounts"), ("contacts", "/contacts", "Contacts"), ("opportunities", "/opportunities", "Opportunities"), ("activities", "/activities", "Activities"), ("analytics", "/analytics", "Analytics") };
-  <nav id="main-nav" class="nav" aria-label="Main">
-    <ul>
-      @foreach (var (key, href, label) in items)
-      {
-      <li><a href="@href" aria-current="@(activeNav == key ? "page" : null)">@label</a></li>
-      }
-    </ul>
-    @if (user.Role == CrmRole.Admin)
-    {
-    <ul class="nav-settings">
-      <li><a href="/settings/general" aria-current="@(activeNav == "settings" ? "page" : null)">Settings</a></li>
-    </ul>
-    }
-  </nav>
-}
-  <main id="main" tabindex="-1">
-@if (!string.IsNullOrEmpty(flash))
-{
-<p class="flash@(flashKind == "error" ? " flash-error" : "")" role="@(flashKind == "error" ? "alert" : "status")">@flash</p>
-}
+<div class="app bare">
+  <main id="main" tabindex="-1" class="bare">
+@if (!Context.Items.ContainsKey("FlashRendered")){<partial name="_Flash" />}
 @RenderBody()
   </main>
 </div>
+}
+else
+{
+  var initials = Ui.Initials(user!.Name);
+  var items = new[] { ("dashboard", "/", "Dashboard"), ("pipeline", "/pipeline", "Pipeline"), ("accounts", "/accounts", "Accounts"), ("opportunities", "/opportunities", "Opportunities"), ("contacts", "/contacts", "Contacts"), ("activities", "/activities", "Activities"), ("analytics", "/analytics", "Analytics") };
+<div class="app">
+  <nav id="main-nav" class="sidebar" aria-label="Main">
+    <div class="sidebar-head">
+      <a class="brand" href="/" aria-label="@branding.AppName, go to dashboard">
+@if (branding.LogoSha is not null)
+{
+        <img class="logo" src="/branding/logo?v=@branding.LogoSha[..12]" alt="">
+}
+else
+{
+        <img class="logo-full logo-light" src="/img/brand/dafa-logo-primary-blue.svg" alt="" width="112" height="39">
+        <img class="logo-full logo-dark" src="/img/brand/dafa-logo-negative.svg" alt="" width="112" height="39">
+        <img class="logo-mark logo-light" src="/img/brand/dafa-rings-gray.svg" alt="" width="32" height="32">
+        <img class="logo-mark logo-dark" src="/img/brand/dafa-rings-white.svg" alt="" width="32" height="32">
+}
+        <span class="brand-name">@branding.AppName</span>
+      </a>
+      <button type="button" class="button secondary small close-menu" id="close-menu">@Ui.Icon("close") Close menu</button>
+    </div>
+    <div class="sidebar-nav">
+      <ul>
+@foreach (var (key, href, label) in items)
+{
+        <li><a class="nav-item" href="@href" aria-current="@(activeNav == key ? "page" : null)">@Ui.Ring(key)<span class="nav-label">@label</span></a></li>
+}
+      </ul>
+@if (user.Role == CrmRole.Admin)
+{
+      <ul class="nav-settings">
+        <li><a class="nav-item" href="/settings/general" aria-current="@(activeNav == "settings" ? "page" : null)">@Ui.Ring("settings")<span class="nav-label">Settings</span></a></li>
+      </ul>
+}
+    </div>
+    <div class="sidebar-foot" id="sidebar-foot"></div>
+  </nav>
+  <div class="column">
+    <header class="topbar">
+      <button type="button" class="button secondary menu-button" id="menu-button" aria-expanded="false" aria-controls="main-nav">@Ui.Icon("menu") Menu</button>
+      <a class="topbar-mark" href="/" aria-label="@branding.AppName, go to dashboard">
+@if (branding.LogoSha is not null){<img src="/branding/logo?v=@branding.LogoSha[..12]" alt="" height="32">}
+else{<img class="logo-light" src="/img/brand/dafa-rings-gray.svg" alt="" width="32" height="32"><img class="logo-dark" src="/img/brand/dafa-rings-white.svg" alt="" width="32" height="32">}
+      </a>
+      <form class="search" action="/search" method="get" role="search">
+        <label class="visually-hidden" for="q">Search all records</label>
+        @Ui.Icon("search")
+        <input id="q" name="q" type="search" placeholder="Search accounts, contacts, opportunities..." autocomplete="off" maxlength="100">
+        <span class="kbd-hint" id="kbd-hint" aria-hidden="true">Ctrl K</span>
+      </form>
+      <span class="spacer"></span>
+      <a class="button secondary icon-only search-link" href="/search" aria-label="Search">@Ui.Icon("search")</a>
+      <details class="menu new-menu">
+        <summary class="button secondary" aria-label="New">@Ui.Icon("plus") <span class="new-label">New</span></summary>
+        <ul>
+          <li><a href="/accounts/new">Account</a></li>
+          <li><a href="/contacts/new">Contact</a></li>
+          <li><a href="/opportunities/new">Opportunity</a></li>
+          <li><a href="/activities/new">Activity</a></li>
+        </ul>
+      </details>
+      <details class="menu user-menu">
+        <summary class="avatar-summary" aria-label="@initials – account menu for @user.Name"><span class="avatar s36" aria-hidden="true">@initials</span></summary>
+        <div class="menu-panel">
+          <p class="user-name">@user.Name</p>
+@if (!string.IsNullOrEmpty(user.Email)){<p class="muted">@user.Email</p>}
+          <p><span class="chip badge">Role: @user.Role</span></p>
+          <form method="post" action="/theme" asp-antiforgery="true" class="theme-group">
+            <input type="hidden" name="returnTo" value="@returnTo">
+            <fieldset>
+              <legend>Theme</legend>
+              <div class="actions">
+@foreach (var (value, label) in new[] { ("system", "Match system"), ("light", "Light"), ("dark", "Dark") })
+{
+                <button type="submit" name="theme" value="@value" class="button secondary small" aria-pressed="@(themeChoice == value ? "true" : "false")">@if (themeChoice == value){@Ui.Icon("check")}@label</button>
+}
+              </div>
+            </fieldset>
+          </form>
+          <form method="post" asp-page="/Auth/Signout">
+            <button type="submit" class="button secondary">@Ui.Icon("signout") Sign out</button>
+          </form>
+        </div>
+      </details>
+    </header>
+    <main id="main" tabindex="-1">
+@if (!Context.Items.ContainsKey("FlashRendered")){<partial name="_Flash" />}
+@RenderBody()
+    </main>
+    <footer class="app-footer">©@Clock.GetUtcNow().Year DAFA A/S</footer>
+  </div>
+</div>
+}
 <script src="/js/app.js" defer></script>
 @foreach (var src in scripts)
 {
