@@ -8,7 +8,7 @@
   case "segment": @Ui.SegmentChip(c.Aux); break;
   case "type": <span class="owner">@Ui.Ring(c.Aux ?? "task", "r24")<span>@c.Text</span></span> break;
   case "done" when c.DoneForm is not null:
-    <form method="post" action="@c.DoneForm.Action" asp-antiforgery="true" class="inline-form"><input type="hidden" name="returnTo" value="@c.DoneForm.ReturnTo"><button type="submit" class="button secondary icon-only small" aria-pressed="@(c.DoneForm.Checked ? "true" : "false")" aria-label="@(c.DoneForm.Checked ? $"Mark '{c.DoneForm.Context}' as not done" : $"Mark '{c.DoneForm.Context}' as done")">@(c.DoneForm.Checked ? Ui.Icon("check") : Ui.Icon("task"))</button></form>
+    <form method="post" action="@c.DoneForm.Action" asp-antiforgery="true" class="inline-form"><input type="hidden" name="returnTo" value="@c.DoneForm.ReturnTo"><button type="submit" class="button secondary icon-only" aria-pressed="@(c.DoneForm.Checked ? "true" : "false")" aria-label="@(c.DoneForm.Checked ? $"Mark '{c.DoneForm.Context}' as not done" : $"Mark '{c.DoneForm.Context}' as done")">@Ui.Icon("check")</button></form>
     @if (c.DoneForm.Checked){<span class="visually-hidden">Done</span>}
     break;
   default:

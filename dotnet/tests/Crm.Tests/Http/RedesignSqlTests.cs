@@ -162,7 +162,7 @@ public sealed class RedesignSqlTests(SqlServerFixture fx)
         Assert.Equal("Search", doc.QuerySelector("h1")!.TextContent);
         Assert.Equal("Accounts (1)", doc.QuerySelector("#rg-accounts")!.TextContent);
         Assert.Equal(acc.Headers.Location!.OriginalString, doc.QuerySelector(".result-list a")!.GetAttribute("href"));
-        Assert.Contains("1 result found", doc.QuerySelector("p[role=status]")!.TextContent, StringComparison.Ordinal);
+        Assert.Contains("1 result found", doc.QuerySelector("p.muted[role=status]")!.TextContent, StringComparison.Ordinal);
         Assert.Contains($"/accounts?q={tag}", doc.QuerySelector(".result-group a[href*='/accounts?q=']")!.GetAttribute("href"), StringComparison.Ordinal);
         Assert.Null(doc.QuerySelector("#rg-contacts"));
 
@@ -170,7 +170,7 @@ public sealed class RedesignSqlTests(SqlServerFixture fx)
         using var _b = fb;
         var theirs = await HttpHelpers.ParseAsync(await b.GetAsync("/search?q=" + tag));
         Assert.Contains($"No records match “{tag}”.", theirs.QuerySelector("main")!.TextContent, StringComparison.Ordinal);
-        Assert.Contains("0 results found", theirs.QuerySelector("p[role=status]")!.TextContent, StringComparison.Ordinal);
+        Assert.Contains("0 results found", theirs.QuerySelector("p.muted[role=status]")!.TextContent, StringComparison.Ordinal);
 
         var empty = await HttpHelpers.ParseAsync(await a.GetAsync("/search"));
         Assert.Contains("Search names, accounts, emails and subjects.", empty.QuerySelector("main")!.TextContent, StringComparison.Ordinal);

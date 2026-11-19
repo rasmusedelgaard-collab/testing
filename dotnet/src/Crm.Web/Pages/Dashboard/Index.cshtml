@@ -2,11 +2,9 @@
 @model Crm.Web.Pages.Dashboard.IndexModel
 <div class="greeting">
   @Ui.Ornament()
-  <div class="page-header">
-    <div>
-      <h1>@Model.Greeting</h1>
-      <p class="sub">@Model.LongDate · Data as of @Model.AsOf</p>
-    </div>
+  <div class="greeting-body">
+    <h1>@Model.Greeting</h1>
+    <p class="sub">@Model.LongDate · Data as of @Model.AsOf</p>
     <div class="actions">
       <a class="button secondary" href="/activities/new">Log activity</a>
       <a class="button primary" href="/opportunities/new">@Ui.Icon("plus") New opportunity</a>
