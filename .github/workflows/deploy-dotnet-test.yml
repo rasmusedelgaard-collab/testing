@@ -38,6 +38,10 @@ on:
         description: DEBUG ONLY - enable ASP.NET Core stdout log and detailed IIS errors in the deployed web.config
         type: boolean
         default: false
+      diagnose:
+        description: DIAGNOSE ONLY - after the normal deploy, push web.config variants one by one and probe /healthz (finds the element IIS rejects)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -338,7 +342,126 @@ jobs:
           & $env:MSDEPLOY @msArgs
           if ($LASTEXITCODE -ne 0) { throw "msdeploy failed with exit code $LASTEXITCODE" }
 
+      - name: Diagnose web.config variants (diagnose only)
+        if: ${{ inputs.diagnose }}
+        env:
+          WD_SERVER: ${{ secrets.MONSTERASP_WEBDEPLOY_SERVER }}
+          WD_SITE: ${{ secrets.MONSTERASP_WEBDEPLOY_SITE }}
+          WD_USER: ${{ secrets.MONSTERASP_WEBDEPLOY_USER }}
+          WD_PASSWORD: ${{ secrets.MONSTERASP_WEBDEPLOY_PASSWORD }}
+          WD_ALLOW_UNTRUSTED: ${{ vars.MONSTERASP_WEBDEPLOY_ALLOW_UNTRUSTED || 'false' }}
+          SITE_URL: ${{ vars.SITE_URL || 'https://crmtest.runasp.net' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "::add-mask::$env:WD_PASSWORD"
+          $base = $env:SITE_URL.TrimEnd('/')
+          $server = ($env:WD_SERVER -replace '^https?://','' -replace '/.*$','')
+          if ($server -notmatch ':\d+$') { $server = "${server}:8172" }
+          $work = Join-Path $env:RUNNER_TEMP 'diag'
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          $srcCfg = (Resolve-Path (Join-Path package 'web.config')).Path   # already contains the environment variables; never printed
+
+          # Push ONE file to the site root (filePath provider; no AppOffline, a web.config change recycles the app anyway).
+          function Push-File([string]$local, [string]$name) {
+            $dest = "filePath=$($env:WD_SITE)/$name,computerName=https://$server/msdeploy.axd?site=$($env:WD_SITE),userName=$($env:WD_USER),password=$($env:WD_PASSWORD),authType=Basic"
+            $a = @('-verb:sync', "-source:filePath=$local", "-dest:$dest", '-retryAttempts:2', '-retryInterval:3000')
+            if ($env:WD_ALLOW_UNTRUSTED -eq 'true') { $a += '-allowUntrusted' }
+            $out = & $env:MSDEPLOY @a 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) { Write-Host "  msdeploy FAILED for ${name} (exit $LASTEXITCODE)"; Write-Host ($out -replace [regex]::Escape($env:WD_PASSWORD), '***'); return $false }
+            return $true
+          }
+
+          function Probe([string]$url) {
+            try {
+              $r = Invoke-WebRequest -Uri $url -SkipHttpErrorCheck -MaximumRedirection 0 -TimeoutSec 30
+              $body = [string]$r.Content
+              $srv = ($r.Headers['Server'] -join ',')
+              Write-Host "  GET $url -> HTTP $([int]$r.StatusCode); body length=$($body.Length); Server=[$srv]"
+              if ($body.Length -gt 0 -and $body.Length -le 200) { Write-Host "  body: $($body.Trim())" }
+              return @{ Code = [int]$r.StatusCode; Body = $body.Trim() }
+            } catch {
+              Write-Host "  GET $url -> EXCEPTION $($_.Exception.Message)"
+              return @{ Code = 0; Body = '' }
+            }
+          }
+
+          function Remove-Nodes($doc, [string]$xpath) { foreach ($n in @($doc.SelectNodes($xpath))) { [void]$n.ParentNode.RemoveChild($n) } }
+          function Unwrap-Location($doc) {
+            $loc = $doc.SelectSingleNode('/configuration/location')
+            if (-not $loc) { return }
+            $root = $doc.DocumentElement
+            foreach ($c in @($loc.ChildNodes)) { [void]$root.InsertBefore($c, $loc) }
+            [void]$root.RemoveChild($loc)
+          }
+          # Cumulative steps, applied to a fresh copy of the real web.config for each variant.
+          $steps = [ordered]@{
+            noWebSocket  = { param($d) Remove-Nodes $d '//webSocket' }
+            noHttpProto  = { param($d) Remove-Nodes $d '//httpProtocol' }
+            noRemoveSrv  = { param($d) foreach ($n in @($d.SelectNodes('//requestFiltering'))) { [void]$n.Attributes.RemoveNamedItem('removeServerHeader') } }
+            noHttpErrors = { param($d) Remove-Nodes $d '//httpErrors' }
+            noLocation   = { param($d) Unwrap-Location $d }
+            minimal      = { param($d) Remove-Nodes $d '//security'; Remove-Nodes $d '//httpProtocol'; Remove-Nodes $d '//httpErrors'; Remove-Nodes $d '//webSocket'; Unwrap-Location $d }
+            outOfProcess = { param($d) Remove-Nodes $d '//security'; Remove-Nodes $d '//httpProtocol'; Remove-Nodes $d '//httpErrors'; Remove-Nodes $d '//webSocket'; Unwrap-Location $d; $d.SelectSingleNode('//aspNetCore').SetAttribute('hostingModel', 'outofprocess') }
+          }
+          $variants = @(
+            @{ Name = 'V0 current (as deployed)';                     Apply = @() },
+            @{ Name = 'V1 without webSocket';                         Apply = @('noWebSocket') },
+            @{ Name = 'V2 + without httpProtocol';                    Apply = @('noWebSocket','noHttpProto') },
+            @{ Name = 'V3 + without removeServerHeader';              Apply = @('noWebSocket','noHttpProto','noRemoveSrv') },
+            @{ Name = 'V4 + without httpErrors';                      Apply = @('noWebSocket','noHttpProto','noRemoveSrv','noHttpErrors') },
+            @{ Name = 'V5 + without location wrapper';                Apply = @('noWebSocket','noHttpProto','noRemoveSrv','noHttpErrors','noLocation') },
+            @{ Name = 'V6 minimal (handlers+aspNetCore+envvars)';     Apply = @('minimal') },
+            @{ Name = 'V8 minimal + hostingModel=outofprocess';       Apply = @('outOfProcess') }
+          )
+
+          function Write-Variant($v) {
+            $doc = New-Object System.Xml.XmlDocument
+            $doc.PreserveWhitespace = $false
+            $doc.Load($srcCfg)
+            foreach ($s in $v.Apply) { & $steps[$s] $doc }
+            $f = Join-Path $work 'web.config'
+            $ws = New-Object System.Xml.XmlWriterSettings
+            $ws.Indent = $true
+            $ws.Encoding = New-Object System.Text.UTF8Encoding($false)
+            $w = [System.Xml.XmlWriter]::Create($f, $ws)
+            try { $doc.Save($w) } finally { $w.Dispose() }
+            return $f
+          }
+
+          # V7: does IIS itself read web.config? Static file, no ANCM handler. 200 = IIS config is fine; 500 = IIS cannot parse the file.
+          Write-Host '=== V7 static probe (no aspNetCore handler) ==='
+          $v7dir = Join-Path $work 'v7'; New-Item -ItemType Directory -Force -Path $v7dir | Out-Null
+          Set-Content -Path (Join-Path $v7dir 'diag.txt') -Value 'diag-ok' -NoNewline
+          Set-Content -Path (Join-Path $v7dir 'web.config') -Value '<?xml version="1.0" encoding="utf-8"?><configuration><system.webServer><staticContent /></system.webServer></configuration>'
+          if ((Push-File (Join-Path $v7dir 'diag.txt') 'diag.txt') -and (Push-File (Join-Path $v7dir 'web.config') 'web.config')) {
+            Start-Sleep -Seconds 5
+            $r7 = Probe "$base/diag.txt"
+            Write-Host ("V7 result: " + $(if ($r7.Code -eq 200) { 'IIS serves static files with a trivial web.config (host and site OK; problem is in our web.config or in ANCM)' } else { 'IIS fails even with a trivial web.config (host/site-level problem, not our web.config elements)' }))
+          }
+
+          $winner = $null
+          foreach ($v in $variants) {
+            Write-Host "=== $($v.Name) ==="
+            $f = Write-Variant $v
+            if (-not (Push-File $f 'web.config')) { continue }
+            for ($i = 1; $i -le 3; $i++) {
+              Start-Sleep -Seconds $(if ($i -eq 1) { 8 } else { 6 })
+              $r = Probe "$base/healthz"
+              if ($r.Code -eq 200 -and $r.Body -eq 'ok') { $winner = $v.Name; break }
+              if ($r.Code -ne 500 -and $r.Code -ne 503) { break }
+            }
+            if ($winner) { break }
+          }
+          Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+          if ($winner) {
+            Write-Host "RESULT: first variant returning 200 = [$winner]. The site is left on this variant."
+          } else {
+            Write-Host 'RESULT: no variant returned 200. Site left on the last variant tried. See V7 result: if V7 was 200, ANCM/runtime problem (check hosting model, handler, bitness); if V7 failed, host-level problem.'
+            throw 'Diagnose: no web.config variant produced a healthy /healthz'
+          }
+
       - name: Smoke test
+        if: ${{ !inputs.diagnose }}
         env:
           SITE_URL: ${{ vars.SITE_URL || 'https://crmtest.runasp.net' }}
         run: |
