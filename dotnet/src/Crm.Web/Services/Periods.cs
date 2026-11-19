@@ -26,6 +26,9 @@ public static class Periods
 
     private static string Ymd(DateOnly d) => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
+    /// <summary>Whole days from a to b (negative when b is earlier).</summary>
+    public static int DaysBetween(string a, string b) => Parse(b).DayNumber - Parse(a).DayNumber;
+
     public static string AddDays(string date, int days) => Ymd(Parse(date).AddDays(days));
 
     /// <summary>First day of the month that is <paramref name="months"/> after the month of <paramref name="date"/>.</summary>

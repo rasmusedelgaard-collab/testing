@@ -1,9 +1,19 @@
 @page "/"
 @model Crm.Web.Pages.Dashboard.IndexModel
-<div class="page-header">
-  <h1>@Model.Greeting</h1>
-  <p class="muted">Data as of @Model.AsOf</p>
+<div class="greeting">
+  @Ui.Ornament()
+  <div class="page-header">
+    <div>
+      <h1>@Model.Greeting</h1>
+      <p class="sub">@Model.LongDate · Data as of @Model.AsOf</p>
+    </div>
+    <div class="actions">
+      <a class="button secondary" href="/activities/new">Log activity</a>
+      <a class="button primary" href="/opportunities/new">@Ui.Icon("plus") New opportunity</a>
+    </div>
+  </div>
 </div>
+<partial name="_Flash" />
 <section aria-label="Key figures">
 <ul class="tiles">
   @for (var ti = 0; ti < Model.Tiles.Count; ti++)
@@ -13,49 +23,91 @@
   <li class="tile">
     <a href="@t.Href" class="tile-link" title="@(t.Full.Length > 0 ? t.Label + ": " + t.Full : t.Label)" aria-describedby="@(t.Notes.Count > 0 ? string.Join(' ', t.Notes.Select((_, ni) => $"tn-{tileId}-{ni}")) : null)">
       <span class="tile-label">@t.Label</span>
-      <span class="tile-value@(t.Wrap ? " wrap" : "")">@t.Short@if (t.Full.Length > 0){<span class="visually-hidden"> (@t.Full)</span>}</span>
-      <span class="tile-context@(t.Danger ? " danger" : "")">@t.Context</span>
+      <span class="tile-value@(t.Wrap ? " wrap" : "")@(t.Danger ? " danger-text" : "")">@if (t.Danger){@Ui.Icon("error")}@t.Short@if (t.Full.Length > 0){<span class="visually-hidden"> (@t.Full)</span>}</span>
+      <span class="tile-context">@t.Context</span>
+      @if (t.Trend is { } tr)
+      {
+      <span class="tile-trend" title="@tr.Range">@Ui.Ring(tr.Direction == "up" ? "trend-up" : tr.Direction == "down" ? "trend-down" : "trend-flat")<span>@tr.Text</span><span class="visually-hidden"> (@tr.Range)</span></span>
+      }
+      @if (t.Spark is { } sp)
+      {
+      <svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true" focusable="false"><polyline points="@sp.Points"/><circle cx="@sp.LastX" cy="@sp.LastY" r="1.5"/></svg>
+      <span class="visually-hidden">@sp.Text</span>
+      }
     </a>
     @for (var ni = 0; ni < t.Notes.Count; ni++)
     {
     var n = t.Notes[ni];
-    <p class="tile-note"><span id="tn-@ti-@ni"><span aria-hidden="true">⚠ </span>@n</span>@if (t.Excluded && n.Contains("not included", StringComparison.Ordinal)){<text> </text>@if (Model.IsAdmin){<a href="/settings/fx">Add FX rates<span class="visually-hidden"> for @t.FxCurrencies</span></a>}else{<text>Ask an administrator.</text>}}</p>
+    <p class="tile-note"><span id="tn-@ti-@ni">@Ui.Icon("warning") @n</span>@if (t.Excluded && n.Contains("not included", StringComparison.Ordinal)){<text> </text>@if (Model.IsAdmin){<a href="/settings/fx">Add FX rates<span class="visually-hidden"> for @t.FxCurrencies</span></a>}else{<text>Ask an administrator.</text>}}</p>
     }
   </li>
   }
 </ul>
 </section>
-<div class="dash-grid">
-<section aria-labelledby="my-opps-h">
-  <h2 id="my-opps-h">My open opportunities</h2>
-  @if (Model.Opps.Count == 0){<p class="muted">No open opportunities yet. <a href="/opportunities/new">New opportunity</a></p>}
-  else
-  {
-  <div class="table-wrap"><table class="data">
-    <caption class="visually-hidden">My open opportunities, earliest close date first</caption>
-    <thead><tr>@foreach (var c in Model.OppColumns){<th scope="col">@c</th>}</tr></thead>
-    <tbody>@foreach (var cells in Model.Opps){<tr>@for (var ci = 0; ci < cells.Count; ci++){var c = cells[ci];<td data-label="@Model.OppColumns[ci]" class="@(c.Right ? "num" : null)">@if (c.Href is not null){<a href="@c.Href">@c.Text</a>}else{@c.Text}@if (c.Note is not null){<br><span class="badge warn">@c.Note</span>}</td>}</tr>}</tbody>
-  </table></div>
-  <p><a href="/opportunities?status=open&amp;owner=@Model.UserId">View all my opportunities (@Model.OppTotal)</a></p>
-  }
-</section>
-<section aria-labelledby="upcoming-h">
-  <h2 id="upcoming-h">Upcoming activities</h2>
-  @if (Model.Upcoming.All(u => u.Rows.Count == 0)){<p class="muted">Nothing due. You're all caught up.</p>}
+<div class="dash-top">
+<section aria-labelledby="upcoming-h" class="panel">
+  <div class="panel-head"><h2 id="upcoming-h">My day</h2><p><a href="/activities?status=open&amp;type=actionable&amp;due=due">View all due</a></p></div>
+  @if (Model.Upcoming.All(u => u.Items.Count == 0)){<div class="empty compact">@Ui.Ring("check")<p>Nothing due. You're all caught up.</p></div>}
   @foreach (var u in Model.Upcoming)
   {
-  @if (u.Rows.Count > 0)
+  @if (u.Items.Count > 0)
   {
   <h3>@u.Title (@u.Total)</h3>
-  <div class="table-wrap"><table class="data">
-    <caption class="visually-hidden">@u.Title activities</caption>
-    <thead><tr>@foreach (var c in Model.ActColumns){<th scope="col">@c</th>}</tr></thead>
-    <tbody>@foreach (var cells in u.Rows){<tr>@for (var ci = 0; ci < cells.Count; ci++){var c = cells[ci];<td data-label="@Model.ActColumns[ci]">
-      @if (c.DoneForm is not null){<form method="post" action="@c.DoneForm.Action" asp-antiforgery="true" class="inline-form"><input type="hidden" name="returnTo" value="@c.DoneForm.ReturnTo"><button type="submit" class="button link">@(c.DoneForm.Checked ? "☑ Done" : "☐ Mark done")<span class="visually-hidden">: @c.DoneForm.Context</span></button></form>}
-      else if (c.Href is not null){<a href="@c.Href">@c.Text</a>}else{@c.Text}</td>}</tr>}</tbody>
-  </table></div>
-  <p><a href="@u.ViewAll">View all</a></p>
+  <ol class="timeline-items">
+  @foreach (var it in u.Items)
+  {
+    <li class="tl-item">
+      @Ui.Ring(it.Icon)
+      <div class="tl-body">
+        <p class="tl-title"><a href="@it.Href">@it.Title</a></p>
+        <p class="tl-meta">
+          @if (it.Overdue){<span class="chip danger">@Ui.Icon("error")@it.Hint</span>}
+          <span>@it.When@if (!it.Overdue && it.Hint.Length > 0){<text> · @it.Hint</text>}</span>
+          @if (it.RelatedLabel is not null){<a href="@it.RelatedHref">@it.RelatedLabel</a>}
+        </p>
+      </div>
+      @if (it.Action is not null)
+      {
+      <form method="post" action="@it.Action.Action" asp-antiforgery="true" class="tl-action"><input type="hidden" name="returnTo" value="@it.Action.ReturnTo"><button type="submit" class="button secondary small">Mark done<span class="visually-hidden">: @it.Action.Context</span></button></form>
+      }
+    </li>
   }
+  </ol>
+  <p><a href="@u.ViewAll">@u.ViewAllLabel</a></p>
+  }
+  }
+</section>
+<section aria-labelledby="funnel-h" class="panel">
+  <div class="panel-head"><h2 id="funnel-h">Open pipeline by stage</h2><p><a href="/pipeline">Open board</a></p></div>
+  @if (Model.Funnel.Count == 0){<div class="empty compact">@Ui.Ring("pipeline")<p>No open stages.</p></div>}
+  else
+  {
+  <div class="table-wrap"><table class="data funnel dense">
+    <caption class="visually-hidden">Open pipeline by stage</caption>
+    <thead><tr><th scope="col">Stage</th><th scope="col" class="num">Opportunities</th><th scope="col" class="num">Amount (@Model.BaseCurrency)</th><th scope="col"><span class="visually-hidden">Share of the largest stage</span></th></tr></thead>
+    <tbody>
+    @foreach (var fr in Model.Funnel)
+    {
+    <tr><td data-label="Stage"><a href="@fr.Href">@fr.Stage</a></td><td data-label="Opportunities" class="num">@fr.Count</td>
+      <td data-label="Amount (@Model.BaseCurrency)" class="num" title="@fr.Full">@fr.Short<span class="visually-hidden"> (@fr.Full)</span></td>
+      <td class="bar-cell">@Ui.Bar(fr.Share)</td></tr>
+    }
+    </tbody>
+  </table></div>
+  <p class="funnel-foot muted">Amounts in @Model.BaseCurrency at this month's FX rates.</p>
+  @foreach (var n in Model.FunnelNotes){<p class="tile-note">@Ui.Icon("warning") @n</p>}
   }
 </section>
 </div>
+<section aria-labelledby="my-opps-h" class="panel">
+  <div class="panel-head"><h2 id="my-opps-h">My open opportunities</h2>@if (Model.Opps.Count > 0){<p><a href="/opportunities?status=open&amp;owner=@Model.UserId">View all my opportunities (@Model.OppTotal)</a></p>}</div>
+  @if (Model.Opps.Count == 0){<div class="empty compact">@Ui.Ring("opportunities")<p>No open opportunities yet. <a href="/opportunities/new">New opportunity</a></p></div>}
+  else
+  {
+  <div class="table-wrap"><table class="data dense">
+    <caption class="visually-hidden">My open opportunities, earliest close date first</caption>
+    <thead><tr>@foreach (var c in Model.OppColumns){<th scope="col" class="@(c == "Amount" ? "num" : null)">@c</th>}</tr></thead>
+    <tbody>@foreach (var cells in Model.Opps){<tr>@for (var ci = 0; ci < cells.Count; ci++){<partial name="_Td" model="new TdModel(cells[ci], Model.OppColumns[ci])" />}</tr>}</tbody>
+  </table></div>
+  }
+</section>
