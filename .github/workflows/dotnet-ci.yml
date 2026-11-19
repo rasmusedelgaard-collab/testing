@@ -128,6 +128,8 @@ jobs:
         env:
           DB_AUTH_MODE: sql-password
           DB_CONNECTION_STRING: ${{ env.SA_CONNECTION }}Database=crm_ci;
+          ALLOW_DEMO_SEED: 'true'
+          AUTH_MODE: test-access-code
         run: |
           set -euo pipefail
           run() { dotnet run --project "$WEB_PROJECT" -c Release --no-build -- "$@"; }
@@ -137,13 +139,16 @@ jobs:
           grep -q "already present" second-run.txt   # idempotent: the second run changes nothing
           run run-sql db/tests/demo-seed-check.sql
           run run-sql db/tests/rls-integration.sql    # RLS still holds with demo rows in the tables
-          run seed-demo --yes-demo --reset-demo
+          run seed-demo --yes-demo --reset-demo --demo-settings
           run run-sql db/tests/demo-seed-check.sql
           run run-sql db/tests/rls-integration.sql
           # Refusals: each of these must fail and write nothing.
           if run seed-demo; then echo "::error::seed-demo ran without --yes-demo"; exit 1; fi
           if LIVE=true run seed-demo --yes-demo; then echo "::error::seed-demo ran with LIVE=true"; exit 1; fi
           if WEBSITE_INSTANCE_ID=x run seed-demo --yes-demo; then echo "::error::seed-demo ran on Azure"; exit 1; fi
+          if ALLOW_DEMO_SEED= run seed-demo --yes-demo; then echo "::error::seed-demo ran without ALLOW_DEMO_SEED"; exit 1; fi
+          if AUTH_MODE=entra run seed-demo --yes-demo; then echo "::error::seed-demo ran with AUTH_MODE=entra"; exit 1; fi
+          if DB_AUTH_MODE=managed-identity run seed-demo --yes-demo; then echo "::error::seed-demo ran with managed identity"; exit 1; fi
 
       - name: Publish (framework-dependent; contains no secrets)
         run: dotnet publish "$WEB_PROJECT" -c Release --no-build -o out/web
