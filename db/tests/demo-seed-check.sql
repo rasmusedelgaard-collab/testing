@@ -35,7 +35,8 @@ SELECT 'D4' AS [Case], CASE WHEN bad = 0 AND total > 500 THEN 'PASS' ELSE 'FAIL'
 FROM (SELECT COUNT(*) AS total,
         SUM(CASE WHEN a.ChangedBy <> a.OwnerId OR u.Role = 'Admin' THEN 1 ELSE 0 END) AS bad
       FROM crm.AuditLog a JOIN crm.Users u ON u.UserId = a.ChangedBy
-      WHERE a.EntityType <> 'fxrate'   -- FX rates are written by the demo admin (the only rows the admin authors)
+      WHERE a.EntityType NOT IN ('fxrate', 'setting')   -- FX rates and demo settings are written by the demo admin (the only rows the admin authors)
+        AND ISNULL(a.FieldName, '') <> 'CarriedForward'  -- rows kept by a reset are re-tracked by the admin
         AND LOWER(CONVERT(char(36), u.EntraOid)) LIKE '00000000-0000-4000-8000-00000000d0%') t;
 GO
 SELECT 'D5' AS [Case], CASE WHEN bad = 0 THEN 'PASS' ELSE 'FAIL' END AS Result,
