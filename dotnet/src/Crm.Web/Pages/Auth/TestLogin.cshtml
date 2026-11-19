@@ -1,7 +1,6 @@
 @page "/auth/test-login"
 @model TestLoginModel
-@{ ViewData["Title"] = Model.ShowPicker ? "Choose a test user" : "Test sign-in"; }
-<div class="center-card">
+@{ ViewData["Title"] = Model.ShowPicker ? "Choose a test user" : "Test sign-in"; Layout = "_SigninLayout"; }
 @if (Model.ShowPicker)
 {
   <h1>Choose a test user</h1>
@@ -15,11 +14,13 @@
     <input type="hidden" name="returnTo" value="@Model.ReturnTo">
     <fieldset>
       <legend>Sign in as</legend>
+      <div class="user-cards">
       @for (var i = 0; i < Model.Users.Count; i++)
       {
       var u = Model.Users[i];
-      <label><input type="radio" name="oid" value="@u.Oid" checked="@(i == 0)"> @u.Name (@u.Role, @(u.TeamName ?? "no team"))</label>
+      <label class="user-card"><input type="radio" name="oid" value="@u.Oid" checked="@(i == 0)">@Ui.Avatar(u.Name, "s36")<span class="who"><span>@u.Name</span><small>@u.Role · @(u.TeamName ?? "no team")</small></span></label>
       }
+      </div>
     </fieldset>
     <button type="submit" class="button primary">Sign in</button>
   </form>
@@ -38,10 +39,11 @@ else
   <p>Enter the shared test access code.</p>
   <form method="post" asp-page="/Auth/TestLogin">
     <input type="hidden" name="returnTo" value="@Model.ReturnTo">
+    <div class="field@(Model.Error is not null ? " has-error" : "")">
     <label for="code">Access code (required)</label>
     <input id="code" name="code" type="password" autocomplete="off" required data-autofocus="@(Model.Error is not null ? "" : null)" aria-invalid="@(Model.Error is not null ? "true" : null)" aria-describedby="@(Model.Error is not null ? "e-code" : null)">
+    </div>
     <button type="submit" class="button primary">Continue</button>
   </form>
   }
 }
-</div>

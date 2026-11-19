@@ -1,11 +1,10 @@
 @page "/settings/stages"
 @using Crm.Web.Data
 @model StagesModel
-<partial name="_SettingsNav" model='"stages"' />
 <h1>Pipeline stages</h1>
-@if (Model.Stale){<p class="flash flash-error" role="alert" tabindex="-1" data-autofocus>@AdminRepo.StaleStages <a href="/settings/stages">Load the current stage list</a></p>}
+@if (Model.Stale){<p class="flash flash-error" role="alert" tabindex="-1" data-autofocus>@Ui.Ring("error")@AdminRepo.StaleStages <a href="/settings/stages">Load the current stage list</a></p>}
 <partial name="_ErrorSummary" model="Model.Summary" />
-@if (Model.Note.Length > 0){<p class="flash-warn" role="status"><span aria-hidden="true">⚠ </span>@Model.Note</p>}
+@if (Model.Note.Length > 0){<p class="flash-warn" role="status">@Ui.Ring("warning")@Model.Note</p>}
 <form method="post" action="/settings/stages" asp-antiforgery="true" novalidate>
   @* Default button for Enter in a text field: without it the first submit button in the DOM (a disabled or move button) decides. Visually hidden, not hidden/display:none, so every engine still uses it. *@
   <button type="submit" name="action" value="save" class="visually-hidden" tabindex="-1" aria-hidden="true">Save stages</button>
@@ -23,17 +22,17 @@
       var probErr = Model.Errors.TryGetValue("prob" + i, out var ep) ? ep : null;
     <tr>
       <td data-label="Order"><input type="hidden" name="id_@i" value="@r.Id">
-        <button type="submit" id="up-@i" data-autofocus="@(Model.Focus == "up-" + i ? "" : null)" class="button secondary" name="action" value="up:@i" aria-label="Move @(r.Name.Length > 0 ? r.Name : "stage") up" disabled="@(i == 0)">↑</button>
-        <button type="submit" id="down-@i" data-autofocus="@(Model.Focus == "down-" + i ? "" : null)" class="button secondary" name="action" value="down:@i" aria-label="Move @(r.Name.Length > 0 ? r.Name : "stage") down" disabled="@(i == Model.Rows.Count - 1)">↓</button></td>
+        <button type="submit" id="up-@i" data-autofocus="@(Model.Focus == "up-" + i ? "" : null)" class="button secondary icon-only" name="action" value="up:@i" aria-label="Move @(r.Name.Length > 0 ? r.Name : "stage") up" disabled="@(i == 0)">@Ui.Icon("sort-asc")</button>
+        <button type="submit" id="down-@i" data-autofocus="@(Model.Focus == "down-" + i ? "" : null)" class="button secondary icon-only" name="action" value="down:@i" aria-label="Move @(r.Name.Length > 0 ? r.Name : "stage") down" disabled="@(i == Model.Rows.Count - 1)">@Ui.Icon("sort-desc")</button></td>
       <td data-label="Stage name"><label class="visually-hidden" for="f-name@(i)">Stage name @(i + 1)</label>
-        @if (nameErr is not null){<span class="field-error" id="e-name@(i)"><span aria-hidden="true">⚠ </span>@nameErr</span>}
+        @if (nameErr is not null){<span class="field-error" id="e-name@(i)">@Ui.Icon("error")@nameErr</span>}
         @if (Model.Links.TryGetValue("name" + i, out var link)){<a href="@link">View these opportunities</a><br>}
         <input id="f-name@(i)" data-autofocus="@(Model.Focus == "f-name" + i ? "" : null)" name="name_@i" type="text" maxlength="60" value="@r.Name" aria-invalid="@(nameErr is not null ? "true" : null)" aria-describedby="@(nameErr is not null ? "e-name" + i : null)"></td>
       <td data-label="Probability"><label class="visually-hidden" for="f-prob@(i)">Probability @(i + 1) (percent)</label>
-        @if (probErr is not null){<span class="field-error" id="e-prob@(i)"><span aria-hidden="true">⚠ </span>@probErr</span>}
+        @if (probErr is not null){<span class="field-error" id="e-prob@(i)">@Ui.Icon("error")@probErr</span>}
         <input id="f-prob@(i)" name="prob_@i" type="text" inputmode="numeric" size="4" value="@(r.Type == "won" ? "100" : r.Type == "lost" ? "0" : r.Prob)" aria-invalid="@(probErr is not null ? "true" : null)" aria-describedby="@(probErr is not null ? "e-prob" + i : null)"> %</td>
       <td data-label="Type">
-        @if (typeErr is not null){<span class="field-error" id="e-type@(i)"><span aria-hidden="true">⚠ </span>@typeErr</span>}
+        @if (typeErr is not null){<span class="field-error" id="e-type@(i)">@Ui.Icon("error")@typeErr</span>}
         @if (r.Used > 0)
         {
         <input type="hidden" name="type_@i" value="@r.Type">

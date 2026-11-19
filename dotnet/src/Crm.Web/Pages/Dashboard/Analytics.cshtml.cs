@@ -41,6 +41,8 @@ public sealed partial class AnalyticsModel(IRlsDb rls, IRlsContextAccessor ident
 
     public bool IsAdmin { get; private set; }
 
+    public string BaseCurrency { get; private set; } = "";
+
     private static int? InRange(string? v) => v is not null && EntityDefinitions.TryParseId(v, out var n) ? n : null;
 
     public async Task<IActionResult> OnGetAsync()
@@ -96,6 +98,7 @@ public sealed partial class AnalyticsModel(IRlsDb rls, IRlsContextAccessor ident
         Owners = data.owners.Select(o2 => (o2.Id.ToString(CultureInfo.InvariantCulture), ctx.Role == CrmRole.Admin && o2.TeamName is not null ? $"{o2.Name} ({o2.TeamName})" : o2.Name)).ToList();
         Charts = charts.Select(ch => new ChartView(ch, JsonSerializer.Serialize(new { kind = ch.Kind, labels = ch.Labels, data = ch.Data, valueKind = ch.ValueKind, seriesLabel = ch.SeriesLabel, locale = set.LocaleCode, currency = set.BaseCurrency }, ChartJson))).ToList();
         IsAdmin = ctx.Role == CrmRole.Admin;
+        BaseCurrency = set.BaseCurrency;
         return Page();
     }
 }

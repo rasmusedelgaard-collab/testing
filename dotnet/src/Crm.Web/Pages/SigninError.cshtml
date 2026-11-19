@@ -1,9 +1,7 @@
 @page "/signin-error"
 @model SigninErrorModel
-@{ ViewData["Title"] = "Sign-in problem"; }
-<div class="center-card">
+@{ ViewData["Title"] = "Sign-in problem"; Layout = "_SigninLayout"; }
   <h1>We couldn't sign you in</h1>
   <p>Try again, or contact your administrator if this continues.</p>
   <p class="muted">Reference: @Model.Reference</p>
   <a class="button primary" href="/signin">Try again</a>
-</div>

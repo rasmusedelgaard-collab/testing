@@ -1,7 +1,8 @@
 @page "/analytics"
 @using Crm.Web.Services
 @model Crm.Web.Pages.Dashboard.AnalyticsModel
-<h1>Analytics</h1>
+<div class="page-header"><div class="titles"><h1>Analytics</h1></div></div>
+<partial name="_Flash" />
 <form method="get" action="/analytics" class="filters">
   <input type="hidden" name="shown" value="@Model.Period">
   <div class="field"><label for="f-period">Period</label>
@@ -12,30 +13,30 @@
     <select id="f-owner" name="owner"><option value="">All I can see</option>@foreach (var t in Model.TeamOptions){<option value="@t.Value" selected="@(t.Value == Model.OwnerValue)">@t.Label</option>}@foreach (var o in Model.Owners){<option value="@o.Id" selected="@(o.Id == Model.OwnerValue)">@o.Label</option>}</select></div>
   <button type="submit" class="button secondary">Apply</button>
 </form>
-@if (Model.Error.Length > 0){<p class="field-error" id="e-range" role="alert"><span aria-hidden="true">⚠ </span>@Model.Error Showing this quarter instead.</p>}
-<p class="muted" id="range-text">Close dates from @Model.RangeText. Changing the dates switches the period to Custom. Amounts are in the base currency at each deal's FX rate (see Settings &gt; FX rates).</p>
+@if (Model.Error.Length > 0){<p class="field-error" id="e-range" role="alert">@Ui.Icon("error")@Model.Error Showing this quarter instead.</p>}
+<p class="muted" id="range-text">Close dates @Model.RangeText. Changing the dates switches the period to Custom. Amounts are in @Model.BaseCurrency at each opportunity's FX rate (see Settings &gt; FX rates).</p>
 @if (Model.FxMissing)
 {
-<p class="flash-warn"><span aria-hidden="true">⚠ </span>Some opportunities are left out of the money charts because no FX rate exists. @if (Model.IsAdmin){<a href="/settings/fx">Add FX rates</a>}else{<text>Ask an administrator.</text>}</p>
+<p class="flash-warn">@Ui.Ring("warning")Some opportunities are left out of the money charts because no FX rate exists. @if (Model.IsAdmin){<a href="/settings/fx">Add FX rates</a>}else{<text>Ask an administrator.</text>}</p>
 }
 <div class="charts">
 @foreach (var cv in Model.Charts)
 {
 var ch = cv.Chart;
 <figure class="chart" id="fig-@ch.Id">
-  <figcaption><strong>@ch.Title</strong><br><span class="muted">@ch.Takeaway</span></figcaption>
-  @foreach (var n in ch.Notes){<p class="tile-note"><span aria-hidden="true">⚠ </span>@n</p>}
+  <figcaption><h2>@ch.Title</h2><span class="takeaway">@ch.Takeaway</span></figcaption>
+  @foreach (var n in ch.Notes){<p class="tile-note">@Ui.Icon("warning") @n</p>}
   @if (!ch.Empty)
   {
   <div class="chart-box js-only"><canvas role="img" aria-label="@ch.AriaLabel" data-chart="chart-@ch.Id"></canvas></div>
   <script type="application/json" id="chart-@(ch.Id)-data">@Html.Raw(cv.Json)</script>
   }
   <details class="chart-table" open>
-    <summary>Show as table</summary>
-    <table class="data">
+    <summary>@Ui.Icon("chevron-down") Show as table</summary>
+    <table class="data dense">
       <caption class="visually-hidden">@ch.Title</caption>
       <thead><tr>@foreach (var c in ch.TableColumns){<th scope="col">@c</th>}</tr></thead>
-      <tbody>@foreach (var r in ch.TableRows){<tr>@for (var i = 0; i < r.Cells.Count; i++){<td data-label="@ch.TableColumns[i]" class="@(i > 0 ? "num" : null)">@r.Cells[i]@if (i == r.Cells.Count - 1 && r.Flag is not null){<text> </text><span class="badge warn">@r.Flag</span>}</td>}</tr>}</tbody>
+      <tbody>@foreach (var r in ch.TableRows){<tr>@for (var i = 0; i < r.Cells.Count; i++){<td data-label="@ch.TableColumns[i]" class="@(i > 0 ? "num" : null)">@r.Cells[i]@if (i == r.Cells.Count - 1 && r.Flag is not null){<text> </text><span class="chip warn">@Ui.Icon("warning")@r.Flag</span>}</td>}</tr>}</tbody>
     </table>
   </details>
 </figure>

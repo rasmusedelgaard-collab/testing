@@ -21,6 +21,7 @@ public sealed class ErrorModel(ILogger<ErrorModel> log) : PageModel
     public string Reference { get; private set; } = "";
     public string RecordPath { get; private set; } = "/";
     public bool IsPost { get; private set; }
+    public int Status { get; private set; } = 500;
 
     public void OnGet([FromRoute] int? code) => Render(code);
 
@@ -93,6 +94,7 @@ public sealed class ErrorModel(ILogger<ErrorModel> log) : PageModel
     private void Set(int status, string title, string heading, string message)
     {
         Response.StatusCode = status;
+        Status = status;
         PageTitle = title;
         Heading = heading;
         Message = message;

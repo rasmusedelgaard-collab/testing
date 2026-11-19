@@ -1,6 +1,5 @@
 @page "/settings/picklists/{code?}"
 @model PicklistsModel
-<partial name="_SettingsNav" model='"picklists"' />
 <h1>Picklists</h1>
 <nav aria-label="Picklists" class="tabs"><ul>
   @foreach (var (c, name) in new[] { ("industry", "Industry"), ("lead_source", "Lead source"), ("lost_reason", "Lost reason"), ("activity_type", "Activity type") }){<li><a href="/settings/picklists/@c" aria-current="@(c == Model.Code ? "page" : null)">@name</a></li>}
@@ -21,13 +20,13 @@
       <label class="visually-hidden" for="f-label@(v.Id)">Name of @v.Label</label>
       <input id="f-label@(v.Id)" name="label" type="text" maxlength="80" value="@v.Label" aria-invalid="@(err is not null ? "true" : null)" aria-describedby="@(err is not null ? "e-label" + v.Id : null)">
       <button type="submit" class="button secondary">Rename @v.Label</button></form>
-      @if (err is not null){<span class="field-error" id="e-label@(v.Id)"><span aria-hidden="true">⚠ </span>@err</span>}</td>
+      @if (err is not null){<span class="field-error" id="e-label@(v.Id)">@Ui.Icon("error")@err</span>}</td>
     <td data-label="Status">@(v.Active ? "Active" : "Inactive")
       <form method="post" action="/settings/picklists/@Model.Code" asp-antiforgery="true" class="inline-form"><input type="hidden" name="valueId" value="@v.Id"><input type="hidden" name="action" value="@(v.Active ? "deactivate" : "activate")">
         <button type="submit" class="button link">@(v.Active ? "Deactivate" : "Reactivate") @v.Label</button></form></td>
     <td data-label="Order"><form method="post" action="/settings/picklists/@Model.Code" asp-antiforgery="true" class="inline-form"><input type="hidden" name="valueId" value="@v.Id">
-      <button type="submit" id="up-@v.Id" data-autofocus="@(Model.Focus == "up-" + v.Id ? "" : null)" class="button secondary" name="action" value="up" aria-label="Move @v.Label up" disabled="@(i == 0)">↑</button>
-      <button type="submit" id="down-@v.Id" data-autofocus="@(Model.Focus == "down-" + v.Id ? "" : null)" class="button secondary" name="action" value="down" aria-label="Move @v.Label down" disabled="@(i == Model.List.Values.Count - 1)">↓</button></form></td>
+      <button type="submit" id="up-@v.Id" data-autofocus="@(Model.Focus == "up-" + v.Id ? "" : null)" class="button secondary icon-only" name="action" value="up" aria-label="Move @v.Label up" disabled="@(i == 0)">@Ui.Icon("sort-asc")</button>
+      <button type="submit" id="down-@v.Id" data-autofocus="@(Model.Focus == "down-" + v.Id ? "" : null)" class="button secondary icon-only" name="action" value="down" aria-label="Move @v.Label down" disabled="@(i == Model.List.Values.Count - 1)">@Ui.Icon("sort-desc")</button></form></td>
   </tr>
   }
   </tbody>
@@ -38,7 +37,7 @@
 <h3>Add a value</h3>
 <form method="post" action="/settings/picklists/@Model.Code" asp-antiforgery="true" class="form" novalidate><input type="hidden" name="action" value="add">
   <div class="field@(Model.Errors.ContainsKey("label") ? " has-error" : "")"><label for="f-label">New value (required)</label>
-    @if (Model.Errors.TryGetValue("label", out var e1)){<span class="field-error" id="e-label"><span aria-hidden="true">⚠ </span>@e1</span>}
+    @if (Model.Errors.TryGetValue("label", out var e1)){<span class="field-error" id="e-label">@Ui.Icon("error")@e1</span>}
     <input id="f-label" name="label" type="text" maxlength="80" value="@Model.LabelValue" aria-invalid="@(Model.Errors.ContainsKey("label") ? "true" : null)" aria-describedby="@(Model.Errors.ContainsKey("label") ? "e-label" : null)"></div>
   <button type="submit" class="button primary">Add value</button></form>
 }

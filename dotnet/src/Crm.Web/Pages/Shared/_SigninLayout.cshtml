@@ -1,0 +1,25 @@
+@using Crm.Web.Data
+@inject BrandingCache Branding
+@inject TimeProvider Clock
+@{
+    Layout = "_Layout";
+    var branding = await Branding.GetAsync(Context.RequestAborted);
+}
+<div class="signin">
+  <div class="signin-brand">
+@if (branding.LogoSha is not null)
+{
+    <div class="logo-plate"><img class="logo" src="/branding/logo?v=@branding.LogoSha[..12]" alt="@branding.AppName"></div>
+}
+else
+{
+    <img class="logo-negative" src="/img/brand/dafa-logo-negative.svg" alt="DAFA" width="160" height="55">
+    <p class="tagline">Close to the markets – close to you</p>
+    <span class="ornament" aria-hidden="true"><img src="/img/brand/dafa-rings-white.svg" alt="" width="300" height="300"></span>
+}
+  </div>
+  <div class="signin-form">
+@RenderBody()
+    <p class="fine copyright">©@Clock.GetUtcNow().Year DAFA A/S</p>
+  </div>
+</div>

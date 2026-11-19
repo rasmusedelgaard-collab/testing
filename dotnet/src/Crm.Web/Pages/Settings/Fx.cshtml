@@ -1,6 +1,5 @@
 @page "/settings/fx"
 @model FxModel
-<partial name="_SettingsNav" model='"fx"' />
 @if (Model.Confirm is not null)
 {
     <partial name="_SettingsConfirm" model="Model.Confirm" />
@@ -16,12 +15,12 @@ else
   <div class="field"><label for="fy">Year</label><select id="fy" name="year"><option value="">All</option>@foreach (var y in Model.Years){<option selected="@(y == Model.WantYear)">@y</option>}</select></div>
   <button type="submit" class="button secondary">Apply</button>
 </form>
-@if (Model.Missing.Count > 0){<p class="flash-warn" role="status"><span aria-hidden="true">⚠ </span>Missing rate for @Model.CurLabel: @string.Join(", ", Model.Missing)</p>}
+@if (Model.Missing.Count > 0){<p class="flash-warn" role="status">@Ui.Ring("warning")Missing rate for @Model.CurLabel: @string.Join(", ", Model.Missing)</p>}
 <div class="table-wrap"><table class="data">
   <caption class="visually-hidden">FX rates</caption>
   <thead><tr><th scope="col">Currency</th><th scope="col">Month</th><th scope="col">Rate to @Model.Base</th><th scope="col">Last changed</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
   <tbody>
-  @foreach (var c in Model.Missing){<tr><td data-label="Currency">@c</td><td data-label="Month">@Model.CurLabel</td><td data-label="Rate to @Model.Base">–  Missing</td><td data-label="Last changed"></td><td data-label="Actions"><a href="/settings/fx?currency=@c#add-rate">Add rate for @c</a></td></tr>}
+  @foreach (var c in Model.Missing){<tr><td data-label="Currency">@c</td><td data-label="Month">@Model.CurLabel</td><td data-label="Rate to @Model.Base"><span class="chip warn">@Ui.Icon("warning")Missing</span></td><td data-label="Last changed"></td><td data-label="Actions"><a href="/settings/fx?currency=@c#add-rate">Add rate for @c</a></td></tr>}
   @foreach (var r in Model.Rows){<tr><td data-label="Currency">@r.Rate.Currency</td><td data-label="Month">@r.MonthLabel</td><td data-label="Rate to @Model.Base" class="num">@r.RateText</td><td data-label="Last changed">@r.At by @r.Rate.ByName</td>
     <td data-label="Actions"><a href="/settings/fx/@r.Rate.Id/edit">Edit @r.Rate.Currency @r.MonthLabel</a> · <a href="/settings/fx/@r.Rate.Id/delete">Delete @r.Rate.Currency @r.MonthLabel</a></td></tr>}
   </tbody>
@@ -30,13 +29,13 @@ else
 @if (Model.EditId is not null){<p class="muted">Changing a rate changes totals on the dashboard and in analytics for that month.</p>}
 <form method="post" action="@(Model.EditId is null ? "/settings/fx" : "/settings/fx/" + Model.EditId)" asp-antiforgery="true" class="form" novalidate>
   <div class="field@(Model.Errors.ContainsKey("currency") ? " has-error" : "")"><label for="f-currency">Currency (required)</label>
-    @if (Model.Errors.TryGetValue("currency", out var e1)){<span class="field-error" id="e-currency"><span aria-hidden="true">⚠ </span>@e1</span>}
+    @if (Model.Errors.TryGetValue("currency", out var e1)){<span class="field-error" id="e-currency">@Ui.Icon("error")@e1</span>}
     <select id="f-currency" name="currency" aria-invalid="@(Model.Errors.ContainsKey("currency") ? "true" : null)" aria-describedby="@(Model.Errors.ContainsKey("currency") ? "e-currency" : null)"><option value="">— choose —</option>@foreach (var c in Model.Currencies){<option selected="@(c == (Model.CurrencyValue.Length > 0 ? Model.CurrencyValue : Model.WantCur))">@c</option>}</select></div>
   <div class="field@(Model.Errors.ContainsKey("month") ? " has-error" : "")"><label for="f-month">Month (required)</label>
-    @if (Model.Errors.TryGetValue("month", out var e2)){<span class="field-error" id="e-month"><span aria-hidden="true">⚠ </span>@e2</span>}
+    @if (Model.Errors.TryGetValue("month", out var e2)){<span class="field-error" id="e-month">@Ui.Icon("error")@e2</span>}
     <input id="f-month" name="month" type="month" value="@Model.MonthValue" required aria-invalid="@(Model.Errors.ContainsKey("month") ? "true" : null)" aria-describedby="@(Model.Errors.ContainsKey("month") ? "e-month" : null)"></div>
   <div class="field@(Model.Errors.ContainsKey("rate") ? " has-error" : "")"><label for="f-rate">Rate to @Model.Base (required)</label>
-    @if (Model.Errors.TryGetValue("rate", out var e3)){<span class="field-error" id="e-rate"><span aria-hidden="true">⚠ </span>@e3</span>}
+    @if (Model.Errors.TryGetValue("rate", out var e3)){<span class="field-error" id="e-rate">@Ui.Icon("error")@e3</span>}
     <input id="f-rate" name="rate" type="text" inputmode="decimal" value="@Model.RateValue" required aria-invalid="@(Model.Errors.ContainsKey("rate") ? "true" : null)" aria-describedby="@(Model.Errors.ContainsKey("rate") ? "e-rate" : null)"></div>
   <div class="actions"><button type="submit" class="button primary">Save rate</button>@if (Model.EditId is not null){<a href="/settings/fx">Cancel</a>}</div>
 </form>

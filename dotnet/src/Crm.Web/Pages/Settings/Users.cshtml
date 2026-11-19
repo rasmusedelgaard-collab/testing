@@ -1,6 +1,5 @@
 @page "/settings/users"
 @model UsersModel
-<partial name="_SettingsNav" model='"users"' />
 <h1>Users &amp; teams</h1>
 <partial name="_ErrorSummary" model="Model.Summary" />
 <p class="muted" id="connection-info">Your connection: IP @Model.ConnectionIp (X-Forwarded-For hops trusted: @Model.Hops)</p>
@@ -21,17 +20,17 @@ else
 <h3>Add team</h3>
 <form method="post" action="/settings/teams" asp-antiforgery="true" class="form" novalidate>
   <div class="field@(Model.Errors.ContainsKey("name") ? " has-error" : "")"><label for="f-name">Team name (required)</label>
-    @if (Model.Errors.TryGetValue("name", out var en)){<span class="field-error" id="e-name"><span aria-hidden="true">⚠ </span>@en</span>}
+    @if (Model.Errors.TryGetValue("name", out var en)){<span class="field-error" id="e-name">@Ui.Icon("error")@en</span>}
     <input id="f-name" name="name" type="text" maxlength="80" value="@Model.NameValue" aria-invalid="@(Model.Errors.ContainsKey("name") ? "true" : null)" aria-describedby="@(Model.Errors.ContainsKey("name") ? "e-name" : null)"></div>
   <div class="field@(Model.Errors.ContainsKey("groupId") ? " has-error" : "")"><label for="f-groupId">Entra group object ID (required)</label>
     <span class="help">Find this in Microsoft Entra ID &gt; Groups &gt; the group &gt; Object ID.</span>
-    @if (Model.Errors.TryGetValue("groupId", out var eg)){<span class="field-error" id="e-groupId"><span aria-hidden="true">⚠ </span>@eg</span>}
+    @if (Model.Errors.TryGetValue("groupId", out var eg)){<span class="field-error" id="e-groupId">@Ui.Icon("error")@eg</span>}
     <input id="f-groupId" name="groupId" type="text" spellcheck="false" autocomplete="off" value="@Model.GroupValue" aria-invalid="@(Model.Errors.ContainsKey("groupId") ? "true" : null)" aria-describedby="@(Model.Errors.ContainsKey("groupId") ? "e-groupId" : null)"></div>
   <button type="submit" class="button primary">Add team</button>
 </form>
 <h2>Users</h2>
 <p class="muted">Roles and team membership are managed in Microsoft Entra ID.</p>
-@if (Model.NoTeamCount > 0){<p><span aria-hidden="true">⚠ </span>@Model.NoTeamCount user@(Model.NoTeamCount == 1 ? " has" : "s have") no team or a team problem. <a href="/settings/users?team=none">Show them</a></p>}
+@if (Model.NoTeamCount > 0){<p class="flash-warn" role="status">@Ui.Ring("warning")@Model.NoTeamCount user@(Model.NoTeamCount == 1 ? " has" : "s have") no team or a team problem. <a href="/settings/users?team=none">Show them</a></p>}
 <form method="get" action="/settings/users" class="filters">
   <div class="field"><label for="uq">Search name or email</label><input id="uq" name="q" type="search" value="@Model.FilterQ"></div>
   <div class="field"><label for="ur">Role</label><select id="ur" name="role"><option value="">All</option>@foreach (var r in new[] { "Admin", "Manager", "User" }){<option selected="@(r == Model.FilterRole)">@r</option>}</select></div>
@@ -42,6 +41,6 @@ else
   <caption class="visually-hidden">Users</caption>
   <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Team</th><th scope="col">Last sign-in</th><th scope="col">Status</th></tr></thead>
   <tbody>@foreach (var u in Model.Users){<tr><td data-label="Name">@u.User.Name</td><td data-label="Email">@u.User.Email</td><td data-label="Role">@u.User.Role</td>
-    <td data-label="Team">@u.User.TeamName@if (u.Badge.Length > 0){<text> </text><span class="badge warn"><span aria-hidden="true">⚠ </span>@u.Badge</span>}</td>
+    <td data-label="Team">@u.User.TeamName@if (u.Badge.Length > 0){<text> </text><span class="chip warn">@Ui.Icon("warning")@u.Badge</span>}</td>
     <td data-label="Last sign-in">@u.LastSignInText</td><td data-label="Status">@(u.User.Active ? "Active" : "Inactive")</td></tr>}</tbody>
 </table></div>

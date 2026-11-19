@@ -1,0 +1,10 @@
+@{
+    Layout = "_Layout";
+}
+<div class="settings-layout">
+  <partial name="_SettingsNav" model='ViewData["SettingsNav"] as string ?? ""' />
+  <div class="settings-content">
+@if (!Context.Items.ContainsKey("FlashRendered")){<partial name="_Flash" />}
+@RenderBody()
+  </div>
+</div>
