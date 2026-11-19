@@ -29,7 +29,7 @@ dotnet/
   .editorconfig                    # formatter rules; CI runs `dotnet format --verify-no-changes`
   src/Crm.Web/
     Crm.Web.csproj                 # RestorePackagesWithLockFile=true; embeds ../../../db/**/*.sql (see §7)
-    Program.cs                     # CLI dispatch (migrate | seed-test | run-sql) or web host
+    Program.cs                     # CLI dispatch (migrate | seed-test | seed-demo | run-sql) or web host
     web.config                     # IIS template WITHOUT secrets; publish fills in <aspNetCore> (§15.1)
     appsettings.json               # logging defaults only; never secrets
     Config/                        # CrmConfig, CrmConfigLoader (validation + refusals), ConnectionStringParser
@@ -123,7 +123,7 @@ flowchart LR
 ## 4. Startup and request pipeline
 
 `Program.cs`:
-1. If `args[0]` is `migrate`, `seed-test` or `run-sql`, load **only** the database configuration (§5), run the migrator (§7), exit 0/1. No web host is built.
+1. If `args[0]` is `migrate`, `seed-test`, `seed-demo` or `run-sql`, load **only** the database configuration (§5), run the migrator (§7), exit 0/1. No web host is built.
 2. Otherwise load and validate the full configuration. On `ConfigException` write the list of problems (keys only, never values) to stderr and exit 1. Under IIS this shows as "HTTP 500.30"; the smoke test catches it.
 3. Log a **warning** at startup when `AUTH_MODE=test-access-code`.
 4. Run the startup self-checks (§11.3: time zone lookup). Failure logs an error and fails `/readyz`, but does not stop the app.
@@ -293,7 +293,7 @@ Opens a connection from the system pool per call, no transaction unless stated, 
 - Audit rows (overview §7) are inserted in the same transaction, values taken from `OUTPUT deleted.*, inserted.*`, formatted invariantly (`.` decimal, ISO dates), truncated to 4000.
 - Dynamic SQL is limited to whitelisted fragments from `Domain/EntityDefinitions` (sort columns, search columns), exactly like `entities.ts`.
 
-## 7. Migrator (`dotnet Crm.Web.dll migrate | seed-test | run-sql <file>`)
+## 7. Migrator (`dotnet Crm.Web.dll migrate | seed-test | seed-demo --yes-demo [--reset-demo] | run-sql <file>`)
 
 Port of `scripts/migrate.ts`, `scripts/sqlBatches.ts`, `scripts/runSqlFile.ts`, `scripts/testAdminSeed.ts`. Runs as the deployer / DB owner identity, never as the app user.
 
@@ -306,6 +306,14 @@ Port of `scripts/migrate.ts`, `scripts/sqlBatches.ts`, `scripts/runSqlFile.ts`, 
 - **Apply:** per pending file, one transaction: all batches, then `INSERT dbo.SchemaVersions (Version, Name, Checksum)`. Failure → rollback, exit 1 with "Migration X failed and was rolled back: {SQL error number and message}". Applied file with a different checksum → exit 1 "changed after it was applied".
 - **Assert** both `CrmRowPolicy` and `CrmConfigPolicy` are enabled at the end; otherwise exit 1 (message as today).
 - **`seed-test`:** runs the embedded `test-users.sql`, then the optional named Admin upsert. `TestAdminOid(email)` must produce **exactly** the Node value: `"00000000-0000-4000-8000-" + hex(SHA256(UTF8("crm-test-admin:" + email.Trim().ToLowerInvariant())))[0..12]`, so the existing seeded row is updated, not duplicated. Unit test with a golden value from the Node function.
+- **`seed-demo --yes-demo [--reset-demo] [--edge-fx]`** (test sites only; added at the product owner's request so the test site looks alive; checklist: `docs/ux/demo-data-brief.md`). Writes about 900 fictitious rows: 3 teams, 10 users (Admin who owns nothing, 3 Managers incl. the demo persona Lars Eriksen, Users, one without team, one inactive who owns 3 closed deals; all in the reserved test-oid range `00000000-0000-4000-8000-00000000d0xx`, so the active ones appear in the test-login picker), 40 accounts (wind energy, building materials, industry; DK SE DE PL US IT CN), 100 contacts (example.com emails, 555 01xx/02xx phones), 180 opportunities (18 months of won/lost, 66 open in a 25/18/14/9 funnel, stage and owner history), 250 activities, monthly EUR/SEK/USD FX rates. Code: `Services/Demo/*` (pure, deterministic generator, fixed seed, dates relative to today), `Data/DemoSeeder.cs` (writes). Rules:
+  - **Refused** when `LIVE` is set to anything but `false`, or `WEBSITE_INSTANCE_ID` / `WEBSITE_SITE_NAME` is present (`CrmConfigLoader.DemoRefusal`); needs `--yes-demo`.
+  - **Idempotent:** marker setting `demo.seeded`; a second run prints "already present" and changes nothing. Marker missing but demo rows present: refuses until `--reset-demo`.
+  - **Demo rows are those created by a demo user** (`CreatedBy`); FX rates those last written by the demo admin. No demo flag column (no migration). `--reset-demo` deletes only those, in one transaction, then reseeds; a demo parent that a real user's row still references is kept. Audit rows are append-only (`fn_Deny`), so they, the demo users/teams and the three added picklist values stay after a reset.
+  - **Writes through RLS:** each owner's rows are inserted with that owner's session context (CreatedBy, ModifiedBy and audit ChangedBy = the owner, never a system user). Existing FX rates for the same month are never overwritten. Other settings (locale, visibility, accent) and existing picklist values are not changed.
+  - **Segment:** the schema has no segment column, so seed-demo adds three values to the existing `industry` picklist (Wind energy `wind`, Building materials `building`, Industry `industry`; only when missing) and uses them; the segment is also in the account notes.
+  - **FX:** clean variant by default (every month present). `--edge-fx` (QA) drops the current month's SEK rate and makes two open deals NOK, which has no rates.
+  - Tests: `Unit/DemoGeneratorTests`, `Unit/DemoGuardTests`, `Sql/DemoSeedTests`, and `db/tests/demo-seed-check.sql` in the .NET CI job.
 - **`run-sql`:** same behaviour as `scripts/runSqlFile.ts` (self-contained `GO` batches, report SQL error number, line and procedure per failing batch, continue, exit 1 if any batch failed or any result row says `FAIL`).
 - Logs never contain the connection string or password.
 

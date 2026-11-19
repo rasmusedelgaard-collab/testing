@@ -20,13 +20,15 @@ Nothing is uploaded by hand.
 
 ## Deploy
 
-5. GitHub > Actions > **Deploy .NET to test (MonsterASP)** > Run workflow. Defaults are right for a normal deploy (it requires a green ".NET CI" run for the commit). Options: `self_contained` (fallback), `require_green_ci`, `run_migrations` / `seed_test` / `migrator` (below), `debug_stdout` (debug only), `diagnose` (debug only, see Troubleshooting).
+5. GitHub > Actions > **Deploy .NET to test (MonsterASP)** > Run workflow. Defaults are right for a normal deploy (it requires a green ".NET CI" run for the commit). Options: `self_contained` (fallback), `require_green_ci`, `run_migrations` / `seed_test` / `seed_demo` / `reset_demo` / `migrator` (below), `debug_stdout` (debug only), `diagnose` (debug only, see Troubleshooting).
 6. **Tables and test users (first time, and after each new migration).** Preferred, from your PC (the DB firewall blocks GitHub's changing IPs), with the .NET 10 SDK and the repo checked out:
    ```
    export DB_AUTH_MODE=sql-password DB_CONNECTION_STRING='<same string as the secret>'
    dotnet run --project dotnet/src/Crm.Web -c Release -- migrate
    dotnet run --project dotnet/src/Crm.Web -c Release -- seed-test    # optional TEST_ADMIN_NAME / TEST_ADMIN_EMAIL for the named Admin
+   dotnet run --project dotnet/src/Crm.Web -c Release -- seed-demo --yes-demo   # optional: fictitious demo data so the site looks alive
    ```
+   Demo data: `seed-demo --yes-demo` is safe to repeat (it does nothing when the demo data is already there); add `--reset-demo` to remove only the demo rows and reseed them with fresh dates (do this now and then so "today" and "overdue" stay meaningful). It refuses on `LIVE=true` or Azure, never touches other rows, and its users (Astrid Holm = Admin, plus managers and users per team) appear in the test sign-in picker. From GitHub: tick `seed_demo` (or `reset_demo`) together with `run_migrations`.
    Until the .NET migrator exists, `npm ci && npm run db:migrate && npm run db:seed:test` with the same variables does the same. From GitHub: tick `run_migrations` (and `seed_test`, choose `migrator`); expect failure if the DB firewall rejects the runner.
 7. **Row-level security test** (after migrations): Actions > **Node DB tasks on test (manual)** > Run workflow with `run_rls_test` ticked. Every row must be PASS. The same script runs on every push in .NET CI against a throwaway SQL Server.
 

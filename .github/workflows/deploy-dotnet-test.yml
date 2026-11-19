@@ -29,6 +29,14 @@ on:
         description: Also seed test users (seed-test; with run_migrations only)
         type: boolean
         default: false
+      seed_demo:
+        description: Also seed demo data (seed-demo --yes-demo; fictitious accounts, deals and activities; TEST data only; idempotent; with run_migrations and migrator=dotnet only)
+        type: boolean
+        default: false
+      reset_demo:
+        description: Remove the demo rows (only those) and reseed them with fresh dates (seed-demo --yes-demo --reset-demo; implies seed_demo)
+        type: boolean
+        default: false
       migrator:
         description: Migrator to use. "dotnet" = the app's built-in command, "node" = the old Node runner (until the .NET migrator exists)
         type: choice
@@ -130,6 +138,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Refuse demo data with the Node migrator
+        if: ${{ inputs.migrator == 'node' && (inputs.seed_demo || inputs.reset_demo) }}
+        run: |
+          echo "::error::seed_demo / reset_demo need migrator=dotnet (the Node runner has no seed-demo command)"
+          exit 1
+
       # GitHub runner IPs are dynamic: if the host's DB firewall rejects them this fails; run from your own PC instead.
       - name: Migrate and seed with the .NET migrator
         if: ${{ inputs.migrator == 'dotnet' }}
@@ -137,10 +151,18 @@ jobs:
           TEST_ADMIN_NAME: ${{ vars.TEST_ADMIN_NAME }}
           TEST_ADMIN_EMAIL: ${{ vars.TEST_ADMIN_EMAIL }}
           SEED_TEST: ${{ inputs.seed_test }}
+          SEED_DEMO: ${{ inputs.seed_demo }}
+          RESET_DEMO: ${{ inputs.reset_demo }}
         run: |
           dotnet --version
           dotnet run --project "$WEB_PROJECT" -c Release -- migrate
           if [ "$SEED_TEST" = "true" ]; then dotnet run --project "$WEB_PROJECT" -c Release --no-build -- seed-test; fi
+          # Demo data runs after seed-test. The command itself refuses LIVE=true and Azure, and needs --yes-demo.
+          if [ "$SEED_DEMO" = "true" ] || [ "$RESET_DEMO" = "true" ]; then
+            demo_args=(seed-demo --yes-demo)
+            if [ "$RESET_DEMO" = "true" ]; then demo_args+=(--reset-demo); fi
+            dotnet run --project "$WEB_PROJECT" -c Release --no-build -- "${demo_args[@]}"
+          fi
 
       - uses: actions/setup-node@v4
         if: ${{ inputs.migrator == 'node' }}

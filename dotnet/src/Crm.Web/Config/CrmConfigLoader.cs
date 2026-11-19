@@ -199,6 +199,25 @@ public static partial class CrmConfigLoader
     }
 
     /// <summary>Validates only the database variables. Used by the migrator commands as well.</summary>
+    /// <summary>
+    /// seed-demo refusal (null = allowed). Fail closed: LIVE must be unset or exactly "false", and no Azure App Service marker may be present.
+    /// </summary>
+    public static string? DemoRefusal(IConfiguration configuration) => DemoRefusal(k => configuration[k]);
+
+    public static string? DemoRefusal(Func<string, string?> get)
+    {
+        string? Get(string k) => string.IsNullOrWhiteSpace(get(k)) ? null : get(k)!.Trim();
+        if (Get("LIVE") is { } live && !live.Equals("false", StringComparison.OrdinalIgnoreCase))
+        {
+            return "seed-demo is refused when LIVE is set (demo data is for test sites only).";
+        }
+        if (Get("WEBSITE_INSTANCE_ID") is not null || Get("WEBSITE_SITE_NAME") is not null)
+        {
+            return "seed-demo is refused on Azure App Service (demo data is for test sites only).";
+        }
+        return null;
+    }
+
     public static DbConfig LoadDb(IConfiguration configuration) => LoadDb(k => configuration[k]);
 
     public static DbConfig LoadDb(IReadOnlyDictionary<string, string?> values) => LoadDb(k => values.TryGetValue(k, out var v) ? v : null);

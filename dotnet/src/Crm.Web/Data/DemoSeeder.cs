@@ -1,0 +1,427 @@
+using System.Data;
+using System.Globalization;
+using System.Text;
+using Crm.Web.Services;
+using Crm.Web.Services.Demo;
+using Dapper;
+using Microsoft.Data.SqlClient;
+
+namespace Crm.Web.Data;
+
+/// <summary>
+/// Writes the generated demo dataset (seed-demo). Runs on the migrator (DB owner) connection but writes through the same tables and
+/// row-level-security predicates as the app: each owner's rows are inserted with that owner's session context, so CreatedBy, ModifiedBy and
+/// the audit trail name the real owner. One transaction: either the whole set and the marker exist, or nothing changed.
+/// Demo rows are recognised by CreatedBy = a demo user (see <see cref="DemoMarker"/>); nothing else is ever touched.
+/// </summary>
+public sealed class DemoSeeder(TimeProvider time, TextWriter output)
+{
+    private const int ChunkSize = 40;
+    private const string ZeroTenant = "00000000-0000-0000-0000-000000000000";
+
+    private sealed record SettingRow(string SettingKey, string SettingValue);
+
+    private sealed record StageRow(int StageId, string Name, string StageType);
+
+    private sealed record PickRow(string PCode, int ValueId, string Label);
+
+    private sealed record TeamRow(int TeamId, Guid EntraGroupId);
+
+    private sealed record UserRow(int UserId, Guid EntraOid, int? TeamId);
+
+    public async Task<DemoDataset?> RunAsync(SqlConnection conn, bool reset, DemoOptions options, CancellationToken ct)
+    {
+        var settings = (await conn.QueryAsync<SettingRow>(
+            "SELECT SettingKey, SettingValue FROM crm.Settings WHERE SettingKey IN (N'currency.base', N'locale.timezone', N'demo.seeded')").ConfigureAwait(false))
+            .ToDictionary(s => s.SettingKey, s => s.SettingValue, StringComparer.Ordinal);
+        if (settings.GetValueOrDefault("currency.base", "DKK") != "DKK")
+        {
+            throw new MigrationException("seed-demo expects the base currency DKK (Settings currency.base); the demo FX rates and amounts are defined against DKK.");
+        }
+        var today = TimeZones.TodayIn(settings.GetValueOrDefault("locale.timezone"), time);
+        var data = DemoGenerator.Generate(today, options);
+
+        // Not committed on an early return or an exception: disposing the transaction rolls everything back.
+        await using var tx = (SqlTransaction)await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
+        // Admin context for the checks and the reset. UserId 0 is a migration-scoped context, not a real user (as in 004_seed.sql).
+        await SetContextAsync(conn, tx, 0, "Admin", null, ct).ConfigureAwait(false);
+        var existingIds = await DemoUserIdsAsync(conn, tx, data, ct).ConfigureAwait(false);
+        var hasMarker = settings.ContainsKey(DemoMarker.MarkerKey);
+        var rows = existingIds.Count == 0 ? 0 : await CountDemoRowsAsync(conn, tx, existingIds, ct).ConfigureAwait(false);
+
+        if (hasMarker && !reset)
+        {
+            output.WriteLine($"Demo data is already present ({settings[DemoMarker.MarkerKey]}); nothing to do. Use --reset-demo to rebuild it.");
+            return null;
+        }
+        if (!hasMarker && rows > 0 && !reset)
+        {
+            throw new MigrationException($"Found {rows} demo rows but no '{DemoMarker.MarkerKey}' marker: a previous run was interrupted or the marker was removed. Run with --reset-demo.");
+        }
+        if (reset)
+        {
+            await ResetAsync(conn, tx, existingIds, output, ct).ConfigureAwait(false);
+        }
+
+        await WriteAsync(conn, tx, data, ct).ConfigureAwait(false);
+        await tx.CommitAsync(ct).ConfigureAwait(false);
+        output.WriteLine($"Seeded demo data relative to {today:yyyy-MM-dd}: {data.Teams.Count} teams, {data.Users.Count} users, {data.Accounts.Count} accounts, {data.Contacts.Count} contacts, "
+            + $"{data.Opportunities.Count} opportunities, {data.Activities.Count} activities, {data.FxRates.Count} FX rates.");
+        output.WriteLine("Demo users are listed in the test sign-in picker (Astrid Holm is the demo Admin, Lars Eriksen the demo persona).");
+        if (options.FxEdge) { output.WriteLine("FX edge variant: SEK for the current month is missing and two open deals are in NOK (no NOK rates)."); }
+        return data;
+    }
+
+    private static async Task SetContextAsync(SqlConnection c, SqlTransaction tx, int userId, string role, int? teamId, CancellationToken ct) =>
+        await c.ExecuteAsync(new CommandDefinition(
+            "EXEC sp_set_session_context N'UserId', @u, @read_only = 0; EXEC sp_set_session_context N'Role', @r, @read_only = 0; EXEC sp_set_session_context N'TeamId', @t, @read_only = 0;",
+            new { u = userId, r = role, t = teamId }, tx, cancellationToken: ct)).ConfigureAwait(false);
+
+    private static async Task<List<int>> DemoUserIdsAsync(SqlConnection conn, SqlTransaction tx, DemoDataset data, CancellationToken ct) =>
+        (await conn.QueryAsync<int>(new CommandDefinition("SELECT UserId FROM crm.Users WHERE EntraOid IN @oids", new { oids = data.Users.Select(u => u.Oid).ToList() }, tx, cancellationToken: ct)).ConfigureAwait(false)).ToList();
+
+    private static async Task<int> CountDemoRowsAsync(SqlConnection conn, SqlTransaction tx, List<int> ids, CancellationToken ct) =>
+        await conn.ExecuteScalarAsync<int>(new CommandDefinition(
+            """
+            SELECT (SELECT COUNT(*) FROM crm.Accounts      WHERE CreatedBy IN @ids)
+                 + (SELECT COUNT(*) FROM crm.Contacts      WHERE CreatedBy IN @ids)
+                 + (SELECT COUNT(*) FROM crm.Opportunities WHERE CreatedBy IN @ids)
+                 + (SELECT COUNT(*) FROM crm.Activities    WHERE CreatedBy IN @ids)
+            """, new { ids }, tx, cancellationToken: ct)).ConfigureAwait(false);
+
+    /// <summary>
+    /// Removes demo rows only: created by a demo user, and (for parents) not referenced by any row a real user created.
+    /// Audit rows are append-only by design and stay. Demo users and teams stay too (audit rows reference them).
+    /// </summary>
+    private static async Task ResetAsync(SqlConnection conn, SqlTransaction tx, List<int> ids, TextWriter output, CancellationToken ct)
+    {
+        if (ids.Count == 0)
+        {
+            return;
+        }
+        async Task<int> Del(string sql) => await conn.ExecuteAsync(new CommandDefinition(sql, new { ids }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        var act = await Del("DELETE FROM crm.Activities WHERE CreatedBy IN @ids").ConfigureAwait(false);
+        var opp = await Del("""
+            DELETE o FROM crm.Opportunities o WHERE o.CreatedBy IN @ids
+              AND NOT EXISTS (SELECT 1 FROM crm.Activities a WHERE a.OpportunityId = o.OpportunityId)
+            """).ConfigureAwait(false);
+        var con = await Del("""
+            DELETE c FROM crm.Contacts c WHERE c.CreatedBy IN @ids
+              AND NOT EXISTS (SELECT 1 FROM crm.Opportunities o WHERE o.PrimaryContactId = c.ContactId)
+              AND NOT EXISTS (SELECT 1 FROM crm.Activities a WHERE a.ContactId = c.ContactId)
+            """).ConfigureAwait(false);
+        var acc = await Del("""
+            DELETE a FROM crm.Accounts a WHERE a.CreatedBy IN @ids
+              AND NOT EXISTS (SELECT 1 FROM crm.Contacts c WHERE c.AccountId = a.AccountId)
+              AND NOT EXISTS (SELECT 1 FROM crm.Opportunities o WHERE o.AccountId = a.AccountId)
+              AND NOT EXISTS (SELECT 1 FROM crm.Activities x WHERE x.AccountId = a.AccountId)
+            """).ConfigureAwait(false);
+        var fx = await Del("DELETE FROM crm.FxRates WHERE ModifiedBy IN @ids").ConfigureAwait(false);
+        await conn.ExecuteAsync(new CommandDefinition("DELETE FROM crm.Settings WHERE SettingKey = @k", new { k = DemoMarker.MarkerKey }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        output.WriteLine($"Reset: removed {acc} accounts, {con} contacts, {opp} opportunities, {act} activities and {fx} FX rates created by demo users.");
+        var left = await CountDemoRowsAsync(conn, tx, ids, ct).ConfigureAwait(false);
+        if (left > 0)
+        {
+            output.WriteLine($"Note: {left} demo records were kept because rows created by real users still reference them.");
+        }
+    }
+
+    private static async Task WriteAsync(SqlConnection conn, SqlTransaction tx, DemoDataset data, CancellationToken ct)
+    {
+        var teamIds = await EnsureTeamsAsync(conn, tx, data, ct).ConfigureAwait(false);
+        var userIds = await EnsureUsersAsync(conn, tx, data, teamIds, ct).ConfigureAwait(false);
+        await EnsureIndustryValuesAsync(conn, tx, ct).ConfigureAwait(false);
+        var lookups = await LoadLookupsAsync(conn, tx, ct).ConfigureAwait(false);
+        var ctx = new WriteContext(data, userIds, teamIds, lookups, Guid.NewGuid());
+
+        // Phases, each in the session context of the row owner: accounts and contacts, then opportunities (which may belong to another owner), then activities.
+        foreach (var owner in data.Users.Where(u => u.Role != "Admin"))
+        {
+            await UseOwnerAsync(conn, tx, ctx, owner, ct).ConfigureAwait(false);
+            await WriteAccountsAndContactsAsync(conn, tx, ctx, owner.Key, ct).ConfigureAwait(false);
+        }
+        foreach (var owner in data.Users.Where(u => u.Role != "Admin"))
+        {
+            await UseOwnerAsync(conn, tx, ctx, owner, ct).ConfigureAwait(false);
+            await WriteOpportunitiesAsync(conn, tx, ctx, owner.Key, ct).ConfigureAwait(false);
+        }
+        foreach (var owner in data.Users.Where(u => u.Role != "Admin"))
+        {
+            await UseOwnerAsync(conn, tx, ctx, owner, ct).ConfigureAwait(false);
+            await WriteActivitiesAsync(conn, tx, ctx, owner.Key, ct).ConfigureAwait(false);
+        }
+
+        var adminId = userIds[DemoMarker.AdminKey];
+        await SetContextAsync(conn, tx, adminId, "Admin", null, ct).ConfigureAwait(false);
+        await WriteFxAsync(conn, tx, data, adminId, ct).ConfigureAwait(false);
+        await conn.ExecuteAsync(new CommandDefinition(
+            "INSERT crm.Settings (SettingKey, SettingValue, ModifiedBy) VALUES (@k, @v, @by)",
+            new { k = DemoMarker.MarkerKey, v = $"v{DemoMarker.SchemaVersion.ToString(CultureInfo.InvariantCulture)} {data.Today:yyyy-MM-dd}", by = adminId }, tx, cancellationToken: ct)).ConfigureAwait(false);
+    }
+
+    private sealed record WriteContext(DemoDataset Data, Dictionary<string, int> UserIds, Dictionary<string, int> TeamIds, Lookups Lookups, Guid RunId)
+    {
+        public Dictionary<string, int> AccountId { get; } = [];
+
+        public Dictionary<string, int> ContactId { get; } = [];
+
+        public Dictionary<string, int> OppId { get; } = [];
+
+        public int? TeamOf(string ownerKey) => Data.Users.First(u => u.Key == ownerKey).TeamKey is { } t ? TeamIds[t] : null;
+    }
+
+    private static Task UseOwnerAsync(SqlConnection conn, SqlTransaction tx, WriteContext ctx, DemoUser owner, CancellationToken ct) =>
+        SetContextAsync(conn, tx, ctx.UserIds[owner.Key], owner.Role, ctx.TeamOf(owner.Key), ct);
+
+    /// <summary>Audit rows are written as the owner: ChangedBy = OwnerId = the record owner, ChangedAt = when the change happened.</summary>
+    private static Task WriteAuditAsync(SqlConnection conn, SqlTransaction tx, WriteContext ctx, string ownerKey, List<object?[]> rows, CancellationToken ct) =>
+        InsertAsync(conn, tx, "crm.AuditLog",
+            ["EntityType", "EntityId", "Action", "FieldName", "OldValue", "NewValue", "OwnerId", "TeamId", "ChangedBy", "ChangedAt", "CorrelationId"], rows, false, ct);
+
+    private static object?[] AuditRow(WriteContext ctx, string ownerKey, string type, int id, string action, string? field, string? oldValue, string? newValue, DateTime at) =>
+        [type, id, action, field, oldValue, newValue, ctx.UserIds[ownerKey], ctx.TeamOf(ownerKey), ctx.UserIds[ownerKey], at, ctx.RunId];
+
+    private static async Task WriteAccountsAndContactsAsync(SqlConnection conn, SqlTransaction tx, WriteContext ctx, string ownerKey, CancellationToken ct)
+    {
+        var ownerId = ctx.UserIds[ownerKey];
+        var teamId = ctx.TeamOf(ownerKey);
+        var accounts = ctx.Data.Accounts.Where(a => a.OwnerKey == ownerKey).ToList();
+        var contacts = ctx.Data.Contacts.Where(c => c.OwnerKey == ownerKey).ToList();
+        var audit = new List<object?[]>();
+
+        var accountIds = await InsertAsync(conn, tx, "crm.Accounts",
+            ["Name", "Website", "Phone", "IndustryValueId", "Street", "PostalCode", "City", "CountryCode", "Notes", "OwnerId", "TeamId", "CreatedBy", "CreatedAt", "ModifiedBy", "ModifiedAt"],
+            accounts.Select(a => new object?[] { a.Name, a.Website, a.Phone, a.Industry is null ? null : ctx.Lookups.IndustryByLabel(a.Industry), a.Street, a.PostalCode, a.City, a.Country, a.Notes, ownerId, teamId, ownerId, a.CreatedAt, ownerId, a.CreatedAt }).ToList(), true, ct).ConfigureAwait(false);
+        for (var i = 0; i < accounts.Count; i++)
+        {
+            ctx.AccountId[accounts[i].Key] = accountIds[i];
+            audit.Add(AuditRow(ctx, ownerKey, "account", accountIds[i], "C", null, null, accounts[i].Name, accounts[i].CreatedAt));
+        }
+
+        var contactIds = await InsertAsync(conn, tx, "crm.Contacts",
+            ["AccountId", "FirstName", "LastName", "JobTitle", "Email", "Phone", "Mobile", "OwnerId", "TeamId", "CreatedBy", "CreatedAt", "ModifiedBy", "ModifiedAt"],
+            contacts.Select(c => new object?[] { ctx.AccountId[c.AccountKey], c.FirstName, c.LastName, c.JobTitle, c.Email, c.Phone, c.Mobile, ownerId, teamId, ownerId, c.CreatedAt, ownerId, c.CreatedAt }).ToList(), true, ct).ConfigureAwait(false);
+        for (var i = 0; i < contacts.Count; i++)
+        {
+            ctx.ContactId[contacts[i].Key] = contactIds[i];
+            audit.Add(AuditRow(ctx, ownerKey, "contact", contactIds[i], "C", null, null, $"{contacts[i].FirstName} {contacts[i].LastName}".Trim(), contacts[i].CreatedAt));
+        }
+        await WriteAuditAsync(conn, tx, ctx, ownerKey, audit, ct).ConfigureAwait(false);
+    }
+
+    private static async Task WriteOpportunitiesAsync(SqlConnection conn, SqlTransaction tx, WriteContext ctx, string ownerKey, CancellationToken ct)
+    {
+        var lk = ctx.Lookups;
+        var ownerId = ctx.UserIds[ownerKey];
+        var teamId = ctx.TeamOf(ownerKey);
+        var opps = ctx.Data.Opportunities.Where(o => o.OwnerKey == ownerKey).ToList();
+        var audit = new List<object?[]>();
+        int StageOf(int slot) => slot == DemoOpportunity.SlotWon ? lk.WonStage : slot == DemoOpportunity.SlotLost ? lk.LostStage : lk.OpenStages[Math.Min(slot, lk.OpenStages.Count - 1)];
+        int? LostReason(string? label) => label is null ? null : lk.Pick("lost_reason", label) ?? lk.LostReasons.Cast<int?>().FirstOrDefault();
+        var ids = await InsertAsync(conn, tx, "crm.Opportunities",
+            ["Name", "AccountId", "PrimaryContactId", "StageId", "Amount", "CurrencyCode", "CloseDate", "LeadSourceValueId", "LostReasonValueId", "ClosedAt", "OwnerId", "TeamId", "CreatedBy", "CreatedAt", "ModifiedBy", "ModifiedAt"],
+            opps.Select(o => new object?[]
+            {
+                o.Name, ctx.AccountId[o.AccountKey], o.ContactKey is null ? null : ctx.ContactId[o.ContactKey], StageOf(o.StageSlot), o.Amount, o.Currency, o.CloseDate,
+                lk.Pick("lead_source", o.LeadSource), LostReason(o.LostReason), o.ClosedAt, ownerId, teamId, ownerId, o.CreatedAt, ownerId, o.ModifiedAt,
+            }).ToList(), true, ct).ConfigureAwait(false);
+        for (var i = 0; i < opps.Count; i++)
+        {
+            var o = opps[i];
+            ctx.OppId[o.Key] = ids[i];
+            audit.Add(AuditRow(ctx, ownerKey, "opportunity", ids[i], "C", null, null, o.Name, o.CreatedAt));
+            foreach (var change in o.StageChanges)
+            {
+                var from = change.FromSlot < DemoOpportunity.SlotWon ? lk.OpenStages[Math.Min(change.FromSlot, lk.OpenStages.Count - 1)] : StageOf(change.FromSlot);
+                audit.Add(AuditRow(ctx, ownerKey, "opportunity", ids[i], "U", "StageId", lk.StageNames[from], lk.StageNames[StageOf(change.ToSlot)], change.At));
+            }
+            if (o.PreviousOwnerKey is not null && o.OwnerChangedAt is { } at)
+            {
+                audit.Add(AuditRow(ctx, ownerKey, "opportunity", ids[i], "U", "OwnerId", ctx.UserIds[o.PreviousOwnerKey].ToString(CultureInfo.InvariantCulture), ownerId.ToString(CultureInfo.InvariantCulture), at));
+            }
+        }
+        await WriteAuditAsync(conn, tx, ctx, ownerKey, audit, ct).ConfigureAwait(false);
+    }
+
+    private static async Task WriteActivitiesAsync(SqlConnection conn, SqlTransaction tx, WriteContext ctx, string ownerKey, CancellationToken ct)
+    {
+        var ownerId = ctx.UserIds[ownerKey];
+        var teamId = ctx.TeamOf(ownerKey);
+        var acts = ctx.Data.Activities.Where(a => a.OwnerKey == ownerKey).ToList();
+        var ids = await InsertAsync(conn, tx, "crm.Activities",
+            ["ActivityType", "Subject", "Description", "AccountId", "ContactId", "OpportunityId", "DueDate", "DueTime", "IsDone", "DoneAt", "OwnerId", "TeamId", "CreatedBy", "CreatedAt", "ModifiedBy", "ModifiedAt"],
+            acts.Select(a => new object?[]
+            {
+                a.Type, a.Subject, a.Description, ctx.AccountId[a.AccountKey], a.ContactKey is null ? null : ctx.ContactId[a.ContactKey], a.OpportunityKey is null ? null : ctx.OppId[a.OpportunityKey],
+                a.DueDate, a.DueTime, a.IsDone, a.DoneAt, ownerId, teamId, ownerId, a.CreatedAt, ownerId, a.ModifiedAt,
+            }).ToList(), true, ct).ConfigureAwait(false);
+        var audit = acts.Select((a, i) => AuditRow(ctx, ownerKey, "activity", ids[i], "C", null, null, a.Subject, a.CreatedAt)).ToList();
+        await WriteAuditAsync(conn, tx, ctx, ownerKey, audit, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Segments are 'industry' picklist values with Codes wind / building / industry (added when missing; existing values are never changed or deactivated).</summary>
+    private static async Task EnsureIndustryValuesAsync(SqlConnection conn, SqlTransaction tx, CancellationToken ct)
+    {
+        foreach (var (code, label) in DemoCatalog.IndustryValues)
+        {
+            await conn.ExecuteAsync(new CommandDefinition(
+                """
+                DECLARE @p int = (SELECT PicklistId FROM crm.Picklists WHERE Code = 'industry');
+                IF @p IS NOT NULL AND NOT EXISTS (SELECT 1 FROM crm.PicklistValues WHERE PicklistId = @p AND (Code = @c OR Label = @l))
+                  INSERT crm.PicklistValues (PicklistId, Code, Label, SortOrder)
+                  VALUES (@p, @c, @l, (SELECT ISNULL(MAX(SortOrder), 0) + 1 FROM crm.PicklistValues WHERE PicklistId = @p))
+                """, new { c = code, l = label }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<Dictionary<string, int>> EnsureTeamsAsync(SqlConnection conn, SqlTransaction tx, DemoDataset data, CancellationToken ct)
+    {
+        foreach (var t in data.Teams)
+        {
+            var clash = await conn.ExecuteScalarAsync<int>(new CommandDefinition("SELECT COUNT(*) FROM crm.Teams WHERE Name = @n AND EntraGroupId <> @g", new { n = t.Name, g = t.GroupId }, tx, cancellationToken: ct)).ConfigureAwait(false);
+            if (clash > 0)
+            {
+                throw new MigrationException($"A team named '{t.Name}' already exists and is not a demo team. Rename it first; seed-demo never changes existing teams.");
+            }
+            await conn.ExecuteAsync(new CommandDefinition(
+                "IF NOT EXISTS (SELECT 1 FROM crm.Teams WHERE EntraGroupId = @g) INSERT crm.Teams (Name, EntraGroupId) VALUES (@n, @g)",
+                new { n = t.Name, g = t.GroupId }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        }
+        var rows = await conn.QueryAsync<TeamRow>(new CommandDefinition("SELECT TeamId, EntraGroupId FROM crm.Teams WHERE EntraGroupId IN @g", new { g = data.Teams.Select(t => t.GroupId).ToList() }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        var byGroup = rows.ToDictionary(r => r.EntraGroupId, r => r.TeamId);
+        return data.Teams.ToDictionary(t => t.Key, t => byGroup[t.GroupId]);
+    }
+
+    private static async Task<Dictionary<string, int>> EnsureUsersAsync(SqlConnection conn, SqlTransaction tx, DemoDataset data, Dictionary<string, int> teamIds, CancellationToken ct)
+    {
+        var i = 0;
+        foreach (var u in data.Users)
+        {
+            i++;
+            var teamId = u.TeamKey is null ? (int?)null : teamIds[u.TeamKey];
+            await conn.ExecuteAsync(new CommandDefinition(
+                """
+                IF NOT EXISTS (SELECT 1 FROM crm.Users WHERE EntraOid = @oid)
+                  INSERT crm.Users (EntraOid, TenantId, DisplayName, Email, Role, TeamId, TeamStatus, IsActive, LastSignInAt, CreatedAt, ModifiedAt)
+                  VALUES (@oid, @tenant, @name, @email, @role, @team, @status, @active, @signIn, @created, @created)
+                """,
+                new
+                {
+                    oid = u.Oid,
+                    tenant = Guid.Parse(ZeroTenant),
+                    name = u.Name,
+                    email = u.Email,
+                    role = u.Role,
+                    team = teamId,
+                    status = teamId is null ? "none" : "ok",
+                    active = u.Active,
+                    signIn = data.Today.AddDays(-i).ToDateTime(new TimeOnly(9, 0)),
+                    created = data.Today.AddDays(-700).ToDateTime(new TimeOnly(9, 0)),
+                }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        }
+        var rows = await conn.QueryAsync<UserRow>(new CommandDefinition("SELECT UserId, EntraOid, TeamId FROM crm.Users WHERE EntraOid IN @oids", new { oids = data.Users.Select(u => u.Oid).ToList() }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        var byOid = rows.ToDictionary(r => r.EntraOid, r => r.UserId);
+        return data.Users.ToDictionary(u => u.Key, u => byOid[u.Oid]);
+    }
+
+    private sealed record Lookups(IReadOnlyList<int> OpenStages, int WonStage, int LostStage, IReadOnlyDictionary<int, string> StageNames, Func<string, string, int?> Pick, IReadOnlyList<int> LostReasons)
+    {
+        public int? IndustryByLabel(string label) => Pick("industry", label);
+    }
+
+    private static async Task<Lookups> LoadLookupsAsync(SqlConnection conn, SqlTransaction tx, CancellationToken ct)
+    {
+        var stages = (await conn.QueryAsync<StageRow>(new CommandDefinition("SELECT StageId, Name, StageType FROM crm.PipelineStages ORDER BY SortOrder, StageId", transaction: tx, cancellationToken: ct)).ConfigureAwait(false)).ToList();
+        var open = stages.Where(s => s.StageType == "open").Select(s => s.StageId).ToList();
+        var won = stages.FirstOrDefault(s => s.StageType == "won")?.StageId;
+        var lost = stages.FirstOrDefault(s => s.StageType == "lost")?.StageId;
+        if (open.Count == 0 || won is null || lost is null)
+        {
+            throw new MigrationException("seed-demo needs at least one open, one won and one lost pipeline stage.");
+        }
+        var picks = (await conn.QueryAsync<PickRow>(new CommandDefinition(
+            "SELECT p.Code AS PCode, v.ValueId, v.Label FROM crm.PicklistValues v JOIN crm.Picklists p ON p.PicklistId = v.PicklistId WHERE v.IsActive = 1", transaction: tx, cancellationToken: ct)).ConfigureAwait(false)).ToList();
+        int? Pick(string code, string label) => picks.FirstOrDefault(p => p.PCode == code && p.Label == label)?.ValueId;
+        return new Lookups(open, won.Value, lost.Value, stages.ToDictionary(s => s.StageId, s => s.Name), Pick, picks.Where(p => p.PCode == "lost_reason").Select(p => p.ValueId).ToList());
+    }
+
+    private static async Task WriteFxAsync(SqlConnection conn, SqlTransaction tx, DemoDataset data, int adminId, CancellationToken ct)
+    {
+        // Never overwrite a rate somebody else entered for the same month.
+        const string sql = """
+            IF NOT EXISTS (SELECT 1 FROM crm.FxRates WHERE BaseCurrency = 'DKK' AND CurrencyCode = @c AND RateMonth = @m)
+              INSERT crm.FxRates (BaseCurrency, CurrencyCode, RateMonth, Rate, ModifiedBy, ModifiedAt) VALUES ('DKK', @c, @m, @r, @by, @at)
+            """;
+        foreach (var r in data.FxRates)
+        {
+            var p = new DynamicParameters();
+            p.Add("c", r.Currency, DbType.AnsiStringFixedLength, size: 3);
+            p.Add("m", r.Month.ToDateTime(TimeOnly.MinValue), DbType.Date);
+            p.Add("r", r.Rate, DbType.Decimal, precision: 19, scale: 8);
+            p.Add("by", adminId, DbType.Int32);
+            p.Add("at", r.Month.ToDateTime(new TimeOnly(8, 0)), DbType.DateTime2);
+            await conn.ExecuteAsync(new CommandDefinition(sql, p, tx, cancellationToken: ct)).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Multi-row insert in chunks. With <paramref name="wantIds"/> the new identity values come back in row order.</summary>
+    private static async Task<List<int>> InsertAsync(SqlConnection conn, SqlTransaction tx, string table, string[] columns, IReadOnlyList<object?[]> rows, bool wantIds, CancellationToken ct)
+    {
+        var ids = new List<int>();
+        // table and columns are literals at the call sites above, never external input.
+        var head = string.Concat("INSERT ", table, " (", string.Join(", ", columns), ") VALUES (");
+        for (var offset = 0; offset < rows.Count; offset += ChunkSize)
+        {
+            var sql = new StringBuilder("DECLARE @ids TABLE (i int NOT NULL, id int NOT NULL);\n");
+            var p = new DynamicParameters();
+            var n = Math.Min(ChunkSize, rows.Count - offset);
+            for (var r = 0; r < n; r++)
+            {
+                var row = rows[offset + r];
+                sql.Append(head);
+                for (var c = 0; c < columns.Length; c++)
+                {
+                    var name = $"p{r.ToString(CultureInfo.InvariantCulture)}_{c.ToString(CultureInfo.InvariantCulture)}";
+                    AddParam(p, name, row[c]);
+                    sql.Append(c > 0 ? ", @" : "@").Append(name);
+                }
+                sql.Append(");\n");
+                if (wantIds)
+                {
+                    sql.Append("INSERT @ids VALUES (").Append(r).Append(", CAST(SCOPE_IDENTITY() AS int));\n");
+                }
+            }
+            if (wantIds)
+            {
+                sql.Append("SELECT id FROM @ids ORDER BY i;");
+                ids.AddRange(await conn.QueryAsync<int>(new CommandDefinition(sql.ToString(), p, tx, cancellationToken: ct)).ConfigureAwait(false));
+            }
+            else
+            {
+                await conn.ExecuteAsync(new CommandDefinition(sql.ToString(), p, tx, cancellationToken: ct)).ConfigureAwait(false);
+            }
+        }
+        if (wantIds && ids.Count != rows.Count)
+        {
+            throw new MigrationException($"Inserting into {table} returned {ids.Count} ids for {rows.Count} rows.");
+        }
+        return ids;
+    }
+
+    private static void AddParam(DynamicParameters p, string name, object? v)
+    {
+        switch (v)
+        {
+            case null: p.Add(name, null, DbType.String); break;
+            case string s: p.Add(name, s, DbType.String); break;
+            case int i: p.Add(name, i, DbType.Int32); break;
+            case bool b: p.Add(name, b, DbType.Boolean); break;
+            case decimal d: p.Add(name, d, DbType.Decimal, precision: 19, scale: 2); break;
+            case DateTime dt: p.Add(name, dt, DbType.DateTime2); break;
+            case DateOnly d: p.Add(name, d.ToDateTime(TimeOnly.MinValue), DbType.Date); break;
+            case TimeOnly t: p.Add(name, t.ToTimeSpan(), DbType.Time); break;
+            case Guid g: p.Add(name, g, DbType.Guid); break;
+            default: throw new ArgumentOutOfRangeException(nameof(v), v.GetType().Name, "Unsupported parameter type");
+        }
+    }
+}

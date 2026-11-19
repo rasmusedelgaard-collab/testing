@@ -123,6 +123,28 @@ jobs:
           DB_CONNECTION_STRING: ${{ env.SA_CONNECTION }}Database=crm_ci;
         run: dotnet run --project "$WEB_PROJECT" -c Release --no-build -- run-sql db/tests/rls-integration.sql
 
+      - name: Demo data (seed-demo twice, SQL checks, RLS integration with demo rows present, reset, refusals)
+        shell: bash
+        env:
+          DB_AUTH_MODE: sql-password
+          DB_CONNECTION_STRING: ${{ env.SA_CONNECTION }}Database=crm_ci;
+        run: |
+          set -euo pipefail
+          run() { dotnet run --project "$WEB_PROJECT" -c Release --no-build -- "$@"; }
+          run seed-test
+          run seed-demo --yes-demo
+          run seed-demo --yes-demo | tee second-run.txt
+          grep -q "already present" second-run.txt   # idempotent: the second run changes nothing
+          run run-sql db/tests/demo-seed-check.sql
+          run run-sql db/tests/rls-integration.sql    # RLS still holds with demo rows in the tables
+          run seed-demo --yes-demo --reset-demo
+          run run-sql db/tests/demo-seed-check.sql
+          run run-sql db/tests/rls-integration.sql
+          # Refusals: each of these must fail and write nothing.
+          if run seed-demo; then echo "::error::seed-demo ran without --yes-demo"; exit 1; fi
+          if LIVE=true run seed-demo --yes-demo; then echo "::error::seed-demo ran with LIVE=true"; exit 1; fi
+          if WEBSITE_INSTANCE_ID=x run seed-demo --yes-demo; then echo "::error::seed-demo ran on Azure"; exit 1; fi
+
       - name: Publish (framework-dependent; contains no secrets)
         run: dotnet publish "$WEB_PROJECT" -c Release --no-build -o out/web
 

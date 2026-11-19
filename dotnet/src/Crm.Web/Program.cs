@@ -11,8 +11,8 @@ using Microsoft.Extensions.WebEncoders;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 
-// Entry point. CLI commands (migrate | seed-test | run-sql <file>) load only the database configuration and never build a web host.
-if (args.Length > 0 && args[0] is "migrate" or "seed-test" or "run-sql")
+// Entry point. CLI commands (migrate | seed-test | seed-demo | run-sql <file>) load only the database configuration and never build a web host.
+if (args.Length > 0 && args[0] is "migrate" or "seed-test" or "seed-demo" or "run-sql")
 {
     return await CliRunner.RunAsync(args);
 }
