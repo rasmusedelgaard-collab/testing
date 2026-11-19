@@ -1,0 +1,50 @@
+@model Crm.Web.Pages.Entity.FormField
+@{
+    var f = Model;
+    var describedBy = string.Join(' ', new[] { f.Error is not null ? $"e-{f.Name}" : "", f.Help is not null ? $"h-{f.Name}" : "" }.Where(x => x.Length > 0));
+    var describedAttr = describedBy.Length > 0 ? describedBy : null;
+    var width = f.Type is "date" or "time" || f.Name is "Amount" ? " w-md" : f.Name is "PostalCode" or "CountryCode" ? " w-sm" : "";
+}
+<div class="field@(f.Error is not null ? " has-error" : "")@width">
+@if (f.Type == "radio")
+{
+  <fieldset aria-describedby="@describedAttr"><legend>@f.Label</legend>
+    <div class="type-row">
+    @for (var i = 0; i < f.Options!.Count; i++)
+    {
+      var o = f.Options[i];
+      <label class="inline"><input type="radio" id="@(i == 0 ? "f-" + f.Name : "f-" + f.Name + "-" + i)" name="@f.Name" value="@o.Value" checked="@o.Selected">@Ui.Icon(o.Value) @o.Label</label>
+    }
+    </div>
+  </fieldset>
+}
+else if (f.Type == "checkbox")
+{
+  <label class="inline"><input type="checkbox" id="f-@f.Name" name="@f.Name" checked="@(f.Value.Length > 0)"> @f.Label</label>
+}
+else
+{
+  <label for="f-@f.Name">@f.Label</label>
+  @if (f.Help is not null){<span class="help" id="h-@f.Name">@f.Help</span>}
+  @if (f.Error is not null){<span class="field-error" id="e-@f.Name">@Ui.Icon("error")@f.Error</span>}
+  @if (f.Type == "select")
+  {
+    <select id="f-@f.Name" name="@f.Name" required="@f.Required" aria-invalid="@(f.Error is not null ? "true" : null)" aria-describedby="@describedAttr">
+      @foreach (var o in f.Options!){<option value="@o.Value" selected="@o.Selected">@o.Label</option>}
+    </select>
+  }
+  else if (f.Type == "textarea")
+  {
+    <textarea id="f-@f.Name" name="@f.Name" rows="4" aria-invalid="@(f.Error is not null ? "true" : null)" aria-describedby="@describedAttr">@f.Value</textarea>
+  }
+  else
+  {
+    <input id="f-@f.Name" name="@f.Name" type="@f.Type" value="@f.Value" required="@f.Required" inputmode="@f.InputMode" autocomplete="@f.Autocomplete" aria-invalid="@(f.Error is not null ? "true" : null)" aria-describedby="@describedAttr">
+  }
+}
+@if (f.Type is "radio" or "checkbox")
+{
+  @if (f.Help is not null){<span class="help" id="h-@f.Name">@f.Help</span>}
+  @if (f.Error is not null){<span class="field-error" id="e-@f.Name">@Ui.Icon("error")@f.Error</span>}
+}
+</div>

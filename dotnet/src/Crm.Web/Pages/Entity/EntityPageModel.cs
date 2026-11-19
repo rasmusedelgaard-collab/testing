@@ -111,7 +111,7 @@ public abstract class EntityPageModel(IRlsDb rls, IRlsContextAccessor identity, 
     protected FormPage BuildForm(string title, string action, string cancel, IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string> errors, FormEnv env, string rowVer = "")
     {
         var fields = EntityViews.FormFields(Def.Key, values, errors, env);
-        return new FormPage(title, action, cancel, fields, EntityViews.ErrorList(fields, errors), rowVer);
+        return new FormPage(title, action, cancel, fields, EntityViews.ErrorList(fields, errors), rowVer, Def.Key);
     }
 
     /// <summary>After a successful create/update: PRG; a hand-off to someone outside the user's visibility says so.</summary>
@@ -142,4 +142,47 @@ public abstract class EntityPageModel(IRlsDb rls, IRlsContextAccessor identity, 
         Response.StatusCode = form.Errors.Count > 0 ? StatusCodes.Status422UnprocessableEntity : StatusCodes.Status200OK;
         return Page();
     }
+
+    /// <summary>
+    /// The shared close rules (used by "Mark as won/lost" and by the board's stage endpoint when the target stage is won or lost):
+    /// the action must carry the row's RowVer, lost needs an active lost reason, and the first POST only shows the confirm page
+    /// (close date moves to today when it lies in the future). lostErrorData lets the caller re-render its own page on a missing reason.
+    /// </summary>
+    protected async Task<CloseResult> CloseCoreAsync(CrmRepo repo, string outcome, int id, string rowVer, string lostRaw, bool confirmed, Meta meta, Func<CrmRepo, Task<object?>>? lostErrorData)
+    {
+        var def = Def;
+
+        var row = await repo.GetAsync(def.Key, id);
+        if (row is null) { return new CloseResult("notfound"); }
+        if (!CrmRepo.IsRowVer(rowVer)) { return new CloseResult("conflict"); } // the action must carry the RowVer of the page it was clicked on
+        var lk = await repo.LookupsAsync();
+        var stage = lk.Stages.FirstOrDefault(s => s.Type == outcome);
+        if (stage is null) { return new CloseResult("error", $"No {outcome} stage is configured."); }
+        _ = EntityDefinitions.TryParseId(lostRaw, out var lostReason);
+        var reason = lk.List("lost_reason").FirstOrDefault(p => p.Active && p.Id == lostReason);
+        if (outcome == "lost" && reason is null) { return new CloseResult("lostError", Data: lostErrorData is null ? null : await lostErrorData(repo)); } // same transaction: one RunAsync per request
+        var today = Today(lk.Settings);
+        var moved = string.CompareOrdinal(row.S("CloseDate"), today) > 0;
+        if (!confirmed)
+        {
+            var msg = $"Mark {EntityViews.RecordName(def.Key, row)} as {outcome}? The stage changes to {stage.Name}{(outcome == "lost" ? $" (reason: {reason!.Label})" : "")}.{(moved ? " The close date will be set to today." : "")}";
+            return new CloseResult("confirm", "", moved, new ConfirmPage($"Mark as {outcome}", msg, $"{def.Path}/{id}/{outcome}",
+                [("rowVer", rowVer), ("lostReason", lostRaw), ("confirm", "1")], $"Mark as {outcome}", $"{def.Path}/{id}", EntityViews.RecordName(def.Key, row)));
+        }
+        var values = def.Columns.ToDictionary(c => c.Name, c => ColumnValue(row, c), StringComparer.Ordinal);
+        values["StageId"] = stage.Id;
+        values["LostReasonValueId"] = outcome == "lost" ? lostReason : null;
+        values["OwnerId"] = row.Int("OwnerId");
+        if (moved) { values["CloseDate"] = today; }
+        var r = await repo.UpdateAsync(def.Key, id, values, rowVer, meta);
+        return new CloseResult(r == UpdateResult.Ok ? "ok" : r == UpdateResult.Conflict ? "conflict" : "notfound", "", moved);
+    }
+
+    protected static object? ColumnValue(Row row, ColumnSpec c) => c.Type switch
+    {
+        ColType.Int => row.IntOrNull(c.Name),
+        ColType.Money => row[c.Name] is null ? null : row.Dec(c.Name),
+        ColType.Bool => row.Bool(c.Name),
+        _ => row[c.Name] is null ? null : row.S(c.Name),
+    };
 }

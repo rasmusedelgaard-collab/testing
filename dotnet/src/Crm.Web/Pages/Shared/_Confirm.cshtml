@@ -1,0 +1,15 @@
+@model Crm.Web.Pages.Entity.ConfirmPage
+@{
+    var listPath = Model.Cancel.Contains('/', StringComparison.Ordinal) ? Model.Cancel[..Model.Cancel.LastIndexOf('/')] : "/";
+    var listLabel = listPath.Length > 1 ? char.ToUpperInvariant(listPath[1]) + listPath[2..] : "Home";
+}
+<div class="confirm">
+<partial name="_Breadcrumb" model='new List<(string, string?)> { (listLabel, listPath), (Model.RecordName, Model.Cancel), (Model.Title, null) }' />
+<h1>@Model.Title</h1>
+<div class="alert warn">@Ui.Ring("warning")<p>@Model.Message</p></div>
+<form method="post" action="@Model.Action" asp-antiforgery="true">
+  @foreach (var f in Model.Fields){<input type="hidden" name="@f.Name" value="@f.Value">}
+  <div class="actions"><button type="submit" class="button primary">@Model.Label</button>
+  <a class="button quiet" href="@Model.Cancel">Cancel</a></div>
+</form>
+</div>

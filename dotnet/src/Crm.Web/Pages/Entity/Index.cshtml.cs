@@ -6,6 +6,10 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Crm.Web.Pages.Entity;
 
+public sealed record Head(string Label, string? Href, string Aria, bool Right);
+
+public sealed record RowAction(string Name, string EditHref);
+
 public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimeProvider time) : EntityPageModel(rls, identity, time)
 {
     public int Total { get; private set; }
@@ -16,7 +20,30 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
 
     public IReadOnlyList<Column> Columns { get; private set; } = [];
 
-    public IReadOnlyList<(string Label, string? Href, string Aria)> Heads { get; private set; } = [];
+    public IReadOnlyList<Head> Heads { get; private set; } = [];
+
+    public IReadOnlyList<RowAction> RowActions { get; private set; } = [];
+
+    /// <summary>One entry per filter that is not at its default: the chip text and the URL without that filter.</summary>
+    public IReadOnlyList<(string Label, string Href)> ActiveFilters { get; private set; } = [];
+
+    public string BoardHref { get; private set; } = "/pipeline";
+
+    public string SearchHint => Def.Key switch
+    {
+        "accounts" => "Search name, city...",
+        "contacts" => "Search name, account, email...",
+        "opportunities" => "Search name, account...",
+        _ => "Search subject...",
+    };
+
+    public string EmptyHint => Def.Key switch
+    {
+        "accounts" => "Accounts are the companies you sell to.",
+        "contacts" => "Contacts are the people you work with at your accounts.",
+        "opportunities" => "Opportunities track deals from first contact to close.",
+        _ => "Activities record calls, meetings, tasks and notes.",
+    };
 
     public IReadOnlyList<IReadOnlyList<Cell>> Rows { get; private set; } = [];
 
@@ -76,11 +103,15 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
         PageCount = Math.Max(1, (int)Math.Ceiling(data.total / (double)data.q.PageSize));
         IsFiltered = data.q.Q.Length > 0 || data.q.Filters.Any(kv => def.Filters.First(x => x.Key == kv.Key).Default != kv.Value);
         Columns = EntityViews.ColumnsFor(def.Key);
-        Heads = Columns.Select(c => (c.Label,
+        Heads = Columns.Select(c => new Head(c.Label,
             c.Sort is null ? null : EntityViews.PageHref(def.Path, data.q, new Dictionary<string, string?> { ["sort"] = c.Sort, ["dir"] = data.q.Sort == c.Sort && data.q.Dir == "asc" ? "desc" : "asc", ["page"] = "1" }),
-            data.q.Sort == c.Sort ? (data.q.Dir == "asc" ? "ascending" : "descending") : "none")).ToList();
-        Rows = data.rows.Select(r => EntityViews.CellsFor(def.Key, r, f, data.today, returnTo)).ToList();
+            data.q.Sort == c.Sort ? (data.q.Dir == "asc" ? "ascending" : "descending") : "none",
+            c.Label is "Amount" or "Open pipeline")).ToList();
+        Rows = data.rows.Select(r => EntityViews.CellsFor(def.Key, r, f, data.today, returnTo, data.lk.Stages)).ToList();
+        RowActions = data.rows.Select(r => new RowAction(EntityViews.RecordName(def.Key, r), $"{def.Path}/{r.Int("Id")}/edit")).ToList();
         Filters = EntityViews.FilterFields(def.Key, data.q, data.lk, data.owners, Ctx.Role == CrmRole.Admin);
+        ActiveFilters = EntityViews.ActiveFilters(def, data.q, Filters);
+        BoardHref = data.q.Filter("owner") is { Length: > 0 } ow ? $"/pipeline?owner={Uri.EscapeDataString(ow)}" : "/pipeline";
         PageNo = data.q.Page;
         PrevHref = data.q.Page > 1 ? EntityViews.PageHref(def.Path, data.q, new Dictionary<string, string?> { ["page"] = (data.q.Page - 1).ToString(System.Globalization.CultureInfo.InvariantCulture) }) : null;
         NextHref = data.q.Page < PageCount ? EntityViews.PageHref(def.Path, data.q, new Dictionary<string, string?> { ["page"] = (data.q.Page + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) }) : null;

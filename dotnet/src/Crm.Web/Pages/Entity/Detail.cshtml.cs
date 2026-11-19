@@ -16,9 +16,14 @@ public sealed record TabTable(string Title, IReadOnlyList<string> Columns, IRead
 
 public sealed record CloseResult(string Kind, string Message = "", bool Moved = false, ConfirmPage? Extra = null, object? Data = null);
 
-public sealed record HistoryLine(string At, string By, string Text, bool Owner);
+public sealed record Fact(string Label, string Value, string? Sub = null, string? Chip = null);
 
-public sealed record ConfirmPage(string Title, string Message, string Action, IReadOnlyList<(string Name, string Value)> Fields, string Label, string Cancel);
+public sealed record TrackSegment(string Name, string State);
+
+/// <summary>Stage track of an opportunity: open stages in Settings order (passed, current, later); a lost one has no track, only the reason.</summary>
+public sealed record StageTrack(IReadOnlyList<TrackSegment> Segments, string StageType, string StageName, string LostReason, int Index, int Count);
+
+public sealed record ConfirmPage(string Title, string Message, string Action, IReadOnlyList<(string Name, string Value)> Fields, string Label, string Cancel, string RecordName = "");
 
 /// <summary>
 /// Record detail (GET), update (POST /{entity}/{id}), opportunity won/lost (POST /opportunities/{id}/won|lost) and activity
@@ -45,7 +50,19 @@ public sealed class DetailModel(IRlsDb rls, IRlsContextAccessor identity, TimePr
 
     public TabTable? TabTable { get; private set; }
 
-    public IReadOnlyList<HistoryLine> History { get; private set; } = [];
+    public IReadOnlyList<TimelineGroup> Timeline { get; private set; } = [];
+
+    public int ActivityCount { get; private set; }
+
+    public IReadOnlyList<Fact> Facts { get; private set; } = [];
+
+    public StageTrack? Track { get; private set; }
+
+    public string LogHref { get; private set; } = "";
+
+    public bool ShowActivityTab { get; private set; }
+
+    public string SegmentCode { get; private set; } = "";
 
     public string CreatedAt { get; private set; } = "";
 
@@ -102,18 +119,35 @@ public sealed class DetailModel(IRlsDb rls, IRlsContextAccessor identity, TimePr
         Row = row;
         RecordName = EntityViews.RecordName(def.Key, row);
         var detailPath = $"{def.Path}/{id}";
-        var tabs = data.Related.Select(kv => (Key: kv.Key, Label: EntityDefinitions.All[kv.Key].Plural, Count: kv.Value.Count)).ToList();
-        var active = tabs.FirstOrDefault(t => t.Key == tabParam);
+        var linkParam = def.Key == "accounts" ? "accountId" : def.Key == "contacts" ? "contactId" : "opportunityId";
+        LogHref = $"/activities/new?{linkParam}={id}";
+        // Records with related lists get tabs: the merged Activity timeline first (the default), then Contacts / Opportunities.
+        var activities = data.Related.GetValueOrDefault("activities") ?? [];
+        var timeline = def.Key == "activities" || activities.Count > 0 || data.History.Count > 0
+            ? TimelineBuilder.Build(activities, data.History, f, data.Today, detailPath, def.Key, id)
+            : [];
+        Timeline = timeline;
+        ActivityCount = TimelineBuilder.Count(timeline);
+        var tabs = new List<(string Key, string Label, int Count)>();
+        if (def.Key != "activities") { tabs.Add(("activity", "Activity", ActivityCount)); }
+        foreach (var kv in data.Related.Where(kv => kv.Key != "activities"))
+        {
+            tabs.Add((kv.Key, EntityDefinitions.All[kv.Key].Plural, kv.Value.Count));
+        }
+        var wanted = tabParam == "activities" ? "activity" : tabParam;
+        var active = tabs.FirstOrDefault(t => t.Key == wanted);
         if (active.Key is null && tabs.Count > 0) { active = tabs[0]; }
         Tabs = tabs.Select(t => new TabInfo(t.Key, t.Label, t.Count, $"{detailPath}?tab={t.Key}", t.Key == active.Key)).ToList();
-        if (active.Key is not null)
+        ShowActivityTab = active.Key == "activity";
+        if (active.Key is not null && active.Key != "activity")
         {
-            var linkParam = def.Key == "accounts" ? "accountId" : def.Key == "contacts" ? "contactId" : "opportunityId";
             TabTable = new TabTable(active.Label, EntityViews.ColumnsFor(active.Key).Select(c => c.Label).ToList(),
-                data.Related[active.Key].Select(r => EntityViews.CellsFor(active.Key, r, f, data.Today, detailPath)).ToList(),
+                data.Related[active.Key].Select(r => EntityViews.CellsFor(active.Key, r, f, data.Today, detailPath, data.Lk.Stages)).ToList(),
                 $"{EntityDefinitions.All[active.Key].Path}/new?{linkParam}={id}",
-                active.Key == "activities" ? "Log activity" : $"New {EntityDefinitions.All[active.Key].Singular}");
+                $"New {EntityDefinitions.All[active.Key].Singular}");
         }
+        SegmentCode = def.Key == "accounts" ? row.S("IndustryCode") : "";
+        BuildFacts(data, f, row);
         Details = EntityViews.DetailRows(def.Key, row, f);
         CanDelete = EntityViews.CanDelete(Ctx, row);
         CreatedAt = f.DateTime(row.S("CreatedAt"));
@@ -127,13 +161,57 @@ public sealed class DetailModel(IRlsDb rls, IRlsContextAccessor identity, TimePr
         DoneAction = def.Key == "activities"
             ? new DoneAction($"{detailPath}/{(row.Bool("IsDone") ? "undone" : "done")}", row.Bool("IsDone") ? "Mark as not done" : "Mark as done", detailPath)
             : null;
-        History = data.History.Select(h => new HistoryLine(f.DateTime(h.At), h.By, EntityViews.DescribeHistory(h, f), h.Field == "OwnerId")).ToList();
         ViewData["Title"] = $"{Cap(def.Singular)} · {RecordName}";
         if (lostError is not null)
         {
             Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
         }
         return Page();
+    }
+
+    private void BuildFacts(DetailData data, Formatter f, Row row)
+    {
+        var set = data.Lk.Settings;
+        switch (Def.Key)
+        {
+            case "opportunities":
+                var open = row.S("StageType") == "open";
+                var amount = row.Dec("Amount");
+                var currency = row.S("CurrencyCode").Trim();
+                var close = row.S("CloseDate");
+                var past = open && string.CompareOrdinal(close, data.Today) < 0;
+                Facts =
+                [
+                    new("Amount", f.Money(amount, currency)),
+                    new("Weighted amount", f.Money(Math.Round(amount * row.Dec("Probability")) / 100m, currency)),
+                    new("Close date", f.Date(close), open ? TimelineBuilder.RelativeDays(close, data.Today, false) : null, past ? "Past close date" : null),
+                    new("Probability", NumberFormats.Percent(row.Dec("Probability") / 100m, set.LocaleCode)),
+                ];
+                Track = BuildTrack(data.Lk.Stages, row);
+                break;
+            case "accounts":
+                var opps = data.Related.GetValueOrDefault("opportunities") ?? [];
+                var contacts = data.Related.GetValueOrDefault("contacts") ?? [];
+                var last = (data.Related.GetValueOrDefault("activities") ?? [])
+                    .Select(a => a.S("DueDate") is { Length: > 0 } d ? d : a.S("CreatedAt").Length >= 10 ? a.S("CreatedAt")[..10] : "")
+                    .Where(d => d.Length > 0 && string.CompareOrdinal(d, data.Today) <= 0).OrderBy(d => d, StringComparer.Ordinal).LastOrDefault() ?? "";
+                Facts =
+                [
+                    new("Open opportunities", opps.Count(o => o.S("StageType") == "open").ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                    new("Contacts", contacts.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                    new("Last activity", last.Length > 0 ? f.Date(last) : "–"),
+                ];
+                break;
+        }
+    }
+
+    private static StageTrack BuildTrack(IReadOnlyList<Stage> stages, Row row)
+    {
+        var type = row.S("StageType");
+        var open = stages.Where(s => s.Type == "open").OrderBy(s => s.SortOrder).ToList();
+        var currentIdx = open.FindIndex(s => s.Id == row.Int("StageId"));
+        var segs = type == "lost" ? [] : open.Select((s, i) => new TrackSegment(s.Name, type == "won" || i < currentIdx ? "passed" : i == currentIdx ? "current" : "later")).ToList();
+        return new StageTrack(segs, type, row.S("StageName"), row.S("LostReasonLabel"), currentIdx + 1, open.Count);
     }
 
     /// <summary>Update, close (won/lost) or done/undone, depending on the route that was matched.</summary>
@@ -223,33 +301,7 @@ public sealed class DetailModel(IRlsDb rls, IRlsContextAccessor identity, TimePr
         var rowVer = body.GetValueOrDefault("rowVer") ?? "";
         var meta = MetaOf();
         var lostRaw = body.GetValueOrDefault("lostReason") ?? "";
-        var res = await RunAsync(async repo =>
-        {
-            var row = await repo.GetAsync(def.Key, id);
-            if (row is null) { return new CloseResult("notfound"); }
-            if (!CrmRepo.IsRowVer(rowVer)) { return new CloseResult("conflict"); } // the action must carry the RowVer of the page it was clicked on
-            var lk = await repo.LookupsAsync();
-            var stage = lk.Stages.FirstOrDefault(s => s.Type == outcome);
-            if (stage is null) { return new CloseResult("error", $"No {outcome} stage is configured."); }
-            _ = EntityDefinitions.TryParseId(lostRaw, out var lostReason);
-            var reason = lk.List("lost_reason").FirstOrDefault(p => p.Active && p.Id == lostReason);
-            if (outcome == "lost" && reason is null) { return new CloseResult("lostError", Data: await LoadDetailAsync(repo, id)); } // same transaction: one RunAsync per request
-            var today = Today(lk.Settings);
-            var moved = string.CompareOrdinal(row.S("CloseDate"), today) > 0;
-            if (!confirmed)
-            {
-                var msg = $"Mark {EntityViews.RecordName(def.Key, row)} as {outcome}? The stage changes to {stage.Name}{(outcome == "lost" ? $" (reason: {reason!.Label})" : "")}.{(moved ? " The close date will be set to today." : "")}";
-                return new CloseResult("confirm", "", moved, new ConfirmPage($"Mark as {outcome}", msg, $"{def.Path}/{id}/{outcome}",
-                    [("rowVer", rowVer), ("lostReason", lostRaw), ("confirm", "1")], $"Mark as {outcome}", $"{def.Path}/{id}"));
-            }
-            var values = def.Columns.ToDictionary(c => c.Name, c => ColumnValue(row, c), StringComparer.Ordinal);
-            values["StageId"] = stage.Id;
-            values["LostReasonValueId"] = outcome == "lost" ? lostReason : null;
-            values["OwnerId"] = row.Int("OwnerId");
-            if (moved) { values["CloseDate"] = today; }
-            var r = await repo.UpdateAsync(def.Key, id, values, rowVer, meta);
-            return new CloseResult(r == UpdateResult.Ok ? "ok" : r == UpdateResult.Conflict ? "conflict" : "notfound", "", moved);
-        });
+        var res = await RunAsync(repo => CloseCoreAsync(repo, outcome, id, rowVer, lostRaw, confirmed, meta, async r => await LoadDetailAsync(r, id)));
         switch (res.Kind)
         {
             case "notfound": throw new NotFoundException();
@@ -268,12 +320,4 @@ public sealed class DetailModel(IRlsDb rls, IRlsContextAccessor identity, TimePr
         }
         return SeeOther($"{def.Path}/{id}");
     }
-
-    private static object? ColumnValue(Row row, ColumnSpec c) => c.Type switch
-    {
-        ColType.Int => row.IntOrNull(c.Name),
-        ColType.Money => row[c.Name] is null ? null : row.Dec(c.Name),
-        ColType.Bool => row.Bool(c.Name),
-        _ => row[c.Name] is null ? null : row.S(c.Name),
-    };
 }

@@ -1,0 +1,33 @@
+@model IReadOnlyList<Crm.Web.Pages.Entity.TimelineGroup>
+<ol class="timeline">
+@foreach (var g in Model)
+{
+  <li class="timeline-group"><h3>@g.Title</h3>
+  <ol class="timeline-items">
+  @foreach (var it in g.Items)
+  {
+    <li class="tl-item">
+      @Ui.Ring(it.Done ? "check" : it.Icon)
+      <div class="tl-body">
+        <p class="tl-title">@if (it.Href is not null){<a href="@it.Href">@it.Title</a>}else if (it.BoldTitle){<strong>@it.Title</strong>}else{@it.Title}</p>
+        <p class="tl-meta">
+          @if (it.Overdue){<span class="chip danger">@Ui.Icon("error")@it.Hint</span>}
+          <span>@it.When@if (!it.Overdue && it.Hint.Length > 0){<text> · @it.Hint</text>}</span>
+          @if (it.By.Length > 0){@Ui.Owner(it.By, "s24")}
+          @if (it.RelatedLabel is not null){<span><a href="@it.RelatedHref">@it.RelatedLabel</a></span>}
+          @if (it.Done){<span class="chip">@Ui.Icon("check")Done</span>}
+        </p>
+        @if (it.Description.Length > 0)
+        {
+        <p class="tl-desc">@(it.Description.Length > Crm.Web.Pages.Entity.TimelineBuilder.DescriptionPreview ? it.Description[..Crm.Web.Pages.Entity.TimelineBuilder.DescriptionPreview] + "…" : it.Description)@if (it.Description.Length > Crm.Web.Pages.Entity.TimelineBuilder.DescriptionPreview && it.ActivityHref is not null){<text> </text><a href="@it.ActivityHref">Show more</a>}</p>
+        }
+      </div>
+      @if (it.Action is not null)
+      {
+      <form method="post" action="@it.Action.Action" asp-antiforgery="true" class="tl-action"><input type="hidden" name="returnTo" value="@it.Action.ReturnTo"><button type="submit" class="button secondary small">@(it.Action.Checked ? "Mark as not done" : "Mark done")<span class="visually-hidden">: @it.Action.Context</span></button></form>
+      }
+    </li>
+  }
+  </ol></li>
+}
+</ol>

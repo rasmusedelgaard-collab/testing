@@ -6,89 +6,177 @@
 }
 else if (Model.Confirm is not null)
 {
-<h1>@Model.Confirm.Title</h1>
-<p>@Model.Confirm.Message</p>
-<form method="post" action="@Model.Confirm.Action" asp-antiforgery="true">
-  @foreach (var f in Model.Confirm.Fields){<input type="hidden" name="@f.Name" value="@f.Value">}
-  <button type="submit" class="button primary">@Model.Confirm.Label</button>
-  <a href="@Model.Confirm.Cancel">Cancel</a>
-</form>
+<partial name="_Confirm" model="Model.Confirm" />
 }
 else
 {
 var def = Model.Def;
 var row = Model.Row!;
-<nav aria-label="Breadcrumb" class="breadcrumb"><a href="@def.Path">@def.Plural</a> / <span aria-current="page">@Model.RecordName</span></nav>
+var rid = row.Int("Id");
+var isActivity = def.Key == "activities";
+var rel = EntityViews.RelatedTo(row);
+<partial name="_Breadcrumb" model='new List<(string, string?)> { (def.Plural, def.Path), (Model.RecordName, null) }' />
 <div class="page-header">
-  <h1>@Model.RecordName</h1>
+  <div class="titles">
+    @switch (def.Key)
+    {
+      case "accounts": @if (Ui.SegmentOf(Model.SegmentCode) is not null){@Ui.SegmentIcon(Model.SegmentCode)}else{@Ui.Ring("accounts", "r48")} break;
+      case "contacts": @Ui.Avatar(Model.RecordName, "s40"); break;
+      case "activities": @Ui.Ring(row.S("ActivityType"), "r40"); break;
+    }
+    <h1>@Model.RecordName</h1>
+  </div>
   <div class="actions">
     @if (Model.DoneAction is not null)
     {
-    <form method="post" action="@Model.DoneAction.Action" asp-antiforgery="true" class="inline-form"><input type="hidden" name="returnTo" value="@Model.DoneAction.ReturnTo"><button type="submit" class="button secondary">@Model.DoneAction.Label</button></form>
+    <form method="post" action="@Model.DoneAction.Action" asp-antiforgery="true" class="inline-form"><input type="hidden" name="returnTo" value="@Model.DoneAction.ReturnTo"><button type="submit" class="button primary">@Model.DoneAction.Label</button></form>
     }
-    <a class="button secondary" href="@def.Path/@row.Int("Id")/edit">Edit</a>
-    @if (Model.CanDelete){<a class="button danger" href="@def.Path/@row.Int("Id")/delete">Delete @def.Singular</a>}
+    else
+    {
+    <a class="button primary" href="@Model.LogHref">@Ui.Icon("plus") Log activity</a>
+    }
+    <a class="button secondary" href="@def.Path/@rid/edit">@Ui.Icon("edit") Edit</a>
+    @if (Model.CanDelete)
+    {
+    <details class="menu more"><summary class="button secondary">More @Ui.Icon("chevron-down")</summary>
+      <ul><li><a class="danger-link" href="@def.Path/@rid/delete">Delete @def.Singular</a></li></ul></details>
+    }
   </div>
 </div>
-<p>Owner: <strong>@row.S("OwnerName")</strong></p>
-<section aria-labelledby="details-h">
-  <h2 id="details-h">Details</h2>
-  <dl class="details">
-    @foreach (var d in Model.Details)
-    {
-    <dt>@d.Label</dt>
-    <dd>@if (d.Text.Length == 0){<span aria-hidden="true">–</span><span class="visually-hidden">Not set</span>}else if (d.Href is not null){<a href="@d.Href">@d.Text</a>}else{@d.Text}</dd>
-    }
-  </dl>
-</section>
-@if (Model.StageActions is { } sa)
+<p class="page-meta">
+  @switch (def.Key)
+  {
+    case "opportunities":
+      <span>@Ui.StageChip(row.S("StageName"), row.S("StageType"), Model.Track?.Index ?? 0, Model.Track?.Count ?? 0)</span>
+      <a href="/accounts/@row.Int("AccountId")">@row.S("AccountName")</a>
+      @Ui.Owner(row.S("OwnerName"), "s24")
+      break;
+    case "accounts":
+      @Ui.SegmentChip(Model.SegmentCode)
+      @if (row.S("City").Length > 0 || row.S("CountryCode").Length > 0){<span>@string.Join(", ", new[] { row.S("City"), row.S("CountryCode") }.Where(x => x.Length > 0))</span>}
+      @if (row.S("Website").Length > 0 && (row.S("Website").StartsWith("http://", StringComparison.OrdinalIgnoreCase) || row.S("Website").StartsWith("https://", StringComparison.OrdinalIgnoreCase))){<a href="@row.S("Website")">@row.S("Website")</a>}
+      @Ui.Owner(row.S("OwnerName"), "s24")
+      break;
+    case "contacts":
+      @if (row.S("JobTitle").Length > 0){<span>@row.S("JobTitle")</span>}
+      @if (row.Int("AccountId") != 0){<a href="/accounts/@row.Int("AccountId")">@row.S("AccountName")</a>}
+      @Ui.Owner(row.S("OwnerName"), "s24")
+      break;
+    default:
+      <span class="chip">@(row.Bool("IsDone") ? "Done" : "Open")</span>
+      @if (row.S("DueDate").Length > 0){<span>@Model.Details.First(d => d.Label == "Due").Text</span>}
+      @if (rel.Href is not null){<a href="@rel.Href">@rel.Text</a>}
+      @Ui.Owner(row.S("OwnerName"), "s24")
+      break;
+  }
+</p>
+@if (def.Key == "contacts" && (row.S("Email").Length > 0 || row.S("Phone").Length > 0))
 {
-<section aria-labelledby="stage-h" class="stage-actions">
-  <h2 id="stage-h">Close this opportunity</h2>
-  <form method="post" action="@def.Path/@row.Int("Id")/won" asp-antiforgery="true" class="inline-form"><input type="hidden" name="rowVer" value="@sa.RowVer"><button type="submit" class="button secondary">Mark as won</button></form>
-  <form method="post" action="@def.Path/@row.Int("Id")/lost" asp-antiforgery="true" class="inline-form"><input type="hidden" name="rowVer" value="@sa.RowVer">
-    <label for="lostReason">Lost reason (required to mark as lost)</label>
-    @if (sa.LostError.Length > 0){<span class="field-error" id="e-lostReason"><span aria-hidden="true">⚠ </span>@sa.LostError</span>}
-    <select id="lostReason" name="lostReason" aria-invalid="@(sa.LostError.Length > 0 ? "true" : null)" aria-describedby="@(sa.LostError.Length > 0 ? "e-lostReason" : null)"><option value="">— choose —</option>@foreach (var p in sa.LostReasons){<option value="@p.Id">@p.Label</option>}</select>
-    <button type="submit" class="button secondary">Mark as lost</button></form>
-</section>
+<p class="contact-links">
+  @if (row.S("Email").Length > 0){<a href="mailto:@row.S("Email")">@Ui.Icon("mail") @row.S("Email")</a>}
+  @if (row.S("Phone").Length > 0){<a href="tel:@row.S("Phone")">@Ui.Icon("call") @row.S("Phone")</a>}
+</p>
 }
-@if (Model.Tabs.Count > 0)
+<partial name="_Flash" />
+@if (Model.Track is { } tr)
 {
-<section aria-labelledby="rel-h">
-  <h2 id="rel-h">Related records</h2>
+  @if (tr.StageType == "lost")
+  {
+  <p class="chips"><span class="chip lost">Lost</span> <span>Lost reason: @(tr.LostReason.Length > 0 ? tr.LostReason : "Not set")</span></p>
+  }
+  else
+  {
+  <p class="stage-line">Stage @tr.Index of @tr.Count: @tr.StageName</p>
+  <ol class="stage-track" aria-label="Stage">
+    @foreach (var seg in tr.Segments)
+    {
+    <li class="@seg.State" aria-current="@(seg.State == "current" ? "step" : null)"><svg viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="seg-bar" width="100" height="8"/></svg><span class="stage-label">@seg.Name@if (seg.State == "current"){<span class="visually-hidden"> (current stage)</span>}</span></li>
+    }
+  </ol>
+  @if (tr.StageType == "won"){<p class="chips"><span class="chip won">Won</span></p>}
+  }
+}
+@if (Model.Facts.Count > 0)
+{
+<dl class="facts" aria-label="Key facts">
+  @foreach (var fact in Model.Facts)
+  {
+  <div><dt class="fact-label">@fact.Label</dt><dd class="fact-value">@fact.Value@if (fact.Sub is { Length: > 0 }){<span class="fact-sub">@fact.Sub</span>}@if (fact.Chip is not null){<span class="chip warn">@Ui.Icon("warning")@fact.Chip</span>}</dd></div>
+  }
+</dl>
+}
+<div class="record">
+<div class="record-main">
+@if (isActivity)
+{
+  <section aria-labelledby="desc-h" class="panel plain">
+    <h2 id="desc-h">Description</h2>
+    @if (row.S("Description").Length == 0){<p class="muted">No description.</p>}else{<p>@row.S("Description")</p>}
+  </section>
+}
+@if (Model.Tabs.Count > 1)
+{
   <nav aria-label="Related records" class="tabs"><ul>
     @foreach (var t in Model.Tabs){<li><a href="@t.Href" aria-current="@(t.Active ? "page" : null)">@t.Label (@t.Count)</a></li>}
   </ul></nav>
-  @if (Model.TabTable is { } tt)
-  {
-  <p><a class="button secondary" href="@tt.NewHref">@tt.NewLabel</a></p>
-  @if (tt.Rows.Count == 0){<p class="muted">Nothing here yet.</p>}
-  else
-  {
-  <div class="table-wrap"><table class="data">
-    <caption class="visually-hidden">@tt.Title</caption>
-    <thead><tr>@foreach (var c in tt.Columns){<th scope="col">@c</th>}</tr></thead>
-    <tbody>@foreach (var cells in tt.Rows){<tr>@for (var ci = 0; ci < cells.Count; ci++){var c = cells[ci];<td data-label="@tt.Columns[ci]" class="@(c.Right ? "num" : null)">
-      @if (c.DoneForm is not null){<form method="post" action="@c.DoneForm.Action" asp-antiforgery="true" class="inline-form"><input type="hidden" name="returnTo" value="@c.DoneForm.ReturnTo"><button type="submit" class="button link">@(c.DoneForm.Checked ? "☑ Done" : "☐ Mark done")<span class="visually-hidden">: @c.DoneForm.Context</span></button></form>}
-      else if (c.Href is not null){<a href="@c.Href">@c.Text</a>}else{@c.Text}
-      @if (c.Note is not null){<br><span class="badge warn">@c.Note</span>}</td>}</tr>}</tbody>
-  </table></div>
-  }
-  }
-</section>
 }
-<section aria-labelledby="hist-h" class="history">
-  <h2 id="hist-h">History</h2>
-  @if (Model.History.Count == 0){<p class="muted">No changes recorded yet.</p>}
-  else
+else if (Model.Tabs.Count == 1)
+{
+  <h2>@Model.Tabs[0].Label (@Model.Tabs[0].Count)</h2>
+}
+@if (Model.ShowActivityTab || isActivity)
+{
+  <section aria-labelledby="hist-h" class="history">
+    <h2 id="hist-h" class="@(Model.Tabs.Count > 0 ? "visually-hidden" : null)">@(isActivity ? "History" : "Activity")</h2>
+    @if (!isActivity){<p><a class="button secondary" href="@Model.LogHref">@Ui.Icon("plus") Log activity</a></p>}
+    @if (Model.Timeline.Count == 0){<div class="empty compact">@Ui.Ring("activities")<p>@(isActivity ? "No changes recorded yet." : "No activity yet.")</p></div>}
+    else {<partial name="_Timeline" model="Model.Timeline" />}
+  </section>
+}
+else if (Model.TabTable is { } tt)
+{
+  <section aria-labelledby="rel-h">
+    <h2 id="rel-h" class="visually-hidden">@tt.Title</h2>
+    <p><a class="button secondary" href="@tt.NewHref">@Ui.Icon("plus") @tt.NewLabel</a></p>
+    @if (tt.Rows.Count == 0){<div class="empty compact">@Ui.Ring(Model.Tabs.First(t => t.Active).Key)<p>Nothing here yet.</p></div>}
+    else
+    {
+    <div class="table-wrap"><table class="data dense">
+      <caption class="visually-hidden">@tt.Title</caption>
+      <thead><tr>@foreach (var c in tt.Columns){<th scope="col">@c</th>}</tr></thead>
+      <tbody>@foreach (var cells in tt.Rows){<tr>@for (var ci = 0; ci < cells.Count; ci++){<partial name="_Td" model="new TdModel(cells[ci], tt.Columns[ci])" />}</tr>}</tbody>
+    </table></div>
+    }
+  </section>
+}
+</div>
+<div class="record-side">
+  <section aria-labelledby="details-h" class="panel">
+    <h2 id="details-h">Details</h2>
+    <dl class="details">
+      @foreach (var d in Model.Details)
+      {
+      <dt>@d.Label</dt>
+      <dd>@if (d.Text.Length == 0){<span aria-hidden="true">–</span><span class="visually-hidden">Not set</span>}else if (d.Href is not null){<a href="@d.Href">@d.Text</a>}else{@d.Text}</dd>
+      }
+    </dl>
+  </section>
+  @if (Model.StageActions is { } sa)
   {
-  <ol class="timeline">
-    @foreach (var h in Model.History){<li><span class="muted">@h.At</span> · @h.By: @if (h.Owner){<strong>@h.Text</strong>}else{@h.Text}</li>}
-  </ol>
+  <section aria-labelledby="stage-h" class="panel stage-actions">
+    <h2 id="stage-h">Close this opportunity</h2>
+    <form method="post" action="@def.Path/@rid/won" asp-antiforgery="true" class="inline-form"><input type="hidden" name="rowVer" value="@sa.RowVer"><button type="submit" class="button secondary">Mark as won</button></form>
+    <form method="post" action="@def.Path/@rid/lost" asp-antiforgery="true" class="inline-form lost-form"><input type="hidden" name="rowVer" value="@sa.RowVer">
+      <div class="field@(sa.LostError.Length > 0 ? " has-error" : "")">
+      <label for="lostReason">Lost reason (required to mark as lost)</label>
+      @if (sa.LostError.Length > 0){<span class="field-error" id="e-lostReason">@Ui.Icon("error")@sa.LostError</span>}
+      <select id="lostReason" name="lostReason" aria-invalid="@(sa.LostError.Length > 0 ? "true" : null)" aria-describedby="@(sa.LostError.Length > 0 ? "e-lostReason" : null)"><option value="">— choose —</option>@foreach (var p in sa.LostReasons){<option value="@p.Id">@p.Label</option>}</select></div>
+      <button type="submit" class="button secondary">Mark as lost</button></form>
+  </section>
   }
-</section>
-<footer class="record-footer muted">
+</div>
+</div>
+<footer class="record-footer">
   Created @Model.CreatedAt by @Model.CreatedBy
   @if (Model.Edited){<text> · Last modified by @Model.ModifiedBy, @Model.ModifiedAt</text>}
 </footer>

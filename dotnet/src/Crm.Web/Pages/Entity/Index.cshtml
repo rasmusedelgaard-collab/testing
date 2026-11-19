@@ -9,11 +9,21 @@ else
 var def = Model.Def;
 var q = Model.Q;
 <div class="page-header">
-  <h1>@def.Plural (@Model.Total)</h1>
-  <a class="button primary" href="@def.Path/new">New @def.Singular</a>
+  <div class="titles"><h1>@def.Plural (@Model.Total)</h1></div>
+  <div class="actions">
+    @if (def.Key == "opportunities"){<nav class="view-switch" aria-label="View"><a href="@def.Path" aria-current="page">List</a><a href="@Model.BoardHref">Board</a></nav>}
+    <a class="button primary" href="@def.Path/new">@Ui.Icon("plus") New @def.Singular</a>
+  </div>
 </div>
-<form class="filters" method="get" action="@def.Path">
-  <div class="field"><label for="f-q">Search</label><input id="f-q" name="q" type="search" value="@q.Q" maxlength="100"></div>
+<partial name="_Flash" />
+<form method="get" action="@def.Path" class="filters-form">
+<input type="hidden" name="sort" value="@q.Sort"><input type="hidden" name="dir" value="@q.Dir">
+<div class="filters">
+  <div class="field search-field"><label for="f-q">Search</label><input id="f-q" name="q" type="search" value="@q.Q" maxlength="100" placeholder="@Model.SearchHint"></div>
+</div>
+<details class="filters-toggle" open>
+  <summary>Filters (@Model.ActiveFilters.Count)</summary>
+  <div class="filters">
   @foreach (var f in Model.Filters)
   {
   <div class="field"><label for="f-@f.Name">@f.Label</label>
@@ -21,22 +31,29 @@ var q = Model.Q;
       @foreach (var o in f.Options){<option value="@o.Value" selected="@(o.Value == f.Value)">@o.Label</option>}
     </select></div>
   }
-  <input type="hidden" name="sort" value="@q.Sort"><input type="hidden" name="dir" value="@q.Dir">
   <div class="field"><label for="pageSize">Rows</label>
     <select id="pageSize" name="pageSize">@foreach (var n in EntityDefinitions.PageSizes){<option value="@n" selected="@(n == q.PageSize)">@n</option>}</select></div>
   <button type="submit" class="button secondary">Apply</button>
-  <a href="@def.Path">Clear filters</a>
+  <a class="button quiet" href="@def.Path">Clear filters</a>
+  </div>
+</details>
 </form>
+@if (Model.ActiveFilters.Count > 0)
+{
+<div class="filter-chips"><span>Active:</span>
+  @foreach (var (label, href) in Model.ActiveFilters){<a class="chip" href="@href" aria-label="Remove filter @label">@label @Ui.Icon("close")</a>}
+</div>
+}
 <p role="status" class="muted">@Model.Total @(Model.Total == 1 ? def.Singular : def.Plural.ToLowerInvariant()) found</p>
 @if (Model.Rows.Count == 0)
 {
   @if (Model.IsFiltered)
   {
-  <p>No @def.Plural.ToLowerInvariant() match these filters.</p><p><a class="button secondary" href="@def.Path">Clear filters</a></p>
+  <div class="empty">@Ui.Ring("search", "r56")<h2>No @def.Plural.ToLowerInvariant() match these filters.</h2><div class="actions"><a class="button secondary" href="@def.Path">Clear filters</a></div></div>
   }
   else
   {
-  <p>No @def.Plural.ToLowerInvariant() yet.</p><p><a class="button primary" href="@def.Path/new">New @def.Singular</a></p>
+  <div class="empty">@Ui.Ring(def.Key, "r56")<h2>No @def.Plural.ToLowerInvariant() yet.</h2><p>@Model.EmptyHint</p><div class="actions"><a class="button primary" href="@def.Path/new">New @def.Singular</a></div></div>
   }
 }
 else
@@ -47,28 +64,20 @@ else
   <thead><tr>
     @foreach (var c in Model.Heads)
     {
-    <th scope="col" aria-sort="@(c.Href is not null ? c.Aria : null)">@if (c.Href is not null){<a href="@c.Href">@c.Label</a>}else{@c.Label}</th>
+    <th scope="col" aria-sort="@(c.Href is not null ? c.Aria : null)" class="@(c.Right ? "num" : null)">@if (c.Href is not null){<a href="@c.Href">@c.Label @Ui.Icon(c.Aria == "ascending" ? "sort-asc" : c.Aria == "descending" ? "sort-desc" : "sort", "sort-icon")</a>}else{@c.Label}</th>
     }
+    <th scope="col"><span class="visually-hidden">Actions</span></th>
   </tr></thead>
   <tbody>
-  @foreach (var cells in Model.Rows)
+  @for (var ri = 0; ri < Model.Rows.Count; ri++)
   {
+  var cells = Model.Rows[ri];
   <tr>
     @for (var ci = 0; ci < cells.Count; ci++)
     {
-    var c = cells[ci];
-    <td data-label="@Model.Heads[ci].Label" class="@(c.Right ? "num" : null)">
-      @if (c.DoneForm is not null)
-      {
-      <form method="post" action="@c.DoneForm.Action" asp-antiforgery="true" class="inline-form">
-        <input type="hidden" name="returnTo" value="@c.DoneForm.ReturnTo">
-        <button type="submit" class="button link">@(c.DoneForm.Checked ? "☑ Done" : "☐ Mark done")<span class="visually-hidden">: @c.DoneForm.Context</span></button>
-      </form>
-      }
-      else if (c.Href is not null){<a href="@c.Href">@c.Text</a>}else{@c.Text}
-      @if (c.Note is not null){<br><span class="badge warn">@c.Note</span>}
-    </td>
+    <partial name="_Td" model="new TdModel(cells[ci], Model.Heads[ci].Label)" />
     }
+    <td class="act"><div class="actions"><a class="button quiet icon-only" href="@Model.RowActions[ri].EditHref" aria-label="Edit @Model.RowActions[ri].Name" title="Edit">@Ui.Icon("edit")</a></div></td>
   </tr>
   }
   </tbody>
@@ -76,9 +85,11 @@ else
 </div>
 <nav class="pagination" aria-label="Pagination">
   <span>Showing @Model.From–@Model.To of @Model.Total</span>
-  @if (Model.PrevHref is not null){<a class="button secondary" href="@Model.PrevHref">Previous</a>}
+  <span class="pager">
+  @if (Model.PrevHref is not null){<a class="button secondary" href="@Model.PrevHref">@Ui.Icon("chevron-left") Previous</a>}
   <span>Page @Model.PageNo of @Model.PageCount</span>
-  @if (Model.NextHref is not null){<a class="button secondary" href="@Model.NextHref">Next</a>}
+  @if (Model.NextHref is not null){<a class="button secondary" href="@Model.NextHref">Next @Ui.Icon("chevron-right")</a>}
+  </span>
 </nav>
 }
 }

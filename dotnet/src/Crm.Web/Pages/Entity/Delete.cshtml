@@ -1,8 +1,13 @@
 @page "/{entity:crmentity}/{id:crmid}/delete"
 @model DeleteModel
+<div class="confirm">
+<partial name="_Breadcrumb" model='new List<(string, string?)> { (Model.Def.Plural, Model.Def.Path), (Model.RecordName, $"{Model.Def.Path}/{Model.Id}"), ("Delete", null) }' />
 <h1>Delete @Model.RecordName?</h1>
-<p>Delete <strong>@Model.RecordName</strong>? @Model.Notice This cannot be undone. The deletion is recorded in the audit log.</p>
+<div class="alert error">@Ui.Ring("error")<p>Delete <strong>@Model.RecordName</strong>? @Model.Notice This cannot be undone. The deletion is recorded in the audit log.</p></div>
 <form method="post" action="@Model.Def.Path/@Model.Id/delete" asp-antiforgery="true">
+  <div class="actions">
   <button type="submit" class="button danger">Delete @Model.Def.Singular</button>
-  <a href="@Model.Def.Path/@Model.Id">Cancel</a>
+  <a class="button quiet" href="@Model.Def.Path/@Model.Id">Cancel</a>
+  </div>
 </form>
+</div>

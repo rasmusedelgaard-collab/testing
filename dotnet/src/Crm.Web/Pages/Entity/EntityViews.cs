@@ -7,7 +7,13 @@ namespace Crm.Web.Pages.Entity;
 
 public sealed record DoneForm(string Action, string Context, bool Checked, string ReturnTo);
 
-public sealed record Cell(string Text, string? Href = null, bool Right = false, string? Note = null, DoneForm? DoneForm = null);
+/// <summary>
+/// One table cell. Kind picks the rendering: text, owner (avatar + name), stage (chip with pips; N of Of, Aux = stage type), segment (Aux = code),
+/// email (mailto link), type (activity type icon; Aux = type code), done (the mark-done icon button).
+/// </summary>
+public sealed record Cell(string Text, string? Href = null, bool Right = false, string? Note = null, DoneForm? DoneForm = null, string Kind = "text", string? Aux = null, int N = 0, int Of = 0, bool NoteDanger = false);
+
+public sealed record TdModel(Cell Cell, string Label);
 
 public sealed record Column(string Label, string? Sort = null);
 
@@ -19,7 +25,13 @@ public sealed record FilterField(string Name, string Label, IReadOnlyList<Select
 
 public sealed record FormEnv(Lookups Lookups, IReadOnlyList<OwnerOption> Owners, IReadOnlyList<RefOption> Accounts, IReadOnlyList<RefOption> Contacts, IReadOnlyList<RefOption> Opportunities, CrmRole Role, OwnerOption? CurrentOwner, int? CurrentOwnerId);
 
-public sealed record FormPage(string Title, string Action, string Cancel, IReadOnlyList<FormField> Fields, IReadOnlyList<(string Field, string Message)> Errors, string RowVer);
+/// <summary>A visual group of a form (h2, or a real fieldset with a legend). Each row is one field or a pair that shares a line.</summary>
+public sealed record FormSection(string Title, bool Fieldset, IReadOnlyList<IReadOnlyList<FormField>> Rows);
+
+public sealed record FormPage(string Title, string Action, string Cancel, IReadOnlyList<FormField> Fields, IReadOnlyList<(string Field, string Message)> Errors, string RowVer, string Entity = "")
+{
+    public IReadOnlyList<FormSection> Sections => EntityViews.Sections(Entity, Fields);
+}
 
 /// <summary>Pure view-model builders (port of routes/crmViews.ts): everything the templates need, already formatted.</summary>
 public static class EntityViews
@@ -52,54 +64,63 @@ public static class EntityViews
         _ => [new("Done"), new("Type", "type"), new("Subject", "subject"), new("Related to"), new("Due date", "due"), new("Owner", "owner")],
     };
 
-    public static IReadOnlyList<Cell> CellsFor(string entity, Row r, Formatter f, string today, string returnTo)
+    /// <summary>Position (1-based) of a stage among the open stages in Settings order, and the number of open stages. 0 for won and lost.</summary>
+    public static (int Index, int Count) OpenPosition(IReadOnlyList<Stage>? stages, int stageId)
+    {
+        var open = (stages ?? []).Where(s => s.Type == "open").OrderBy(s => s.SortOrder).ToList();
+        return (open.FindIndex(s => s.Id == stageId) + 1, open.Count);
+    }
+
+    public static IReadOnlyList<Cell> CellsFor(string entity, Row r, Formatter f, string today, string returnTo, IReadOnlyList<Stage>? stages = null)
     {
         var path = EntityDefinitions.All[entity].Path;
         var link = $"{path}/{r.Int("Id")}";
+        Cell Owner() => new(r.S("OwnerName"), Kind: "owner");
         switch (entity)
         {
             case "accounts":
-                return [new(r.S("Name"), link), new(r.S("IndustryLabel")), new(r.S("City")), new(r.S("OwnerName")), new(r.S("OpenPipeline") is { Length: > 0 } op ? op : "–", Right: true)];
+                return [new(r.S("Name"), link), Ui.SegmentOf(r.S("IndustryCode")) is not null ? new(r.S("IndustryLabel"), Kind: "segment", Aux: r.S("IndustryCode")) : new(r.S("IndustryLabel")), new(r.S("City")), Owner(), new(r.S("OpenPipeline") is { Length: > 0 } op ? op : "–", Right: true)];
             case "contacts":
-                return [new(RecordName(entity, r), link), new(r.S("AccountName"), r.Int("AccountId") != 0 ? $"/accounts/{r.Int("AccountId")}" : null), new(r.S("JobTitle")), new(r.S("Email")), new(r.S("Phone")), new(r.S("OwnerName"))];
+                return [new(RecordName(entity, r), link), new(r.S("AccountName"), r.Int("AccountId") != 0 ? $"/accounts/{r.Int("AccountId")}" : null), new(r.S("JobTitle")),
+                    r.S("Email").Length > 0 ? new(r.S("Email"), $"mailto:{r.S("Email")}", Kind: "email") : new(""), new(r.S("Phone")), Owner()];
             case "opportunities":
                 var past = r.S("StageType") == "open" && string.CompareOrdinal(r.S("CloseDate"), today) < 0;
-                return [new(r.S("Name"), link), new(r.S("AccountName"), $"/accounts/{r.Int("AccountId")}"), new(r.S("StageName")),
-                    new(f.Money(r.Dec("Amount"), r.S("CurrencyCode")), Right: true), new(f.Date(r.S("CloseDate")), Note: past ? "Past close date" : null), new(r.S("OwnerName"))];
+                var (idx, cnt) = OpenPosition(stages, r.Int("StageId"));
+                return [new(r.S("Name"), link), new(r.S("AccountName"), $"/accounts/{r.Int("AccountId")}"), new(r.S("StageName"), Kind: "stage", Aux: r.S("StageType"), N: idx, Of: cnt),
+                    new(f.Money(r.Dec("Amount"), r.S("CurrencyCode")), Right: true), new(f.Date(r.S("CloseDate")), Note: past ? "Past close date" : null), Owner()];
             default:
                 var done = r.Bool("IsDone");
-                return [new(done ? "Done" : "Open", DoneForm: new DoneForm($"{path}/{r.Int("Id")}/{(done ? "undone" : "done")}", done ? $"{r.S("Subject")}, mark as not done" : r.S("Subject"), done, returnTo)),
-                    new(TypeLabel.GetValueOrDefault(r.S("ActivityType")) ?? r.S("ActivityType")), new(r.S("Subject"), link), RelatedTo(r),
-                    new(f.Date(r.S("DueDate")) + (r.S("DueTime").Length > 0 ? " " + r.S("DueTime") : "")), new(r.S("OwnerName"))];
+                var overdue = !done && r.S("ActivityType") != "note" && r.S("DueDate").Length > 0 && string.CompareOrdinal(r.S("DueDate"), today) < 0;
+                return [new(done ? "Done" : "Open", DoneForm: new DoneForm($"{path}/{r.Int("Id")}/{(done ? "undone" : "done")}", r.S("Subject"), done, returnTo), Kind: "done"),
+                    new(TypeLabel.GetValueOrDefault(r.S("ActivityType")) ?? r.S("ActivityType"), Kind: "type", Aux: r.S("ActivityType")), new(r.S("Subject"), link), RelatedTo(r),
+                    new(f.Date(r.S("DueDate")) + (r.S("DueTime").Length > 0 ? " " + r.S("DueTime") : ""), Note: overdue ? "Overdue" : null, NoteDanger: overdue), Owner()];
         }
     }
 
+    /// <summary>The Details panel (label, text, link). Money, stage and dates of an opportunity are in the facts strip instead.</summary>
     public static IReadOnlyList<(string Label, string Text, string? Href)> DetailRows(string entity, Row r, Formatter f)
     {
         static (string, string, string?) D(string l, string t, string? h = null) => (l, t, h);
         switch (entity)
         {
             case "accounts":
-                return [D("Industry", r.S("IndustryLabel")), D("Website", r.S("Website")), D("Phone", r.S("Phone")), D("Street", r.S("Street")), D("Postcode", r.S("PostalCode")), D("City", r.S("City")), D("Country", r.S("CountryCode")), D("Notes", r.S("Notes"))];
+                var site = r.S("Website");
+                return [D("Industry", r.S("IndustryLabel")), D("Website", site, site.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || site.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? site : null), D("Phone", r.S("Phone")), D("Street", r.S("Street")), D("Postcode", r.S("PostalCode")), D("City", r.S("City")), D("Country", r.S("CountryCode")), D("Notes", r.S("Notes"))];
             case "contacts":
-                return [D("Account", r.S("AccountName"), r.Int("AccountId") != 0 ? $"/accounts/{r.Int("AccountId")}" : null), D("Job title", r.S("JobTitle")), D("Email", r.S("Email")), D("Phone", r.S("Phone")), D("Mobile", r.S("Mobile"))];
+                return [D("Account", r.S("AccountName"), r.Int("AccountId") != 0 ? $"/accounts/{r.Int("AccountId")}" : null), D("Job title", r.S("JobTitle")), D("Email", r.S("Email"), r.S("Email").Length > 0 ? $"mailto:{r.S("Email")}" : null), D("Phone", r.S("Phone"), r.S("Phone").Length > 0 ? $"tel:{r.S("Phone")}" : null), D("Mobile", r.S("Mobile"), r.S("Mobile").Length > 0 ? $"tel:{r.S("Mobile")}" : null)];
             case "opportunities":
-                var amount = r.Dec("Amount");
                 var rows = new List<(string, string, string?)>
                 {
                     D("Account", r.S("AccountName"), $"/accounts/{r.Int("AccountId")}"),
                     D("Primary contact", r.S("PrimaryContactName"), r.Int("PrimaryContactId") != 0 ? $"/contacts/{r.Int("PrimaryContactId")}" : null),
-                    D("Stage", r.S("StageName")), D("Probability", $"{r.S("Probability")}%"),
-                    D("Amount", f.Money(amount, r.S("CurrencyCode"))),
-                    D("Weighted amount", f.Money(Math.Round(amount * r.Dec("Probability")) / 100m, r.S("CurrencyCode"))),
-                    D("Close date", f.Date(r.S("CloseDate"))), D("Lead source", r.S("LeadSourceLabel")),
+                    D("Lead source", r.S("LeadSourceLabel")), D("Currency", r.S("CurrencyCode").Trim()),
                 };
                 if (r.S("StageType") == "lost") { rows.Add(D("Lost reason", r.S("LostReasonLabel"))); }
                 return rows;
             default:
                 var rel = RelatedTo(r);
                 return [D("Type", TypeLabel.GetValueOrDefault(r.S("ActivityType")) ?? ""), D("Status", r.Bool("IsDone") ? "Done" : "Open"), D("Related to", rel.Text, rel.Href),
-                    D("Due", f.Date(r.S("DueDate")) + (r.S("DueTime").Length > 0 ? " " + r.S("DueTime") : "")), D("Description", r.S("Description"))];
+                    D("Due", f.Date(r.S("DueDate")) + (r.S("DueTime").Length > 0 ? " " + r.S("DueTime") : ""))];
         }
     }
 
@@ -216,10 +237,59 @@ public static class EntityViews
         }
     }
 
+    private static readonly IReadOnlyDictionary<string, (string Title, bool Fieldset, string[][] Rows)[]> Layouts = new Dictionary<string, (string, bool, string[][])[]>
+    {
+        ["accounts"] = [("Company", false, [["Name"], ["Website"], ["Phone"], ["IndustryValueId"]]), ("Address", false, [["Street"], ["PostalCode", "City"], ["CountryCode"]]), ("Notes and ownership", false, [["Notes"], ["OwnerId"]])],
+        ["contacts"] = [("Person", false, [["FirstName", "LastName"], ["JobTitle"]]), ("Contact details", false, [["Email"], ["Phone"], ["Mobile"]]), ("Company and ownership", false, [["AccountId"], ["OwnerId"]])],
+        ["opportunities"] = [("Basics", false, [["Name"], ["AccountId"], ["PrimaryContactId"]]), ("Value and timing", false, [["StageId"], ["Amount", "CurrencyCode"], ["CloseDate"]]), ("Source and ownership", false, [["LeadSourceValueId"], ["LostReasonValueId"], ["OwnerId"]])],
+        ["activities"] = [("Activity", false, [["ActivityType"], ["Subject"]]), ("Related to (link at least one)", true, [["AccountId"], ["ContactId"], ["OpportunityId"]]), ("Timing", false, [["DueDate", "DueTime"], ["IsDone"]]), ("Details", false, [["Description"], ["OwnerId"]])],
+    };
+
+    /// <summary>Groups the flat field list into the sections of ui-redesign 5.5. Unknown fields (should not happen) land in a final unnamed group.</summary>
+    public static IReadOnlyList<FormSection> Sections(string entity, IReadOnlyList<FormField> fields)
+    {
+        if (!Layouts.TryGetValue(entity, out var layout))
+        {
+            return [new FormSection("", false, fields.Select(x => (IReadOnlyList<FormField>)[x]).ToList())];
+        }
+        var byName = fields.ToDictionary(x => x.Name, StringComparer.Ordinal);
+        var used = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<FormSection>();
+        foreach (var (title, fieldset, rows) in layout)
+        {
+            var built = rows.Select(r => (IReadOnlyList<FormField>)r.Where(byName.ContainsKey).Select(n => { used.Add(n); return byName[n]; }).ToList()).Where(r => r.Count > 0).ToList();
+            if (built.Count > 0) { result.Add(new FormSection(title, fieldset, built)); }
+        }
+        var rest = fields.Where(x => !used.Contains(x.Name)).Select(x => (IReadOnlyList<FormField>)[x]).ToList();
+        if (rest.Count > 0) { result.Add(new FormSection("", false, rest)); }
+        return result;
+    }
+
     public static IReadOnlyList<(string Field, string Message)> ErrorList(IReadOnlyList<FormField> fields, IReadOnlyDictionary<string, string> errors)
     {
         var order = fields.Select(x => x.Name).ToList();
         return errors.OrderBy(e => order.IndexOf(e.Key)).Select(e => (e.Key, e.Value)).ToList();
+    }
+
+    /// <summary>Chips for the filters that differ from their default, each linking to the same list without that filter (and back on page 1).</summary>
+    public static IReadOnlyList<(string Label, string Href)> ActiveFilters(EntityDef def, ListQuery q, IReadOnlyList<FilterField> fields)
+    {
+        var chips = new List<(string, string)>();
+        if (q.Q.Length > 0)
+        {
+            chips.Add(($"Search: {q.Q}", PageHref(def.Path, q, new Dictionary<string, string?> { ["q"] = "", ["page"] = "1" })));
+        }
+        foreach (var f in fields)
+        {
+            var spec = def.Filters.FirstOrDefault(x => x.Key == f.Name);
+            if (f.Value.Length == 0 || f.Value == spec?.Default || (f.Name == "due" && f.Value == "any"))
+            {
+                continue;
+            }
+            var shown = f.Options.FirstOrDefault(o => o.Value == f.Value)?.Label ?? f.Value;
+            chips.Add(($"{f.Label}: {shown}", PageHref(def.Path, q, new Dictionary<string, string?> { [f.Name] = "", ["page"] = "1" })));
+        }
+        return chips;
     }
 
     public static string PageHref(string basePath, ListQuery q, IReadOnlyDictionary<string, string?> over)

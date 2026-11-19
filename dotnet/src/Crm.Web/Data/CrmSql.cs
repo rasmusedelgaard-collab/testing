@@ -21,7 +21,7 @@ public static class CrmSql
     public static readonly IReadOnlyDictionary<string, SqlDef> Entities = new Dictionary<string, SqlDef>(StringComparer.Ordinal)
     {
         ["accounts"] = new(
-            "e.Name, e.Website, e.Phone, e.IndustryValueId, iv.Label AS IndustryLabel, e.Street, e.PostalCode, e.City, e.CountryCode, e.Notes",
+            "e.Name, e.Website, e.Phone, e.IndustryValueId, iv.Label AS IndustryLabel, iv.Code AS IndustryCode, e.Street, e.PostalCode, e.City, e.CountryCode, e.Notes",
             "LEFT JOIN crm.PicklistValues iv ON iv.ValueId = e.IndustryValueId",
             null, null,
             ["UPDATE crm.Contacts SET AccountId = NULL WHERE AccountId = @id", "UPDATE crm.Activities SET AccountId = NULL WHERE AccountId = @id"]),
