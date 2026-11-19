@@ -212,7 +212,7 @@ public sealed partial class EntityPagesTests(SqlServerFixture fx)
         var good = await PostAsync(c, "/opportunities/new", "/opportunities", ("Name", "Deal"), ("AccountId", acc.ToString(System.Globalization.CultureInfo.InvariantCulture)), ("StageId", stage), ("Amount", "1.234,50"), ("CurrencyCode", "DKK"), ("CloseDate", "2099-12-31"), ("OwnerId", me));
         await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, good);
         var detail = await HttpHelpers.ParseAsync(await c.GetAsync(good.Headers.Location!.OriginalString));
-        Assert.Contains("DKK 1.234,50", detail.QuerySelector("dl.details")!.TextContent, StringComparison.Ordinal);
+        Assert.Contains("DKK 1.234,50", detail.QuerySelector(".facts")!.TextContent, StringComparison.Ordinal);
         var rowVer = detail.QuerySelector("input[name=rowVer]")!.GetAttribute("value")!;
         var token = detail.QuerySelector("input[name=_csrf]")!.GetAttribute("value")!;
         var oppPath = good.Headers.Location.OriginalString;

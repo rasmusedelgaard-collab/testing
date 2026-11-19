@@ -64,14 +64,15 @@ public sealed class SettingsTests(SqlServerFixture fx)
         Assert.Contains("Enter a colour like #1D4ED8.", await (await c.PostAsync("/settings/general", HttpHelpers.Form(("_csrf", await HttpHelpers.TokenAsync(c, "/settings/general")), ("appName", "X"), ("accentColor", "red")))).Content.ReadAsStringAsync(), StringComparison.Ordinal);
         try
         {
-            var ok = await c.PostAsync("/settings/general", HttpHelpers.Form(("_csrf", await HttpHelpers.TokenAsync(c, "/settings/general")), ("appName", "Acme CRM"), ("accentColor", "#0f766e")));
+            var ok = await c.PostAsync("/settings/general", HttpHelpers.Form(("_csrf", await HttpHelpers.TokenAsync(c, "/settings/general")), ("appName", "Acme CRM"), ("accentColor", "#0b5d57")));
             await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, ok);
             var page = await HttpHelpers.ParseAsync(await c.GetAsync("/settings/general"));
             Assert.Equal("Settings saved.", page.QuerySelector(".flash")!.TextContent);
-            Assert.Equal("#0F766E", page.QuerySelector("#f-accentColor")!.GetAttribute("value"));
+            Assert.Equal("#0B5D57", page.QuerySelector("#f-accentColor")!.GetAttribute("value"));
             Assert.Contains("Acme CRM", page.QuerySelector("title")!.TextContent, StringComparison.Ordinal);
             var theme = await (await HttpHelpers.NewClient(f).GetAsync("/css/theme.css")).Content.ReadAsStringAsync();
-            Assert.Contains("--color-primary: #0F766E", theme, StringComparison.Ordinal);
+            Assert.Contains("--action: #0B5D57", theme, StringComparison.Ordinal);
+            Assert.Contains("--action-hover:", theme, StringComparison.Ordinal);
         }
         finally
         {
