@@ -1,5 +1,7 @@
 # Internal CRM: UI Specification (v0.3)
 
+> **Superseded in part (19.11.2026):** the visual and layout sections of this spec (1 Navigation and layout, the ASCII layouts and visual details in 2 and 3, and 5 Design tokens) are replaced by `docs/ux/ui-redesign.md` v1.0 (DAFA design system). All rules, fields, validation messages and copy below stay binding. The stack line below is historical: the app is now ASP.NET Core Razor Pages (ADR-0007).
+
 Status: v0.3, product owner decisions applied (see section 9; v0.3 adds Entra-group teams, Team-mode edit rights and the database wake-up state) · Owner: UX · Stack: Express + EJS, plain CSS, Chart.js, minimal JS (progressive enhancement: every page works with JS off except charts, which fall back to their data tables).
 
 ## 0. Users, assumptions, goals
