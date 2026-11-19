@@ -203,16 +203,18 @@ public static partial class CrmConfigLoader
     /// </summary>
     public static string? DemoRefusal(IConfiguration configuration) => DemoRefusal(k => configuration[k]);
 
-    public static string? DemoRefusal(Func<string, string?> get)
+    public static string? DemoRefusal(Func<string, string?> get) => DemoRefusal(get, "seed-demo");
+
+    public static string? DemoRefusal(Func<string, string?> get, string command)
     {
         string? Get(string k) => string.IsNullOrWhiteSpace(get(k)) ? null : get(k)!.Trim();
         if (Get("LIVE") is { } live && !live.Equals("false", StringComparison.OrdinalIgnoreCase))
         {
-            return "seed-demo is refused when LIVE is set (demo data is for test sites only).";
+            return command + " is refused when LIVE is set (demo data is for test sites only).";
         }
         if (Get("WEBSITE_INSTANCE_ID") is not null || Get("WEBSITE_SITE_NAME") is not null)
         {
-            return "seed-demo is refused on Azure App Service (demo data is for test sites only).";
+            return command + " is refused on Azure App Service (demo data is for test sites only).";
         }
         return null;
     }
@@ -235,6 +237,28 @@ public static partial class CrmConfigLoader
         if (Get("AUTH_MODE") != "test-access-code")
         {
             return "seed-demo is refused: AUTH_MODE must be test-access-code.";
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// seed-test refusal (null = allowed): it writes well-known test users, so it needs the same host checks as seed-demo plus
+    /// DB_AUTH_MODE=sql-password and an explicit ALLOW_TEST_SEED=true (only the test deployment and CI set it).
+    /// </summary>
+    public static string? TestSeedRefusal(IConfiguration configuration)
+    {
+        string? Get(string k) => string.IsNullOrWhiteSpace(configuration[k]) ? null : configuration[k]!.Trim();
+        if (DemoRefusal(k => configuration[k], "seed-test") is { } refusal)
+        {
+            return refusal;
+        }
+        if (Get("DB_AUTH_MODE") != "sql-password")
+        {
+            return "seed-test is refused: DB_AUTH_MODE must be sql-password (managed identity means a real environment).";
+        }
+        if (Get("ALLOW_TEST_SEED") != "true")
+        {
+            return "seed-test is refused: set ALLOW_TEST_SEED=true (only the test deployment and CI set it).";
         }
         return null;
     }

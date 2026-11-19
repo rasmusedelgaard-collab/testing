@@ -33,8 +33,16 @@ on:
         description: Also seed demo data (seed-demo --yes-demo; fictitious accounts, deals and activities; TEST data only; idempotent; with run_migrations and migrator=dotnet only; the database must have been through seed-test, which writes the test marker)
         type: boolean
         default: false
+      demo_settings:
+        description: Also set the demo settings (seed-demo --demo-settings - team visibility, locale da-DK, enabled currencies; audited; with seed_demo or reset_demo only)
+        type: boolean
+        default: false
       purge_legacy_demo:
-        description: One-time clean-up of demo data written by the first seeder version (no run id; seed-demo --yes-demo --purge-legacy-demo). Runs before seed_demo and needs it. Deletes rows created by demo users, lists counts first, writes one audit row, removes the demo.seeded marker.
+        description: One-time clean-up of demo data written by the first seeder version (no run id; seed-demo --yes-demo --purge-legacy-demo). Needs seed_demo. Runs as a DRY RUN (counts only, nothing changed, seeding is skipped) unless confirm_purge is also ticked.
+        type: boolean
+        default: false
+      confirm_purge:
+        description: Really delete what purge_legacy_demo found (rows created by demo users, one audit row, removes the demo.seeded marker). Without it purge_legacy_demo only reports counts
         type: boolean
         default: false
       reset_demo:
@@ -148,6 +156,12 @@ jobs:
           echo "::error::purge_legacy_demo needs seed_demo (it runs before it)"
           exit 1
 
+      - name: Demo settings need seed_demo
+        if: ${{ inputs.demo_settings && !inputs.seed_demo && !inputs.reset_demo }}
+        run: |
+          echo "::error::demo_settings needs seed_demo or reset_demo"
+          exit 1
+
       - name: Refuse demo data with the Node migrator
         if: ${{ inputs.migrator == 'node' && (inputs.seed_demo || inputs.reset_demo) }}
         run: |
@@ -164,6 +178,10 @@ jobs:
           SEED_DEMO: ${{ inputs.seed_demo }}
           RESET_DEMO: ${{ inputs.reset_demo }}
           PURGE_LEGACY: ${{ inputs.purge_legacy_demo }}
+          CONFIRM_PURGE: ${{ inputs.confirm_purge }}
+          DEMO_SETTINGS: ${{ inputs.demo_settings }}
+          # seed-test refuses unless the target says "test deployment" (sql-password + this flag); set only when seed-test was asked for.
+          ALLOW_TEST_SEED: ${{ inputs.seed_test && 'true' || '' }}
           # seed-demo checks the target, not only the host: it refuses unless all of these say "test deployment" (and the database carries
           # the marker that seed-test wrote). They are set only when demo data was asked for.
           ALLOW_DEMO_SEED: ${{ (inputs.seed_demo || inputs.reset_demo) && 'true' || '' }}
@@ -175,8 +193,18 @@ jobs:
           # Demo data runs after seed-test (which writes the test marker). The command itself refuses LIVE=true, Azure and any target
           # that is not sql-password + test-access-code + ALLOW_DEMO_SEED=true + the marker, and needs --yes-demo.
           if [ "$SEED_DEMO" = "true" ] || [ "$RESET_DEMO" = "true" ]; then
-            if [ "$PURGE_LEGACY" = "true" ]; then dotnet run --project "$WEB_PROJECT" -c Release --no-build -- seed-demo --yes-demo --purge-legacy-demo; fi
-            demo_args=(seed-demo --yes-demo --demo-settings)
+            if [ "$PURGE_LEGACY" = "true" ]; then
+              if [ "$CONFIRM_PURGE" = "true" ]; then
+                dotnet run --project "$WEB_PROJECT" -c Release --no-build -- seed-demo --yes-demo --purge-legacy-demo
+              else
+                # Dry run: counts only. Seeding is skipped, because the legacy rows are still there.
+                dotnet run --project "$WEB_PROJECT" -c Release --no-build -- seed-demo --yes-demo --purge-legacy-demo --dry-run
+                echo "::notice::purge_legacy_demo ran as a dry run (nothing changed, seeding skipped). Tick confirm_purge to delete."
+                exit 0
+              fi
+            fi
+            demo_args=(seed-demo --yes-demo)
+            if [ "$DEMO_SETTINGS" = "true" ]; then demo_args+=(--demo-settings); fi
             if [ "$RESET_DEMO" = "true" ]; then demo_args+=(--reset-demo); fi
             dotnet run --project "$WEB_PROJECT" -c Release --no-build -- "${demo_args[@]}"
           fi

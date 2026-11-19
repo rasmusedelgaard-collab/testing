@@ -93,4 +93,44 @@ public sealed class DemoGuardTests
         Assert.Contains("--demo-settings", text, StringComparison.Ordinal);
         Assert.Contains("--edge-fx", text, StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData("--reset-demo")]
+    [InlineData("--demo-settings")]
+    [InlineData("--edge-fx")]
+    public void Purge_legacy_cannot_be_combined_with_seeding_options(string other)
+    {
+        var error = CliRunner.DemoArgsError(["seed-demo", "--yes-demo", "--purge-legacy-demo", other], TargetEnv());
+        Assert.Contains("--purge-legacy-demo cannot be combined", error, StringComparison.Ordinal);
+        Assert.Null(CliRunner.DemoArgsError(["seed-demo", "--yes-demo", "--purge-legacy-demo", "--dry-run"], TargetEnv()));
+    }
+
+    [Fact]
+    public void Dry_run_is_allowed_for_purge_and_reset_only()
+    {
+        Assert.Null(CliRunner.DemoArgsError(["seed-demo", "--yes-demo", "--reset-demo", "--dry-run"], TargetEnv()));
+        Assert.Contains("--dry-run applies only", CliRunner.DemoArgsError(["seed-demo", "--yes-demo", "--dry-run"], TargetEnv()), StringComparison.Ordinal);
+    }
+
+    private static readonly (string, string)[] TestSeedTarget = [("DB_AUTH_MODE", "sql-password"), ("ALLOW_TEST_SEED", "true")];
+
+    [Fact]
+    public void Seed_test_is_allowed_only_on_a_sql_password_target_with_the_explicit_flag()
+    {
+        Assert.Null(CrmConfigLoader.TestSeedRefusal(Env(TestSeedTarget)));
+        Assert.Contains("ALLOW_TEST_SEED=true", CrmConfigLoader.TestSeedRefusal(Env(("DB_AUTH_MODE", "sql-password"))), StringComparison.Ordinal);
+        Assert.Contains("ALLOW_TEST_SEED=true", CrmConfigLoader.TestSeedRefusal(Env(("DB_AUTH_MODE", "sql-password"), ("ALLOW_TEST_SEED", "TRUE"))), StringComparison.Ordinal);
+        Assert.Contains("DB_AUTH_MODE", CrmConfigLoader.TestSeedRefusal(Env(("ALLOW_TEST_SEED", "true"))), StringComparison.Ordinal);
+        Assert.Contains("DB_AUTH_MODE", CrmConfigLoader.TestSeedRefusal(Env(("DB_AUTH_MODE", "managed-identity"), ("ALLOW_TEST_SEED", "true"))), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("LIVE", "true")]
+    [InlineData("WEBSITE_INSTANCE_ID", "abc")]
+    [InlineData("WEBSITE_SITE_NAME", "abc")]
+    public void Seed_test_is_refused_on_live_and_azure_hosts_even_with_the_flag(string key, string value)
+    {
+        var error = CrmConfigLoader.TestSeedRefusal(Env([.. TestSeedTarget, (key, value)]));
+        Assert.StartsWith("seed-test is refused", error, StringComparison.Ordinal);
+    }
 }

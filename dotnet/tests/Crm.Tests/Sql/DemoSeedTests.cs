@@ -329,10 +329,10 @@ public sealed class DemoSeedTests
         Assert.Equal(new[] { 1, 1, 1, 2, 1 }, await Task.WhenAll(typed.Select(db.CountAsync)));
         Assert.Equal(1, await db.CountAsync("SELECT COUNT(*) FROM crm.FxRates WHERE CurrencyCode = 'EUR' AND Rate = 7.0")); // the real rate was kept
         Assert.NotEqual(oldRun, await db.ScalarAsync<string>("SELECT SettingValue FROM crm.Settings WHERE SettingKey = 'demo.runId'"));
-        // The fresh run is complete and is the only one tracked.
-        Assert.Equal(Expected[0], await db.TrackedAsync("account", "Accounts", "AccountId"));
-        Assert.Equal(Expected[1], await db.TrackedAsync("contact", "Contacts", "ContactId"));
-        Assert.Equal(Expected[2], await db.TrackedAsync("opportunity", "Opportunities", "OpportunityId"));
+        // The fresh run is complete, and the kept deal with its account and contact were carried forward into it (N-5): one more of each.
+        Assert.Equal(Expected[0] + 1, await db.TrackedAsync("account", "Accounts", "AccountId"));
+        Assert.Equal(Expected[1] + 1, await db.TrackedAsync("contact", "Contacts", "ContactId"));
+        Assert.Equal(Expected[2] + 1, await db.TrackedAsync("opportunity", "Opportunities", "OpportunityId"));
         Assert.Equal(Expected[3], await db.TrackedAsync("activity", "Activities", "ActivityId"));
         Assert.Equal(Expected[4] - 1, await db.TrackedAsync("fxrate", "FxRates", "FxRateId"));
         // A second reset with nothing typed in between removes the fresh run completely again, and the person's rows still survive.
@@ -414,5 +414,67 @@ public sealed class DemoSeedTests
         Assert.Equal(0, await db.SeedAsync(true));
         Assert.Equal(Expected, await db.DemoCountsAsync());
         Assert.Equal(1, await db.CountAsync("SELECT COUNT(*) FROM crm.Accounts WHERE Name = N'Real customer'"));
+    }
+
+    [SqlFact]
+    public async Task Demo_settings_write_one_audit_row_per_changed_setting_with_the_run_id_and_none_for_unchanged_ones()
+    {
+        await using var db = await DemoDb.CreateAsync();
+        await db.ScalarAsync<int>("UPDATE crm.Settings SET SettingValue = N'da-DK' WHERE SettingKey = 'locale.code'; SELECT 1;"); // already as the demo wants it
+        await db.ScalarAsync<int>("UPDATE crm.Settings SET SettingValue = N'private' WHERE SettingKey = 'visibility.mode'; SELECT 1;");
+        var before = await db.CountAsync("SELECT COUNT(*) FROM crm.AuditLog WHERE EntityType = 'setting'");
+        Assert.Equal(0, await db.SeedAsync(false, demoSettings: true));
+        var run = await db.ScalarAsync<string>("SELECT SettingValue FROM crm.Settings WHERE SettingKey = 'demo.runId'");
+        const string byRun = "FROM crm.AuditLog WHERE EntityType = 'setting' AND FieldName = @f AND CorrelationId = @r";
+        Assert.Equal(1, await db.ScalarAsync<int>($"SELECT COUNT(*) {byRun} AND Action = 'U' AND OldValue = N'private' AND NewValue = N'team'", ("@f", "visibility.mode"), ("@r", Guid.Parse(run))));
+        Assert.Equal(0, await db.ScalarAsync<int>($"SELECT COUNT(*) {byRun}", ("@f", "locale.code"), ("@r", Guid.Parse(run)))); // unchanged: no row
+        Assert.True(await db.CountAsync("SELECT COUNT(*) FROM crm.AuditLog WHERE EntityType = 'setting'") > before);
+
+        // Applying again changes nothing, so it writes nothing.
+        var after = await db.CountAsync("SELECT COUNT(*) FROM crm.AuditLog WHERE EntityType = 'setting'");
+        Assert.Equal(0, await db.SeedAsync(false, demoSettings: true));
+        Assert.Equal(after, await db.CountAsync("SELECT COUNT(*) FROM crm.AuditLog WHERE EntityType = 'setting'"));
+    }
+
+    [SqlFact]
+    public async Task Reset_dry_run_reports_counts_and_changes_nothing()
+    {
+        await using var db = await DemoDb.CreateAsync();
+        Assert.Equal(0, await db.SeedAsync(false));
+        var audit = await db.CountAsync("SELECT COUNT(*) FROM crm.AuditLog");
+        var run = await db.ScalarAsync<string>("SELECT SettingValue FROM crm.Settings WHERE SettingKey = 'demo.runId'");
+        var output = new StringWriter();
+        Assert.Equal(0, await db.Migrator(output).SeedDemoAsync(true, TimeProvider.System, CancellationToken.None, dryRun: true));
+        Assert.Contains($"would remove {Expected[0]} accounts, {Expected[1]} contacts, {Expected[2]} opportunities, {Expected[3]} activities and {Expected[4]} FX rates", output.ToString(), StringComparison.Ordinal);
+        Assert.Equal(Expected, await db.DemoCountsAsync());
+        Assert.Equal(audit, await db.CountAsync("SELECT COUNT(*) FROM crm.AuditLog"));
+        Assert.Equal(run, await db.ScalarAsync<string>("SELECT SettingValue FROM crm.Settings WHERE SettingKey = 'demo.runId'"));
+        Assert.Equal(1, await db.CountAsync("SELECT COUNT(*) FROM crm.Settings WHERE SettingKey = 'demo.seeded'"));
+    }
+
+    [SqlFact]
+    public async Task Purge_dry_run_reports_counts_and_changes_nothing_and_the_fx_purge_is_limited_to_generated_months()
+    {
+        await using var db = await DemoDb.CreateAsync();
+        Assert.Equal(0, await db.SeedAsync(false));
+        await db.ScalarAsync<int>("DELETE FROM crm.Settings WHERE SettingKey = 'demo.runId'; SELECT 1;");
+        // A rate the demo admin entered for a month the generator never produces, and one in a currency it never produces.
+        await db.ScalarAsync<int>("""
+            DECLARE @admin int = (SELECT UserId FROM crm.Users WHERE EntraOid = '00000000-0000-4000-8000-00000000d001');
+            INSERT crm.FxRates (BaseCurrency, CurrencyCode, RateMonth, Rate, ModifiedBy) VALUES ('DKK', 'EUR', '2001-01-01', 7.4, @admin), ('DKK', 'NOK', DATEFROMPARTS(YEAR(SYSUTCDATETIME()), MONTH(SYSUTCDATETIME()), 1), 0.65, @admin);
+            SELECT 1;
+            """);
+        var audit = await db.CountAsync("SELECT COUNT(*) FROM crm.AuditLog");
+        var output = new StringWriter();
+        Assert.Equal(0, await db.Migrator(output).SeedDemoAsync(false, TimeProvider.System, CancellationToken.None, purgeLegacy: true, dryRun: true));
+        Assert.Contains($"found {Expected[0]} accounts, {Expected[1]} contacts, {Expected[2]} opportunities, {Expected[3]} activities and {Expected[4]} FX rates", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Dry run", output.ToString(), StringComparison.Ordinal);
+        Assert.Equal(Expected[0], await db.CountAsync("SELECT COUNT(*) FROM crm.Accounts WHERE CreatedBy IN (SELECT UserId FROM crm.Users WHERE LOWER(CONVERT(char(36), EntraOid)) LIKE '00000000-0000-4000-8000-00000000d0%')"));
+        Assert.Equal(1, await db.CountAsync("SELECT COUNT(*) FROM crm.Settings WHERE SettingKey = 'demo.seeded'"));
+        Assert.Equal(audit, await db.CountAsync("SELECT COUNT(*) FROM crm.AuditLog"));
+
+        // The real purge removes the generated currency-months only.
+        Assert.Equal(0, await db.SeedAsync(false, purgeLegacy: true));
+        Assert.Equal(2, await db.CountAsync("SELECT COUNT(*) FROM crm.FxRates WHERE ModifiedBy IN (SELECT UserId FROM crm.Users WHERE LOWER(CONVERT(char(36), EntraOid)) LIKE '00000000-0000-4000-8000-00000000d0%')"));
     }
 }

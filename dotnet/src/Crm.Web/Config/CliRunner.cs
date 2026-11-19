@@ -14,6 +14,11 @@ public static class CliRunner
             await Console.Error.WriteLineAsync(demoError);
             return 1;
         }
+        if (args[0] == "seed-test" && CrmConfigLoader.TestSeedRefusal(configuration) is { } testSeedError)
+        {
+            await Console.Error.WriteLineAsync(testSeedError);
+            return 1;
+        }
         DbConfig db;
         TestAdmin? admin = null;
         try
@@ -39,12 +44,12 @@ public static class CliRunner
         {
             "migrate" => await migrator.MigrateAsync(CancellationToken.None),
             "seed-test" => await migrator.SeedTestAsync(admin, CancellationToken.None),
-            "seed-demo" => await migrator.SeedDemoAsync(args.Contains("--reset-demo"), TimeProvider.System, CancellationToken.None, args.Contains("--edge-fx"), args.Contains("--demo-settings"), args.Contains("--purge-legacy-demo")),
+            "seed-demo" => await migrator.SeedDemoAsync(args.Contains("--reset-demo"), TimeProvider.System, CancellationToken.None, args.Contains("--edge-fx"), args.Contains("--demo-settings"), args.Contains("--purge-legacy-demo"), args.Contains("--dry-run")),
             _ => await migrator.RunSqlFileAsync(args[1], CancellationToken.None),
         };
     }
 
-    private const string DemoUsage = "usage: seed-demo --yes-demo [--reset-demo] [--edge-fx] [--demo-settings] [--purge-legacy-demo]";
+    private const string DemoUsage = "usage: seed-demo --yes-demo [--reset-demo] [--edge-fx] [--demo-settings] [--purge-legacy-demo] [--dry-run]\n  --purge-legacy-demo cannot be combined with --reset-demo, --demo-settings or --edge-fx; --dry-run applies to --purge-legacy-demo and --reset-demo only";
 
     /// <summary>
     /// Safety gate for seed-demo: refused on live/Azure hosts, needs the explicit flag, rejects unknown options and checks the target
@@ -57,13 +62,21 @@ public static class CliRunner
             return refusal;
         }
         var options = args.Skip(1).ToList();
-        if (options.Exists(o => o is not ("--yes-demo" or "--reset-demo" or "--edge-fx" or "--demo-settings" or "--purge-legacy-demo")))
+        if (options.Exists(o => o is not ("--yes-demo" or "--reset-demo" or "--edge-fx" or "--demo-settings" or "--purge-legacy-demo" or "--dry-run")))
         {
             return DemoUsage;
         }
         if (!options.Contains("--yes-demo"))
         {
             return "seed-demo writes a few thousand fictitious rows (accounts, deals, activities, audit and FX rows) into the database. Add --yes-demo to confirm this is a test database. " + DemoUsage;
+        }
+        if (options.Contains("--purge-legacy-demo") && options.Exists(o => o is "--reset-demo" or "--demo-settings" or "--edge-fx"))
+        {
+            return "--purge-legacy-demo cannot be combined with --reset-demo, --demo-settings or --edge-fx (it seeds nothing). " + DemoUsage;
+        }
+        if (options.Contains("--dry-run") && !options.Contains("--purge-legacy-demo") && !options.Contains("--reset-demo"))
+        {
+            return "--dry-run applies only to --purge-legacy-demo and --reset-demo. " + DemoUsage;
         }
         return CrmConfigLoader.DemoTargetRefusal(configuration);
     }

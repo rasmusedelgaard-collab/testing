@@ -130,9 +130,13 @@ jobs:
           DB_CONNECTION_STRING: ${{ env.SA_CONNECTION }}Database=crm_ci;
           ALLOW_DEMO_SEED: 'true'
           AUTH_MODE: test-access-code
+          ALLOW_TEST_SEED: 'true'
         run: |
           set -euo pipefail
           run() { dotnet run --project "$WEB_PROJECT" -c Release --no-build -- "$@"; }
+          if ALLOW_TEST_SEED= run seed-test; then echo "::error::seed-test ran without ALLOW_TEST_SEED"; exit 1; fi
+          if LIVE=true run seed-test; then echo "::error::seed-test ran with LIVE=true"; exit 1; fi
+          if DB_AUTH_MODE=managed-identity run seed-test; then echo "::error::seed-test ran with managed identity"; exit 1; fi
           run seed-test
           run seed-demo --yes-demo
           run seed-demo --yes-demo | tee second-run.txt
@@ -149,6 +153,30 @@ jobs:
           if ALLOW_DEMO_SEED= run seed-demo --yes-demo; then echo "::error::seed-demo ran without ALLOW_DEMO_SEED"; exit 1; fi
           if AUTH_MODE=entra run seed-demo --yes-demo; then echo "::error::seed-demo ran with AUTH_MODE=entra"; exit 1; fi
           if DB_AUTH_MODE=managed-identity run seed-demo --yes-demo; then echo "::error::seed-demo ran with managed identity"; exit 1; fi
+
+      - name: Demo purge (dry run changes nothing; refused without the marker)
+        shell: bash
+        env:
+          DB_AUTH_MODE: sql-password
+          DB_CONNECTION_STRING: ${{ env.SA_CONNECTION }}Database=crm_ci;
+          ALLOW_DEMO_SEED: 'true'
+          AUTH_MODE: test-access-code
+        run: |
+          set -euo pipefail
+          run() { dotnet run --project "$WEB_PROJECT" -c Release --no-build -- "$@"; }
+          # Legacy state: marker present, no run id.
+          run run-sql db/tests/demo-legacy-simulate.sql
+          run seed-demo --yes-demo --purge-legacy-demo --dry-run | tee purge-dry.txt
+          grep -q "Legacy demo purge: found" purge-dry.txt
+          grep -q "Dry run: nothing was changed" purge-dry.txt
+          run run-sql db/tests/demo-purge-dryrun-check.sql
+          run run-sql db/tests/demo-seed-check.sql
+          # Combinations that are not allowed are usage errors.
+          if run seed-demo --yes-demo --purge-legacy-demo --reset-demo; then echo "::error::purge combined with reset was accepted"; exit 1; fi
+          if run seed-demo --yes-demo --purge-legacy-demo --demo-settings; then echo "::error::purge combined with demo-settings was accepted"; exit 1; fi
+          # Without the marker the purge refuses, also as a dry run.
+          run run-sql db/tests/demo-remove-marker.sql
+          if run seed-demo --yes-demo --purge-legacy-demo --dry-run; then echo "::error::purge ran without the demo.seeded marker"; exit 1; fi
 
       - name: Publish (framework-dependent; contains no secrets)
         run: dotnet publish "$WEB_PROJECT" -c Release --no-build -o out/web

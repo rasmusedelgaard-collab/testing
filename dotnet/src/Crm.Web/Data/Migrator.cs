@@ -165,11 +165,11 @@ public sealed class Migrator(SqlConnectionFactory factory, TextWriter output, Te
         }).ConfigureAwait(false);
 
     /// <summary>seed-demo (the safety gate lives in CliRunner). Test databases only; see <see cref="DemoSeeder"/>.</summary>
-    public async Task<int> SeedDemoAsync(bool reset, TimeProvider time, CancellationToken ct, bool fxEdge = false, bool demoSettings = false, bool purgeLegacy = false) =>
+    public async Task<int> SeedDemoAsync(bool reset, TimeProvider time, CancellationToken ct, bool fxEdge = false, bool demoSettings = false, bool purgeLegacy = false, bool dryRun = false) =>
         await GuardedAsync(async () =>
         {
             await using var conn = await factory.OpenMigratorAsync(ct).ConfigureAwait(false);
-            await new DemoSeeder(time, output).RunAsync(conn, reset, new Crm.Web.Services.Demo.DemoOptions(fxEdge, demoSettings, purgeLegacy), ct).ConfigureAwait(false);
+            await new DemoSeeder(time, output).RunAsync(conn, reset, new Crm.Web.Services.Demo.DemoOptions(fxEdge, demoSettings, purgeLegacy, dryRun), ct).ConfigureAwait(false);
         }).ConfigureAwait(false);
 
     /// <summary>Port of runSqlFile.ts: batches run on one connection; failures are reported and the run continues.</summary>
