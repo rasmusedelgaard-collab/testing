@@ -1,0 +1,185 @@
+{
+ "v": 3,
+ "layout": "files",
+ "createdOnFiles": {
+  "v": 1,
+  "at": "2026-11-18T19:40:00Z"
+ },
+ "title": "DAFAdesign",
+ "namespace": "DAFA",
+ "libraries": [],
+ "sections": {},
+ "groups": [
+  "Logos",
+  "Icons"
+ ],
+ "assetGroups": {
+  "Logos": {
+   "name": "Logos",
+   "tile": "l",
+   "order": [
+    "dafa-logo-primary-blue.svg",
+    "dafa-logo-primary-gray.svg",
+    "dafa-logo-negative.svg",
+    "dafa-logo-black.svg",
+    "dafa-logo-one-color-blue.svg",
+    "dafa-rings-gray.svg",
+    "dafa-rings-white.svg",
+    "dafa-logo-primary-blue.png"
+   ],
+   "files": {
+    "dafa-logo-primary-blue.svg": {
+     "name": "dafa-logo-primary-blue.svg",
+     "blob": "4b7d5859f1bfd2b8e7827ff5b50caf48",
+     "size": 3793,
+     "type": "image/svg+xml"
+    },
+    "dafa-logo-primary-gray.svg": {
+     "name": "dafa-logo-primary-gray.svg",
+     "blob": "b5c852bf09fcb68fdc1aca80eb1b0b13",
+     "size": 3790,
+     "type": "image/svg+xml"
+    },
+    "dafa-logo-negative.svg": {
+     "name": "dafa-logo-negative.svg",
+     "blob": "8bc0e324f43caf0dc275c9c9d7eb1271",
+     "size": 3912,
+     "type": "image/svg+xml"
+    },
+    "dafa-logo-black.svg": {
+     "name": "dafa-logo-black.svg",
+     "blob": "66e0e7bacd29784c26cbbf8d4250b456",
+     "size": 3913,
+     "type": "image/svg+xml"
+    },
+    "dafa-logo-one-color-blue.svg": {
+     "name": "dafa-logo-one-color-blue.svg",
+     "blob": "70f63be422aa2caed38a131648739e18",
+     "size": 3903,
+     "type": "image/svg+xml"
+    },
+    "dafa-rings-gray.svg": {
+     "name": "dafa-rings-gray.svg",
+     "blob": "cb72a49707fa591f83d7b11614149feb",
+     "size": 1489,
+     "type": "image/svg+xml"
+    },
+    "dafa-rings-white.svg": {
+     "name": "dafa-rings-white.svg",
+     "blob": "e0d5f593cab53212358ada3622a1fd9c",
+     "size": 1489,
+     "type": "image/svg+xml"
+    },
+    "dafa-logo-primary-blue.png": {
+     "name": "dafa-logo-primary-blue.png",
+     "blob": "69e68c1062e37547cef18068896dad58",
+     "size": 26836,
+     "type": "image/png"
+    }
+   }
+  },
+  "Icons": {
+   "name": "Icons",
+   "tile": "s",
+   "order": [
+    "icon-wind-gray.svg",
+    "icon-building-materials-gray.svg",
+    "icon-industry-gray.svg",
+    "icon-wind-white.svg",
+    "icon-building-materials-white.svg",
+    "icon-industry-white.svg",
+    "icon-wind-ochre.svg",
+    "icon-building-materials-ochre.svg",
+    "icon-industry-ochre.svg",
+    "icon-wind-mint.svg",
+    "icon-building-materials-mint.svg",
+    "icon-industry-mint.svg"
+   ],
+   "files": {
+    "icon-wind-gray.svg": {
+     "name": "icon-wind-gray.svg",
+     "blob": "ff20a53e7bcde2bd703d972333d65a95",
+     "size": 3168,
+     "type": "image/svg+xml"
+    },
+    "icon-building-materials-gray.svg": {
+     "name": "icon-building-materials-gray.svg",
+     "blob": "251c32ca69b82f7501ae0d598afbed76",
+     "size": 3345,
+     "type": "image/svg+xml"
+    },
+    "icon-industry-gray.svg": {
+     "name": "icon-industry-gray.svg",
+     "blob": "12966e887fbcc44fecb28aeb51decf1b",
+     "size": 2631,
+     "type": "image/svg+xml"
+    },
+    "icon-wind-white.svg": {
+     "name": "icon-wind-white.svg",
+     "blob": "7d9ce3d933b10e29eeb757875f986289",
+     "size": 2902,
+     "type": "image/svg+xml"
+    },
+    "icon-building-materials-white.svg": {
+     "name": "icon-building-materials-white.svg",
+     "blob": "4ee1a12b84280a32ca153aa3676bffb2",
+     "size": 3125,
+     "type": "image/svg+xml"
+    },
+    "icon-industry-white.svg": {
+     "name": "icon-industry-white.svg",
+     "blob": "1870a5726776f36748b575eca43a18af",
+     "size": 2361,
+     "type": "image/svg+xml"
+    },
+    "icon-wind-ochre.svg": {
+     "name": "icon-wind-ochre.svg",
+     "blob": "6682d61791f0ef5bf59a5d7b903e6904",
+     "size": 3178,
+     "type": "image/svg+xml"
+    },
+    "icon-building-materials-ochre.svg": {
+     "name": "icon-building-materials-ochre.svg",
+     "blob": "a297af9aab3131b5bb4996ecf84a4849",
+     "size": 3346,
+     "type": "image/svg+xml"
+    },
+    "icon-industry-ochre.svg": {
+     "name": "icon-industry-ochre.svg",
+     "blob": "49a494fa68256f325b1acb5dbf5e2187",
+     "size": 2637,
+     "type": "image/svg+xml"
+    },
+    "icon-wind-mint.svg": {
+     "name": "icon-wind-mint.svg",
+     "blob": "e6cf13ac59329da23251832636a2f220",
+     "size": 3178,
+     "type": "image/svg+xml"
+    },
+    "icon-building-materials-mint.svg": {
+     "name": "icon-building-materials-mint.svg",
+     "blob": "1e6b2835c5cd25566cb4d0d05eb8a7b7",
+     "size": 3348,
+     "type": "image/svg+xml"
+    },
+    "icon-industry-mint.svg": {
+     "name": "icon-industry-mint.svg",
+     "blob": "2a9911cb83c18c2a4609ebfa05961112",
+     "size": 2637,
+     "type": "image/svg+xml"
+    }
+   }
+  }
+ },
+ "blobs": {},
+ "docs": {
+  "readme": "project/README.md",
+  "sections": []
+ },
+ "lastChange": {
+  "by": "Rasmus",
+  "at": "2026-11-18T19:50:00Z",
+  "via": "Claude",
+  "note": "Added a dark theme: surface, surface-panel, ink, hairline, action and on-action now have light and dark values."
+ }
+}
