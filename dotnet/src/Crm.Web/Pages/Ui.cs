@@ -20,6 +20,10 @@ public static class Ui
     public static IHtmlContent Ring(string name, string size = "") =>
         new HtmlString($"<span class=\"icon-ring{(size.Length == 0 ? "" : " " + size)}\" aria-hidden=\"true\"><svg class=\"icon\" focusable=\"false\"><use href=\"{Sprite}#i-{name}\"/></svg></span>");
 
+    /// <summary>The data-theme attribute for the html element: only "light" or "dark" (the stored preference), nothing for "system".</summary>
+    public static IHtmlContent ThemeAttr(string? theme) =>
+        theme is "light" or "dark" ? new HtmlString($" data-theme=\"{theme}\"") : HtmlString.Empty;
+
     public static string Initials(string name)
     {
         var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2);

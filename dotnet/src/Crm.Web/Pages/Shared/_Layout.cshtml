@@ -17,7 +17,7 @@
     var returnTo = Context.Request.Path.Value + Context.Request.QueryString.Value;
 }
 <!DOCTYPE html>
-<html lang="en" class="no-js" data-theme="@theme">
+<html lang="en" class="no-js"@Ui.ThemeAttr(theme)>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
