@@ -324,6 +324,7 @@ public sealed class SettingsConfigTests(SqlServerFixture fx)
         renamed[newIdx] = newRow with { Name = name + "x", Prob = "35" };
         await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(renamed, "save")));
         var stageId = int.Parse(newRow.Id, CultureInfo.InvariantCulture);
+        ReadStages(await HttpHelpers.ParseAsync(await c.GetAsync("/settings/stages"))); // the save changed the list: pick up the new version
         var removeDoc = await HttpHelpers.ParseAsync(await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(renamed, $"remove:{newIdx}")));
         Assert.DoesNotContain(ReadStages(removeDoc), r => r.Name == name + "x");
         var afterRemove = renamed.Where((_, i) => i != newIdx).ToList();
