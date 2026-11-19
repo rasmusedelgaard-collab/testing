@@ -1,10 +1,14 @@
 @page "/settings/stages"
+@using Crm.Web.Data
 @model StagesModel
 <partial name="_SettingsNav" model='"stages"' />
 <h1>Pipeline stages</h1>
+@if (Model.Stale){<p class="flash flash-error" role="alert" tabindex="-1" data-autofocus>@AdminRepo.StaleStages <a href="/settings/stages">Load the current stage list</a></p>}
 <partial name="_ErrorSummary" model="Model.Summary" />
-@if (Model.Note.Length > 0){<p class="muted" role="status">@Model.Note</p>}
+@if (Model.Note.Length > 0){<p class="flash-warn" role="status"><span aria-hidden="true">⚠ </span>@Model.Note</p>}
 <form method="post" action="/settings/stages" asp-antiforgery="true" novalidate>
+  @* Default button for Enter in a text field: without it the first submit button in the DOM (a disabled or move button) decides. Visually hidden, not hidden/display:none, so every engine still uses it. *@
+  <button type="submit" name="action" value="save" class="visually-hidden" tabindex="-1" aria-hidden="true">Save stages</button>
   <input type="hidden" name="n" value="@Model.Rows.Count">
   <input type="hidden" name="ver" value="@Model.Version">
   <div class="table-wrap"><table class="data">
@@ -15,6 +19,7 @@
     {
       var r = Model.Rows[i];
       var nameErr = Model.Errors.TryGetValue("name" + i, out var en) ? en : null;
+      var typeErr = Model.Errors.TryGetValue("type" + i, out var et) ? et : null;
       var probErr = Model.Errors.TryGetValue("prob" + i, out var ep) ? ep : null;
     <tr>
       <td data-label="Order"><input type="hidden" name="id_@i" value="@r.Id">
@@ -27,15 +32,25 @@
       <td data-label="Probability"><label class="visually-hidden" for="f-prob@(i)">Probability @(i + 1) (percent)</label>
         @if (probErr is not null){<span class="field-error" id="e-prob@(i)"><span aria-hidden="true">⚠ </span>@probErr</span>}
         <input id="f-prob@(i)" name="prob_@i" type="text" inputmode="numeric" size="4" value="@(r.Type == "won" ? "100" : r.Type == "lost" ? "0" : r.Prob)" aria-invalid="@(probErr is not null ? "true" : null)" aria-describedby="@(probErr is not null ? "e-prob" + i : null)"> %</td>
-      <td data-label="Type"><fieldset class="plain"><legend class="visually-hidden">Type of stage @(i + 1)</legend>
-        @foreach (var t in new[] { "open", "won", "lost" }){<label class="inline"><input type="radio" name="type_@i" value="@t" checked="@(r.Type == t)"> @(char.ToUpperInvariant(t[0]) + t[1..])</label>}</fieldset></td>
+      <td data-label="Type">
+        @if (typeErr is not null){<span class="field-error" id="e-type@(i)"><span aria-hidden="true">⚠ </span>@typeErr</span>}
+        @if (r.Used > 0)
+        {
+        <input type="hidden" name="type_@i" value="@r.Type">
+        <span id="f-type@(i)" tabindex="-1" aria-describedby="@(typeErr is not null ? "e-type" + i : null)">@(char.ToUpperInvariant(r.Type[0]) + r.Type[1..]) (locked: @r.Used @(r.Used == 1 ? "opportunity" : "opportunities"))</span>
+        }
+        else
+        {
+        <fieldset class="plain" aria-describedby="@(typeErr is not null ? "e-type" + i : null)"><legend class="visually-hidden">Type of stage @(i + 1)</legend>
+        @foreach (var t in new[] { "open", "won", "lost" }){<label class="inline"><input type="radio" id="@(t == "open" ? "f-type" + i : null)" name="type_@i" value="@t" checked="@(r.Type == t)"> @(char.ToUpperInvariant(t[0]) + t[1..])</label>}</fieldset>
+        }</td>
       <td data-label="Opportunities" class="num">@r.Used</td>
       <td data-label="Remove"><button type="submit" class="button link" name="action" value="remove:@i" aria-label="Remove stage @(r.Name.Length > 0 ? r.Name : (i + 1).ToString())">Remove</button></td>
     </tr>
     }
     </tbody>
   </table></div>
-  <p class="muted">Exactly one Won stage (probability 100) and one Lost stage (probability 0). A stage in use cannot be removed until its opportunities are moved to another stage.</p>
+  <p class="muted">Exactly one Won stage (probability 100) and one Lost stage (probability 0). A stage in use can't be removed or change type until its opportunities are moved to another stage.</p>
   <div class="actions">
     <button type="submit" class="button secondary" name="action" value="add">Add stage</button>
     <button type="submit" class="button primary" name="action" value="save">Save stages</button>

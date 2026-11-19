@@ -23,6 +23,9 @@ public sealed partial class StagesModel(IRlsDb rls, IRlsContextAccessor identity
 
     public string Note { get; private set; } = "";
 
+    /// <summary>True when the save was refused because the list changed meanwhile: a focused page-level alert with a link to reload, not part of the field-error summary.</summary>
+    public bool Stale { get; private set; }
+
     public string Focus { get; private set; } = "";
 
     public Dictionary<string, string> Links { get; } = [];
@@ -42,7 +45,9 @@ public sealed partial class StagesModel(IRlsDb rls, IRlsContextAccessor identity
         Version = version ?? AdminRepo.StageVersion(usage);
         Setup("stages", "Pipeline stages");
         var used = usage.ToDictionary(u => u.Id.ToString(CultureInfo.InvariantCulture), u => u.Used);
-        Rows = rows.Select(r => r with { Used = used.GetValueOrDefault(r.Id) }).ToList();
+        // The type of a stage in use is locked, so it always shows (and posts) the stored type, never an attempted change.
+        var storedType = usage.ToDictionary(u => u.Id.ToString(CultureInfo.InvariantCulture), u => u.Type);
+        Rows = rows.Select(r => r with { Used = used.GetValueOrDefault(r.Id), Type = used.GetValueOrDefault(r.Id) > 0 && storedType.TryGetValue(r.Id, out var t) ? t : r.Type }).ToList();
         Errors = errors ?? [];
         _pageSummary = summary ?? [];
         Note = note;
@@ -73,21 +78,21 @@ public sealed partial class StagesModel(IRlsDb rls, IRlsContextAccessor identity
         }
         var (valid, errors, summary) = SettingsValidators.ValidateStages(rows.Select(r => new SettingsValidators.StageForm(r.Id, r.Name, r.Prob, r.Type)).ToList());
         var meta = MetaOf();
-        var (usage, saveError) = await RunAsync(async (admin, _) =>
+        var (usage, saved) = await RunAsync(async (admin, _) =>
         {
             var u = await admin.StageUsageAsync();
-            if (errors.Count > 0 || summary.Count > 0) { return (u, (string?)null); }
-            var r = await admin.SaveStagesAsync(valid, posted, meta);
-            return (u, r.Ok ? null : r.Error);
+            if (errors.Count > 0 || summary.Count > 0) { return (u, (AdminRepo.StageSaveResult?)null); }
+            return (u, await admin.SaveStagesAsync(valid, posted, meta));
         });
         if (errors.Count > 0 || summary.Count > 0)
         {
             Show(rows, usage, errors, summary, version: posted);
             return Invalid();
         }
-        if (saveError is not null)
+        if (saved is { Ok: false })
         {
-            Show(rows, usage, summary: [saveError], version: posted);
+            Show(rows, usage, saved.RowErrors?.ToDictionary(e => e.Key, e => e.Value), saved.Error is null ? null : [saved.Error], version: posted);
+            Stale = saved.Stale;
             return Invalid();
         }
         Flash("Settings saved.");
@@ -117,7 +122,7 @@ public sealed partial class StagesModel(IRlsDb rls, IRlsContextAccessor identity
                 {
                     var name = row.Name.Length > 0 ? row.Name : "This stage";
                     Links[$"name{i}"] = $"/opportunities?stage={Uri.EscapeDataString(row.Id)}&status=all";
-                    Show(rows, usage, new Dictionary<string, string> { [$"name{i}"] = $"Can't remove \"{name}\": {inUse} {(inUse == 1 ? "opportunity uses" : "opportunities use")} it. Move {(inUse == 1 ? "it" : "them")} to another stage first." }, focus: $"f-name{i}", version: posted);
+                    Show(rows, usage, new Dictionary<string, string> { [$"name{i}"] = AdminRepo.StageInUse("remove", name, inUse) }, focus: $"f-name{i}", version: posted);
                     return Invalid();
                 }
                 if (row.Type is "won" or "lost" && sameType <= 1)

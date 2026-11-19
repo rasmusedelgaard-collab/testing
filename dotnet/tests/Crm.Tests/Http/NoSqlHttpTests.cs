@@ -133,6 +133,35 @@ public sealed class NoSqlHttpTests : IDisposable
         var r = await c.PostAsync("/auth/test-login", HttpHelpers.Form(("_csrf", t), ("code", "wrong")));
         Assert.Equal(HttpStatusCode.Unauthorized, r.StatusCode);
         Assert.Contains("That access code is not correct.", await r.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        // L1: the field is marked invalid, linked to the message and takes focus (app.js focuses [data-autofocus])
+        var code = (await HttpHelpers.ParseAsync(r)).QuerySelector("#code")!;
+        Assert.Equal("true", code.GetAttribute("aria-invalid"));
+        Assert.Equal("e-code", code.GetAttribute("aria-describedby"));
+        Assert.NotNull(code.GetAttribute("data-autofocus"));
+    }
+
+    [Theory]
+    [InlineData("expired", "Anything you hadn't saved was lost.")]
+    [InlineData("disabled", "You don't have access to the CRM any more. Ask your administrator.")]
+    public async Task Signin_explains_why_the_session_ended(string reason, string expected)
+    {
+        var doc = await HttpHelpers.ParseAsync(await HttpHelpers.NewClient(_f).GetAsync("/signin?reason=" + reason));
+        Assert.Contains(expected, System.Net.WebUtility.HtmlDecode(doc.QuerySelector("main")!.TextContent), StringComparison.Ordinal);
+        var none = await HttpHelpers.ParseAsync(await HttpHelpers.NewClient(_f).GetAsync("/signin"));
+        Assert.Empty(none.QuerySelectorAll(".flash"));
+    }
+
+    [Fact]
+    public async Task Wake_script_goes_back_with_history_and_charts_use_the_locale_percent_format()
+    {
+        var c = HttpHelpers.NewClient(_f);
+        var wake = await c.GetStringAsync("/js/wake.js");
+        Assert.Contains("history.back()", wake, StringComparison.Ordinal);
+        Assert.Contains("giveUp.focus()", wake, StringComparison.Ordinal);
+        Assert.Contains("'Try again'", wake, StringComparison.Ordinal);
+        var charts = await c.GetStringAsync("/js/charts.js");
+        Assert.Contains("style: 'percent'", charts, StringComparison.Ordinal);
+        Assert.DoesNotContain("+ ' %'", charts, StringComparison.Ordinal);
     }
 
     [Fact]

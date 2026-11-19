@@ -10,7 +10,8 @@
       return function (v) { return new Intl.NumberFormat(cfg.locale, { style: 'currency', currency: cfg.currency, notation: 'compact', minimumFractionDigits: 0, maximumFractionDigits: 1 }).format(v); };
     }
     if (cfg.valueKind === 'percent') {
-      return function (v) { return new Intl.NumberFormat(cfg.locale, { maximumFractionDigits: 1 }).format(v) + ' %'; };
+      // The locale decides the spacing: en-GB "34%", da "34 %". Values are 0-100, Intl expects a fraction.
+      return function (v) { return new Intl.NumberFormat(cfg.locale, { style: 'percent', maximumFractionDigits: 1 }).format(v / 100); };
     }
     return function (v) { return new Intl.NumberFormat(cfg.locale, { maximumFractionDigits: 0 }).format(v); };
   }

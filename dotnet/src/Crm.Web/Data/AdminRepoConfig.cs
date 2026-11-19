@@ -113,38 +113,52 @@ public sealed partial class AdminRepo
               FROM crm.PipelineStages s ORDER BY s.SortOrder
             """).ConfigureAwait(false);
 
-    public const string StaleStages = "The stage list was changed by someone else since you opened this page. Reload the page and try again.";
+    public const string StaleStages = "The stage list changed after you opened this page, so your changes weren't saved.";
+
+    /// <summary>One wording for the in-use rule, shared by Remove (in place) and Save (type change, forged removal).</summary>
+    public static string StageInUse(string action, string name, int used) =>
+        $"Can't {action} \"{name}\": {used} {(used == 1 ? "opportunity uses" : "opportunities use")} it. Move {(used == 1 ? "it" : "them")} to another stage first.";
 
     /// <summary>Hash of every stage id with its ModifiedAt: it changes whenever a stage is added, removed or edited by anyone.</summary>
     public static string StageVersion(IEnumerable<StageUsageRow> stages) =>
         Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
             string.Join(';', stages.OrderBy(s => s.Id).Select(s => $"{s.Id}:{s.ModifiedAt}")))))[..32];
 
-    public async Task<SaveOutcomeAdmin> SaveStagesAsync(IReadOnlyList<SettingsValidators.StageInput> rows, string? version, Meta meta)
+    /// <summary>Stale: the list changed since the page was opened (one message, page-level). RowErrors are keyed type{i} for the editor; Error is any other page-level refusal.</summary>
+    public sealed record StageSaveResult(bool Ok, bool Stale = false, string? Error = null, IReadOnlyDictionary<string, string>? RowErrors = null);
+
+    public async Task<StageSaveResult> SaveStagesAsync(IReadOnlyList<SettingsValidators.StageInput> rows, string? version, Meta meta)
     {
         var old = await StageUsageAsync().ConfigureAwait(false);
         if (version is null || !string.Equals(version, StageVersion(old), StringComparison.Ordinal))
         {
-            return new SaveOutcomeAdmin(false, StaleStages);
+            return new StageSaveResult(false, Stale: true);
         }
         var ids = rows.Where(r => r.Id is not null).Select(r => r.Id!.Value).ToList();
         if (ids.Distinct().Count() != ids.Count || ids.Any(id => old.All(o => o.Id != id)))
         {
-            return new SaveOutcomeAdmin(false, "The stage list is out of date. Reload the page and try again.");
+            return new StageSaveResult(false, Stale: true);
         }
         var keep = ids.ToHashSet();
-        if (old.FirstOrDefault(o => !keep.Contains(o.Id) && o.Used > 0) is { } inUse)
+        var removed = old.Where(o => !keep.Contains(o.Id) && o.Used > 0).ToList();
+        if (removed.Count > 0)
         {
-            return new SaveOutcomeAdmin(false, $"Move {inUse.Used} {(inUse.Used == 1 ? "opportunity" : "opportunities")} out of \"{inUse.Name}\" before deleting it.");
+            return new StageSaveResult(false, Error: string.Join(" ", removed.Select(o => StageInUse("remove", o.Name, o.Used))));
         }
-        // Changing Open/Won/Lost of a stage that opportunities use would silently restate reported revenue: same rule and copy style as removal.
-        foreach (var r in rows.Where(r => r.Id is not null))
+        // Changing Open/Won/Lost of a stage that opportunities use would silently restate reported revenue: same rule and wording as removal. Report every row.
+        var typeErrors = new Dictionary<string, string>();
+        for (var i = 0; i < rows.Count; i++)
         {
-            var o = old.First(x => x.Id == r.Id);
-            if (o.Type != r.Type && o.Used > 0)
+            if (rows[i].Id is null) { continue; }
+            var o = old.First(x => x.Id == rows[i].Id);
+            if (o.Type != rows[i].Type && o.Used > 0)
             {
-                return new SaveOutcomeAdmin(false, $"Can't change the type of \"{o.Name}\": {o.Used} {(o.Used == 1 ? "opportunity uses" : "opportunities use")} it. Move {(o.Used == 1 ? "it" : "them")} to another stage first.");
+                typeErrors[$"type{i}"] = StageInUse("change the type of", o.Name, o.Used);
             }
+        }
+        if (typeErrors.Count > 0)
+        {
+            return new StageSaveResult(false, RowErrors: typeErrors);
         }
         foreach (var st in old.Where(o => !keep.Contains(o.Id)))
         {
@@ -177,7 +191,7 @@ public sealed partial class AdminRepo
                 await AuditAsync("stage", r.Id.Value, "U", field, a, b, meta).ConfigureAwait(false);
             }
         }
-        return new SaveOutcomeAdmin(true);
+        return new StageSaveResult(true);
     }
 
     // ---------------- Picklists ----------------

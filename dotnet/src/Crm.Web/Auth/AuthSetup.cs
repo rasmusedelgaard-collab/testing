@@ -40,7 +40,10 @@ public static class AuthSetup
                 var target = HttpMethods.IsGet(ctx.Request.Method)
                     ? "/signin?returnTo=" + Uri.EscapeDataString(ReturnTo.Safe(ctx.Request.GetEncodedPathAndQuery()))
                     : "/signin";
-                if (ctx.HttpContext.Items[SessionValidator.ReasonItem] is string reason)
+                // A session cookie without a valid ticket (idle timeout, ticket purged) is an ended session too.
+                var reason = ctx.HttpContext.Items[SessionValidator.ReasonItem] as string
+                    ?? (ctx.Request.Cookies.ContainsKey(SessionCookieName(config)) ? "expired" : null);
+                if (reason is not null)
                 {
                     target += (target.Contains('?', StringComparison.Ordinal) ? "&" : "?") + "reason=" + reason;
                 }

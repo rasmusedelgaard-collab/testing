@@ -3,7 +3,8 @@
 @{ ViewData["Title"] = "Sign in"; }
 <div class="center-card">
   <h1>Sign in</h1>
-  @if (Model.Expired){<p class="flash" role="status">Your session has ended. Sign in again to continue.</p>}
+  @if (Model.Expired){<p class="flash" role="status">Your session has ended. Sign in again to continue. Anything you hadn't saved was lost.</p>}
+  @if (Model.Disabled){<p class="flash flash-error" role="alert">You don't have access to the CRM any more. Ask your administrator.</p>}
   <p>Sign in with your work account.</p>
   <a class="button primary" href="/auth/login?returnTo=@Uri.EscapeDataString(Model.ReturnTo)">Sign in with Microsoft</a>
 </div>

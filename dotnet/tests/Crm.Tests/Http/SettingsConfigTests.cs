@@ -266,7 +266,7 @@ public sealed class SettingsConfigTests(SqlServerFixture fx)
         var n = int.Parse(d.QuerySelector("input[name=n]")!.GetAttribute("value")!, CultureInfo.InvariantCulture);
         return Enumerable.Range(0, n).Select(i => new StageRow(
             d.QuerySelector($"input[name=id_{i}]")!.GetAttribute("value")!, d.QuerySelector($"input[name=name_{i}]")!.GetAttribute("value")!,
-            d.QuerySelector($"input[name=prob_{i}]")!.GetAttribute("value")!, d.QuerySelector($"input[name=type_{i}][checked]")!.GetAttribute("value")!)).ToList();
+            d.QuerySelector($"input[name=prob_{i}]")!.GetAttribute("value")!, (d.QuerySelector($"input[name=type_{i}][checked]") ?? d.QuerySelector($"input[type=hidden][name=type_{i}]"))!.GetAttribute("value")!)).ToList();
     }
 
     private (string, string)[] StageFields(IReadOnlyList<StageRow> rows, string action) =>
@@ -286,6 +286,17 @@ public sealed class SettingsConfigTests(SqlServerFixture fx)
         var added = await HttpHelpers.ParseAsync(await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(rows, "add")));
         Assert.Equal(rows.Count + 1, ReadStages(added).Count);
         Assert.Contains("Changes are not saved yet. Choose Save stages to keep them.", added.QuerySelector("main")!.TextContent, StringComparison.Ordinal);
+        Assert.NotNull(added.QuerySelector("p.flash-warn[role=status]")); // L5: warning style
+        // M1: the first element in the form is a visually hidden, untabbable Save, so Enter in a text field saves
+        var first = doc.QuerySelector("form[action='/settings/stages']")!.FirstElementChild!;
+        Assert.Equal("BUTTON", first.TagName);
+        Assert.Equal("save", first.GetAttribute("value"));
+        Assert.Equal("action", first.GetAttribute("name"));
+        Assert.Equal("submit", first.GetAttribute("type"));
+        Assert.Equal("-1", first.GetAttribute("tabindex"));
+        Assert.Contains("visually-hidden", first.ClassName, StringComparison.Ordinal);
+        Assert.Null(first.GetAttribute("hidden"));
+        Assert.Null(first.GetAttribute("style"));
         Assert.NotNull(added.QuerySelector($"#f-name{rows.Count}[data-autofocus]"));
         Assert.Equal(rows.Count, ReadStages(await HttpHelpers.ParseAsync(await c.GetAsync("/settings/stages"))).Count); // nothing saved yet
 
@@ -348,7 +359,12 @@ public sealed class SettingsConfigTests(SqlServerFixture fx)
         _ver = staleVer;
         var staleRes = await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(current.Select((r, i) => i == 0 ? r with { Name = "Stale edit" } : r).ToList(), "save"));
         await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, staleRes);
-        Assert.Contains("The stage list was changed by someone else since you opened this page.", await TextAsync(staleRes), StringComparison.Ordinal);
+        var staleDoc = await HttpHelpers.ParseAsync(staleRes);
+        var alert = staleDoc.QuerySelector("main p.flash-error[role=alert]")!; // M2: one page-level alert with a way out, not in the field-error summary
+        Assert.Contains("The stage list changed after you opened this page, so your changes weren't saved.", WebUtility.HtmlDecode(alert.TextContent), StringComparison.Ordinal);
+        Assert.Equal("/settings/stages", alert.QuerySelector("a")!.GetAttribute("href"));
+        Assert.NotNull(alert.GetAttribute("data-autofocus"));
+        Assert.Null(staleDoc.QuerySelector("#error-summary"));
         _ver = versionNow;
         var noVer = await c.PostAsync("/settings/stages", HttpHelpers.Form([("_csrf", await HttpHelpers.TokenAsync(c, "/settings/stages")), .. StageFields(current, "save").Where(f => f.Item1 != "ver")]));
         await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, noVer);
@@ -379,19 +395,28 @@ public sealed class SettingsConfigTests(SqlServerFixture fx)
         swapped[5] = swapped[5] with { Type = "open", Prob = "5" };
         var typeRes = await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(swapped, "save"));
         await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, typeRes);
-        Assert.Contains("Can't change the type of \"Qualification\":", WebUtility.HtmlDecode(await TextAsync(typeRes)), StringComparison.Ordinal);
+        var typeDoc = await HttpHelpers.ParseAsync(typeRes);
+        // M3: field-level errors for every offending row, linked from the summary as "Row N:", one shared wording
+        var typeSummary = typeDoc.QuerySelectorAll("#error-summary a").Select(a => (a.GetAttribute("href"), a.TextContent)).ToArray();
+        Assert.Contains(("#f-type0", "Row 1: Can't change the type of \"Qualification\": 1 opportunity uses it. Move it to another stage first."), typeSummary);
+        Assert.NotNull(typeDoc.QuerySelector("#f-type0"));
+        Assert.Equal("e-type0", typeDoc.QuerySelector("#f-type0")!.GetAttribute("aria-describedby"));
+        Assert.Contains("(locked: 1 opportunity)", typeDoc.QuerySelector("#f-type0")!.TextContent, StringComparison.Ordinal);
+        Assert.NotNull(typeDoc.QuerySelector("#f-type1")); // not in use: the radios stay, the first one carries the id
+        Assert.Equal("radio", typeDoc.QuerySelector("#f-type1")!.GetAttribute("type"));
+        Assert.Equal("open", typeDoc.QuerySelector("input[type=hidden][name=type_0]")!.GetAttribute("value")); // the stored type, not the attempt
         var forged = rows.Append(new StageRow("2147483647", "Ghost", "10", "open")).ToList();
         var forgedRes = await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(forged, "save"));
         await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, forgedRes);
-        Assert.Contains("The stage list is out of date. Reload the page and try again.", await TextAsync(forgedRes), StringComparison.Ordinal);
+        Assert.Contains("The stage list changed after you opened this page", WebUtility.HtmlDecode(await TextAsync(forgedRes)), StringComparison.Ordinal);
         var dupIds = rows.Append(rows[0] with { Name = "Other name" }).ToList();
-        Assert.Contains("The stage list is out of date.", await TextAsync(await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(dupIds, "save"))), StringComparison.Ordinal);
+        Assert.Contains("The stage list changed after you opened this page", WebUtility.HtmlDecode(await TextAsync(await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(dupIds, "save")))), StringComparison.Ordinal);
         Assert.Equal(rows, ReadStages(await HttpHelpers.ParseAsync(await c.GetAsync("/settings/stages"))));
         // removing the in-use stage through a forged Save is refused by the repository as well
         var withoutFirst = rows.Skip(1).ToList();
         var refused = await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(withoutFirst, "save"));
         await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, refused);
-        Assert.Contains("before deleting it.", await TextAsync(refused), StringComparison.Ordinal);
+        Assert.Contains("Can't remove \"Qualification\": 1 opportunity uses it. Move it to another stage first.", WebUtility.HtmlDecode(await TextAsync(refused)), StringComparison.Ordinal);
         Assert.Equal(rows, ReadStages(await HttpHelpers.ParseAsync(await c.GetAsync("/settings/stages"))));
     }
 

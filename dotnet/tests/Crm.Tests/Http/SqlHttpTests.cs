@@ -109,6 +109,7 @@ public sealed class SqlHttpTests(SqlServerFixture fx)
         var r = await c.GetAsync("/");
         Assert.Equal(HttpStatusCode.SeeOther, r.StatusCode);
         Assert.StartsWith("/signin?returnTo=", r.Headers.Location!.OriginalString, StringComparison.Ordinal);
+        Assert.Contains("reason=expired", r.Headers.Location.OriginalString, StringComparison.Ordinal); // L3: a lost ticket still says why
     }
 
     [SqlFact]
@@ -128,6 +129,7 @@ public sealed class SqlHttpTests(SqlServerFixture fx)
         Assert.Contains("reason=expired", r.Headers.Location!.OriginalString, StringComparison.Ordinal);
         var page = await HttpHelpers.ParseAsync(await c.GetAsync(r.Headers.Location.OriginalString));
         Assert.Contains("Your session has ended.", page.QuerySelector(".flash")!.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Anything you hadn't saved was lost.", page.QuerySelector(".flash")!.TextContent, StringComparison.Ordinal);
     }
 
     [SqlFact]

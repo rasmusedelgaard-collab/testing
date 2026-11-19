@@ -49,7 +49,7 @@ public sealed class ErrorModel(ILogger<ErrorModel> log) : PageModel
                 Kind = ErrorKind.Waking;
                 PageTitle = "Waking up the database";
                 Response.StatusCode = 503;
-                Response.Headers.RetryAfter = "15";
+                Response.Headers.RetryAfter = "5";
                 return;
             case EditConflictException ec:
                 Kind = ErrorKind.Conflict;

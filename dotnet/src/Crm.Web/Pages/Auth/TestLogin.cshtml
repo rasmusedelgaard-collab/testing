@@ -7,7 +7,7 @@
   <h1>Choose a test user</h1>
   @if (Model.Users.Count == 0)
   {
-  <p role="alert" class="error">No test users found. Run <code>dotnet Crm.Web.dll seed-test</code> first.</p>
+  <p role="alert" class="error">No test users yet. Ask the developer to load the test users.</p>
   }
   else
   {
@@ -34,12 +34,12 @@ else
   }
   else
   {
-  @if (Model.Error is not null){<p role="alert" class="error">@Model.Error</p>}
+  @if (Model.Error is not null){<p role="alert" class="error" id="e-code">@Model.Error</p>}
   <p>Enter the shared test access code.</p>
   <form method="post" asp-page="/Auth/TestLogin">
     <input type="hidden" name="returnTo" value="@Model.ReturnTo">
     <label for="code">Access code (required)</label>
-    <input id="code" name="code" type="password" autocomplete="off" required>
+    <input id="code" name="code" type="password" autocomplete="off" required data-autofocus="@(Model.Error is not null ? "" : null)" aria-invalid="@(Model.Error is not null ? "true" : null)" aria-describedby="@(Model.Error is not null ? "e-code" : null)">
     <button type="submit" class="button primary">Continue</button>
   </form>
   }
