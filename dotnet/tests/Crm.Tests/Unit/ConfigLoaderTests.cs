@@ -202,6 +202,48 @@ public class ConfigLoaderTests
         Assert.Contains("Development is refused", e.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("development")]
+    [InlineData("DEVELOPMENT")]
+    [InlineData("testing")]
+    [InlineData("Staging")]
+    public void The_live_refusal_is_case_insensitive_and_covers_every_non_production_name(string name)
+    {
+        var env = With(Entra(), ("ASPNETCORE_ENVIRONMENT", name), ("LIVE", "true"), ("TRUST_PROXY", "0"));
+        Assert.Contains("refused", Issues(env), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DOTNET_ENVIRONMENT_and_the_host_environment_cannot_bypass_the_live_refusal()
+    {
+        var viaKey = With(Entra(), ("DOTNET_ENVIRONMENT", "Development"), ("LIVE", "true"));
+        Assert.Contains("refused", Issues(viaKey), StringComparison.Ordinal);
+        var viaHost = With(Entra(), ("LIVE", "true"), ("TRUST_PROXY", "0"));
+        var e = Assert.Throws<ConfigException>(() => CrmConfigLoader.Load(viaHost, "development"));
+        Assert.Contains("refused", e.Message, StringComparison.Ordinal);
+        Assert.Equal("Production", CrmConfigLoader.Load(viaHost, "PRODUCTION").Environment);
+    }
+
+    [Fact]
+    public void On_azure_TRUST_PROXY_must_be_set_explicitly()
+    {
+        var msg = Issues(With(Entra(), ("WEBSITE_INSTANCE_ID", "abc")));
+        Assert.Contains("TRUST_PROXY", msg, StringComparison.Ordinal);
+        Assert.Equal(1, CrmConfigLoader.Load(With(Entra(), ("WEBSITE_INSTANCE_ID", "abc"), ("TRUST_PROXY", "1"))).TrustProxy);
+        Assert.Equal(0, CrmConfigLoader.Load(With(Entra(), ("WEBSITE_INSTANCE_ID", "abc"), ("TRUST_PROXY", "0"))).TrustProxy);
+    }
+
+    [Theory]
+    [InlineData("true")]
+    [InlineData("TRUE")]
+    [InlineData("1")]
+    public void The_aspnetcore_forwarded_headers_switch_is_refused(string value)
+    {
+        var msg = Issues(With(Entra(), ("ASPNETCORE_FORWARDEDHEADERS_ENABLED", value)));
+        Assert.Contains("TRUST_PROXY", msg, StringComparison.Ordinal);
+        Assert.Equal(0, CrmConfigLoader.Load(With(Entra(), ("ASPNETCORE_FORWARDEDHEADERS_ENABLED", "false"))).TrustProxy);
+    }
+
     [Fact]
     public void Testing_environment_is_allowed_on_a_plain_host() =>
         Assert.Equal("Testing", CrmConfigLoader.Load(With(TestMode(), ("ASPNETCORE_ENVIRONMENT", "Testing"), ("REDIRECT_URI", "http://localhost/auth/redirect"))).Environment);

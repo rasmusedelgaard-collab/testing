@@ -9,7 +9,7 @@ public sealed record FxRateRec(int Id, string Currency, string Month, decimal Ra
 
 public sealed record FxSaveOutcome(bool Ok, int DuplicateOf = 0, int Id = 0);
 
-public sealed record StageUsageRow(int Id, string Name, int SortOrder, int Probability, string Type, int Used);
+public sealed record StageUsageRow(int Id, string Name, int SortOrder, int Probability, string Type, int Used, string ModifiedAt);
 
 public sealed record PicklistValueRow(int Id, string? Code, string Label, bool Active, int SortOrder);
 
@@ -41,9 +41,13 @@ public sealed partial class AdminRepo
         return (await tx.QueryAsync<FxRateRec>($"{FxSelect} WHERE f.BaseCurrency = @b ORDER BY f.RateMonth DESC, f.CurrencyCode", p).ConfigureAwait(false)).Select(Trim).ToList();
     }
 
-    public async Task<FxRateRec?> FxRateAsync(int id)
+    /// <summary>Only rates of the current base currency exist for the UI; a rate of an earlier base is "not found".</summary>
+    public async Task<FxRateRec?> FxRateAsync(int id, string baseCurrency)
     {
-        var r = await tx.QuerySingleOrDefaultAsync<FxRateRec>($"{FxSelect} WHERE f.FxRateId = @id", new { id }).ConfigureAwait(false);
+        var p = P();
+        p.Add("id", id, DbType.Int32);
+        p.Add("b", baseCurrency, DbType.AnsiStringFixedLength, size: 3);
+        var r = await tx.QuerySingleOrDefaultAsync<FxRateRec>($"{FxSelect} WHERE f.FxRateId = @id AND f.BaseCurrency = @b", p).ConfigureAwait(false);
         return r is null ? null : Trim(r);
     }
 
@@ -69,12 +73,12 @@ public sealed partial class AdminRepo
             await AuditAsync("fxrate", newId, "C", null, null, $"{currency} {month} {rateText}", meta).ConfigureAwait(false);
             return new FxSaveOutcome(true, Id: newId);
         }
-        var old = await FxRateAsync(id.Value).ConfigureAwait(false);
+        var old = await FxRateAsync(id.Value, baseCurrency).ConfigureAwait(false);
         if (old is null)
         {
             return new FxSaveOutcome(false);
         }
-        await tx.ExecuteAsync("UPDATE crm.FxRates SET CurrencyCode = @c, RateMonth = @m, Rate = @r, ModifiedBy = @by, ModifiedAt = SYSUTCDATETIME() WHERE FxRateId = @id", p).ConfigureAwait(false);
+        await tx.ExecuteAsync("UPDATE crm.FxRates SET CurrencyCode = @c, RateMonth = @m, Rate = @r, ModifiedBy = @by, ModifiedAt = SYSUTCDATETIME() WHERE FxRateId = @id AND BaseCurrency = @b", p).ConfigureAwait(false);
         if (old.Rate != rate) { await AuditAsync("fxrate", id.Value, "U", "Rate", Audit.Text(old.Rate), rateText, meta).ConfigureAwait(false); }
         if (old.Currency != currency) { await AuditAsync("fxrate", id.Value, "U", "CurrencyCode", old.Currency, currency, meta).ConfigureAwait(false); }
         if (old.Month != month) { await AuditAsync("fxrate", id.Value, "U", "RateMonth", old.Month, month, meta).ConfigureAwait(false); }
@@ -83,9 +87,12 @@ public sealed partial class AdminRepo
 
     private sealed record DeletedFx(string CurrencyCode, string Month, decimal Rate);
 
-    public async Task<bool> DeleteFxRateAsync(int id, Meta meta)
+    public async Task<bool> DeleteFxRateAsync(int id, string baseCurrency, Meta meta)
     {
-        var r = await tx.QueryAsync<DeletedFx>("DELETE crm.FxRates OUTPUT deleted.CurrencyCode, CONVERT(char(7), deleted.RateMonth, 23) AS Month, deleted.Rate WHERE FxRateId = @id", new { id }).ConfigureAwait(false);
+        var p = P();
+        p.Add("id", id, DbType.Int32);
+        p.Add("b", baseCurrency, DbType.AnsiStringFixedLength, size: 3);
+        var r = await tx.QueryAsync<DeletedFx>("DELETE crm.FxRates OUTPUT deleted.CurrencyCode, CONVERT(char(7), deleted.RateMonth, 23) AS Month, deleted.Rate WHERE FxRateId = @id AND BaseCurrency = @b", p).ConfigureAwait(false);
         if (r.Count == 0)
         {
             return false;
@@ -101,13 +108,25 @@ public sealed partial class AdminRepo
         await tx.QueryAsync<StageUsageRow>(
             """
             SELECT s.StageId AS Id, s.Name, CAST(s.SortOrder AS int) AS SortOrder, CAST(s.Probability AS int) AS Probability, s.StageType AS Type,
-                   (SELECT COUNT(*) FROM crm.Opportunities o WHERE o.StageId = s.StageId) AS Used
+                   (SELECT COUNT(*) FROM crm.Opportunities o WHERE o.StageId = s.StageId) AS Used,
+                   CONVERT(varchar(27), s.ModifiedAt, 126) AS ModifiedAt
               FROM crm.PipelineStages s ORDER BY s.SortOrder
             """).ConfigureAwait(false);
 
-    public async Task<SaveOutcomeAdmin> SaveStagesAsync(IReadOnlyList<SettingsValidators.StageInput> rows, Meta meta)
+    public const string StaleStages = "The stage list was changed by someone else since you opened this page. Reload the page and try again.";
+
+    /// <summary>Hash of every stage id with its ModifiedAt: it changes whenever a stage is added, removed or edited by anyone.</summary>
+    public static string StageVersion(IEnumerable<StageUsageRow> stages) =>
+        Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+            string.Join(';', stages.OrderBy(s => s.Id).Select(s => $"{s.Id}:{s.ModifiedAt}")))))[..32];
+
+    public async Task<SaveOutcomeAdmin> SaveStagesAsync(IReadOnlyList<SettingsValidators.StageInput> rows, string? version, Meta meta)
     {
         var old = await StageUsageAsync().ConfigureAwait(false);
+        if (version is null || !string.Equals(version, StageVersion(old), StringComparison.Ordinal))
+        {
+            return new SaveOutcomeAdmin(false, StaleStages);
+        }
         var ids = rows.Where(r => r.Id is not null).Select(r => r.Id!.Value).ToList();
         if (ids.Distinct().Count() != ids.Count || ids.Any(id => old.All(o => o.Id != id)))
         {
@@ -117,6 +136,15 @@ public sealed partial class AdminRepo
         if (old.FirstOrDefault(o => !keep.Contains(o.Id) && o.Used > 0) is { } inUse)
         {
             return new SaveOutcomeAdmin(false, $"Move {inUse.Used} {(inUse.Used == 1 ? "opportunity" : "opportunities")} out of \"{inUse.Name}\" before deleting it.");
+        }
+        // Changing Open/Won/Lost of a stage that opportunities use would silently restate reported revenue: same rule and copy style as removal.
+        foreach (var r in rows.Where(r => r.Id is not null))
+        {
+            var o = old.First(x => x.Id == r.Id);
+            if (o.Type != r.Type && o.Used > 0)
+            {
+                return new SaveOutcomeAdmin(false, $"Can't change the type of \"{o.Name}\": {o.Used} {(o.Used == 1 ? "opportunity uses" : "opportunities use")} it. Move {(o.Used == 1 ? "it" : "them")} to another stage first.");
+            }
         }
         foreach (var st in old.Where(o => !keep.Contains(o.Id)))
         {

@@ -13,17 +13,19 @@ public static partial class CrmConfigLoader
 {
     private static readonly string[] LogLevels = ["fatal", "error", "warn", "info", "debug", "trace", "silent"];
 
-    public static CrmConfig Load(IConfiguration configuration) => Load(k => configuration[k]);
+    /// <param name="environmentName">The host's effective environment (builder.Environment.EnvironmentName). It also honours DOTNET_ENVIRONMENT
+    /// and any casing, so the live-host refusal must use it rather than the ASPNETCORE_ENVIRONMENT key alone.</param>
+    public static CrmConfig Load(IConfiguration configuration, string? environmentName = null) => Load(k => configuration[k], environmentName);
 
-    public static CrmConfig Load(IReadOnlyDictionary<string, string?> values) => Load(k => values.TryGetValue(k, out var v) ? v : null);
+    public static CrmConfig Load(IReadOnlyDictionary<string, string?> values, string? environmentName = null) => Load(k => values.TryGetValue(k, out var v) ? v : null, environmentName);
 
-    public static CrmConfig Load(Func<string, string?> get)
+    public static CrmConfig Load(Func<string, string?> get, string? environmentName = null)
     {
         string? Get(string k) => string.IsNullOrWhiteSpace(get(k)) ? null : get(k)!.Trim();
         var issues = new List<string>();
         var notices = new List<string>();
 
-        var environment = Get("ASPNETCORE_ENVIRONMENT") ?? "Production";
+        var environment = Get("ASPNETCORE_ENVIRONMENT") ?? Get("DOTNET_ENVIRONMENT") ?? environmentName ?? "Production";
         var live = ParseBool(Get("LIVE"), "LIVE", issues) || Get("WEBSITE_INSTANCE_ID") is not null;
         var onAzure = Get("WEBSITE_INSTANCE_ID") is not null || Get("WEBSITE_SITE_NAME") is not null;
 
@@ -31,9 +33,16 @@ public static partial class CrmConfigLoader
         {
             throw new ConfigException(["DEMO_MODE is not supported in the .NET app (there is no demo or auth bypass); use test-access-code mode with a database"]);
         }
-        if (environment is "Testing" or "Development" && (live || onAzure))
+        // Every source counts (key, DOTNET_ENVIRONMENT, the host's effective name), any casing: one non-Production value is enough to refuse.
+        var offending = new[] { Get("ASPNETCORE_ENVIRONMENT"), Get("DOTNET_ENVIRONMENT"), environmentName }
+            .FirstOrDefault(e => e is not null && !e.Equals("Production", StringComparison.OrdinalIgnoreCase));
+        if (offending is not null && (live || onAzure))
         {
-            throw new ConfigException([$"ASPNETCORE_ENVIRONMENT={environment} is refused in a live/Azure environment"]);
+            throw new ConfigException([$"ASPNETCORE_ENVIRONMENT={offending} is refused in a live/Azure environment (only Production is allowed)"]);
+        }
+        if (Get("ASPNETCORE_FORWARDEDHEADERS_ENABLED") is { } fh && !fh.Equals("false", StringComparison.OrdinalIgnoreCase) && fh != "0")
+        {
+            throw new ConfigException(["ASPNETCORE_FORWARDEDHEADERS_ENABLED is refused: TRUST_PROXY (0-5) is the only setting that controls forwarded headers"]);
         }
 
         var authModeText = Get("AUTH_MODE") ?? "entra";
@@ -68,7 +77,7 @@ public static partial class CrmConfigLoader
             issues.Add("LOG_LEVEL: must be one of " + string.Join(", ", LogLevels));
         }
 
-        var isProduction = environment == "Production";
+        var isProduction = environment.Equals("Production", StringComparison.OrdinalIgnoreCase);
         var idle = ParseInt(Get("SESSION_IDLE_MINUTES"), "SESSION_IDLE_MINUTES", 1, 1440, 60, issues);
         var absolute = ParseInt(Get("SESSION_ABSOLUTE_HOURS"), "SESSION_ABSOLUTE_HOURS", 1, 168, 10, issues);
         int? trustProxyConfigured = Get("TRUST_PROXY") is null ? null : ParseInt(Get("TRUST_PROXY"), "TRUST_PROXY", 0, 5, 0, issues);
@@ -102,6 +111,11 @@ public static partial class CrmConfigLoader
         }
 
         // Forwarded headers are trusted only when TRUST_PROXY is set explicitly: a wrong default lets clients spoof their IP and scheme.
+        if (trustProxyConfigured is null && Get("WEBSITE_INSTANCE_ID") is not null)
+        {
+            // App Service terminates TLS in front of the app: without TRUST_PROXY the https redirect would loop.
+            throw new ConfigException(["TRUST_PROXY: must be set explicitly on Azure App Service (Linux = 1, Front Door then App Service = 2)"]);
+        }
         var trustProxy = trustProxyConfigured ?? 0;
 
         string? testCode = null;

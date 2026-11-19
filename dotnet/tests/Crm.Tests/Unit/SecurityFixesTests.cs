@@ -100,10 +100,24 @@ public sealed class HttpsRedirectTests
     {
         using var f = new CrmFactory(null, new Dictionary<string, string?> { ["REDIRECT_URI"] = "https://crmtest.example.com/auth/redirect" });
         var c = HttpHelpers.NewClient(f);
+        c.DefaultRequestHeaders.Host = "crmtest.example.com";
         var r = await c.GetAsync("/signin");
         Assert.Equal(HttpStatusCode.PermanentRedirect, r.StatusCode);
-        Assert.Equal("https://localhost/signin", r.Headers.Location!.OriginalString);
+        Assert.Equal("https://crmtest.example.com/signin", r.Headers.Location!.OriginalString);
         Assert.Equal(HttpStatusCode.OK, (await c.GetAsync("/healthz")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Only_the_redirect_uri_host_is_served_but_health_probes_work_under_any_host()
+    {
+        using var f = new CrmFactory(null, new Dictionary<string, string?> { ["REDIRECT_URI"] = "https://crmtest.example.com/auth/redirect" });
+        var c = HttpHelpers.NewClient(f);
+        c.DefaultRequestHeaders.Host = "evil.example.net";
+        Assert.Equal(HttpStatusCode.BadRequest, (await c.GetAsync("/signin")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await c.GetAsync("/healthz")).StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await c.GetAsync("/readyz")).StatusCode); // reachable (no database in this test)
+        c.DefaultRequestHeaders.Host = "CRMTEST.example.com:443";
+        Assert.Equal(HttpStatusCode.PermanentRedirect, (await c.GetAsync("/signin")).StatusCode);
     }
 
     [Fact]

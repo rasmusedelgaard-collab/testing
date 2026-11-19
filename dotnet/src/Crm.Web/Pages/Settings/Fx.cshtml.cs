@@ -87,7 +87,7 @@ public sealed partial class FxModel(IRlsDb rls, IRlsContextAccessor identity, Br
         var (data, r) = await RunAsync(async (admin, repo) =>
         {
             var d = await LoadCoreAsync(admin, repo);
-            return (d, id is null ? null : await admin.FxRateAsync(id.Value));
+            return (d, id is null ? null : await admin.FxRateAsync(id.Value, d.Lookups.Settings.BaseCurrency));
         });
         if (id is null)
         {
@@ -112,7 +112,7 @@ public sealed partial class FxModel(IRlsDb rls, IRlsContextAccessor identity, Br
         // RunAsync: exclusive branches (delete returns before the save branch runs)
         if (verb == "delete")
         {
-            var deleted = await RunAsync(async (admin, _) => await admin.DeleteFxRateAsync(id!.Value, meta));
+            var deleted = await RunAsync(async (admin, repo) => await admin.DeleteFxRateAsync(id!.Value, (await repo.LookupsAsync()).Settings.BaseCurrency, meta));
             if (!deleted) { throw new NotFoundException(); }
             Flash("Rate deleted.");
             return SeeOther("/settings/fx");
@@ -125,7 +125,7 @@ public sealed partial class FxModel(IRlsDb rls, IRlsContextAccessor identity, Br
             if (errs.Count > 0) { return (d, "invalid", errs, "", 0, ""); }
             if (id is not null)
             {
-                var old = d.Rates.FirstOrDefault(x => x.Id == id) ?? await admin.FxRateAsync(id.Value) ?? throw new NotFoundException();
+                var old = d.Rates.FirstOrDefault(x => x.Id == id) ?? throw new NotFoundException(); // d.Rates holds the current base only
                 if (confirm != "1")
                 {
                     // Changing an existing rate restates totals: ask first, unless nothing changes.

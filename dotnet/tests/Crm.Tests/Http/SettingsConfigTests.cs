@@ -226,20 +226,51 @@ public sealed class SettingsConfigTests(SqlServerFixture fx)
         Assert.Equal([("C", null, null, "EUR 2001-03 7.459123"), ("U", "Rate", "7.459123", "7.5"), ("D", null, "EUR 2001-03 7.5", null)], audit.Select(a => (a.Action, a.Field, a.Old, a.New)).ToArray());
     }
 
+    [SqlFact]
+    public async Task Rates_of_an_earlier_base_currency_are_not_listed_and_not_found_for_edit_or_delete()
+    {
+        var (f, c) = await AsAsync(Admin);
+        using var guard = f;
+        await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, await PostAsync(c, "/settings/fx", "/settings/fx", ("currency", "USD"), ("month", "2002-05"), ("rate", "6,5")));
+        var row = (await HttpHelpers.ParseAsync(await c.GetAsync("/settings/fx?currency=USD&year=2002"))).QuerySelectorAll("table.data tbody tr").Single(r => r.TextContent.Contains("05.2002", StringComparison.Ordinal));
+        var id = int.Parse(row.QuerySelector("a[href$='/edit']")!.GetAttribute("href")!.Split('/')[3], CultureInfo.InvariantCulture);
+        try
+        {
+            await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, await PostAsync(c, "/settings/locale", "/settings/locale", ("base", "EUR"), ("enabled", "DKK"), ("enabled", "USD"), ("locale", "da-DK"), ("timezone", "Europe/Copenhagen"), ("firstDay", "1"), ("fiscalStart", "1")));
+            Assert.DoesNotContain("05.2002", await TextAsync(await c.GetAsync("/settings/fx?year=2002")), StringComparison.Ordinal);
+            await HttpHelpers.ExpectAsync(HttpStatusCode.NotFound, await c.GetAsync($"/settings/fx/{id}/edit"));
+            await HttpHelpers.ExpectAsync(HttpStatusCode.NotFound, await c.GetAsync($"/settings/fx/{id}/delete"));
+            await HttpHelpers.ExpectAsync(HttpStatusCode.NotFound, await PostAsync(c, "/settings/fx", $"/settings/fx/{id}/delete"));
+            await HttpHelpers.ExpectAsync(HttpStatusCode.NotFound, await PostAsync(c, "/settings/fx", $"/settings/fx/{id}", ("currency", "USD"), ("month", "2002-05"), ("rate", "9"), ("confirm", "1")));
+        }
+        finally
+        {
+            await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, await PostAsync(c, "/settings/locale", "/settings/locale", ("base", "DKK"), ("enabled", "DKK"), ("enabled", "EUR"), ("enabled", "USD"), ("enabled", "SEK"), ("enabled", "NOK"),
+                ("locale", "da-DK"), ("timezone", "Europe/Copenhagen"), ("firstDay", "1"), ("fiscalStart", "1")));
+        }
+        // back on the original base the rate is visible and untouched, then removed
+        Assert.Contains("6,5", await TextAsync(await c.GetAsync("/settings/fx?year=2002")), StringComparison.Ordinal);
+        await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, await PostAsync(c, "/settings/fx", $"/settings/fx/{id}/delete"));
+    }
+
     // ---------------- pipeline stages ----------------
 
     private sealed record StageRow(string Id, string Name, string Prob, string Type);
 
-    private static List<StageRow> ReadStages(IHtmlDocument d)
+    private string _ver = "";
+
+    /// <summary>Reads the editor rows and remembers the page's stage-list version, which every later POST sends back.</summary>
+    private List<StageRow> ReadStages(IHtmlDocument d)
     {
+        _ver = d.QuerySelector("input[name=ver]")!.GetAttribute("value")!;
         var n = int.Parse(d.QuerySelector("input[name=n]")!.GetAttribute("value")!, CultureInfo.InvariantCulture);
         return Enumerable.Range(0, n).Select(i => new StageRow(
             d.QuerySelector($"input[name=id_{i}]")!.GetAttribute("value")!, d.QuerySelector($"input[name=name_{i}]")!.GetAttribute("value")!,
             d.QuerySelector($"input[name=prob_{i}]")!.GetAttribute("value")!, d.QuerySelector($"input[name=type_{i}][checked]")!.GetAttribute("value")!)).ToList();
     }
 
-    private static (string, string)[] StageFields(IReadOnlyList<StageRow> rows, string action) =>
-        [("n", rows.Count.ToString(CultureInfo.InvariantCulture)), ("action", action),
+    private (string, string)[] StageFields(IReadOnlyList<StageRow> rows, string action) =>
+        [("n", rows.Count.ToString(CultureInfo.InvariantCulture)), ("ver", _ver), ("action", action),
             .. rows.SelectMany((r, i) => new[] { ($"id_{i}", r.Id), ($"name_{i}", r.Name), ($"prob_{i}", r.Prob), ($"type_{i}", r.Type) })];
 
     [SqlFact]
@@ -300,6 +331,28 @@ public sealed class SettingsConfigTests(SqlServerFixture fx)
         Assert.DoesNotContain(ReadStages(await HttpHelpers.ParseAsync(await c.GetAsync("/settings/stages"))), r => r.Name == name + "x");
         Assert.Equal([("C", null), ("U", "Name"), ("U", "Probability"), ("D", null)], (await AuditAsync("stage", stageId)).Select(a => (a.Action, a.Field)).ToArray());
 
+        // L4: a name starting with "~" is refused (it is the placeholder used while saving)
+        var tilde = rows.Select(r => r).ToList();
+        tilde[2] = tilde[2] with { Name = "~sneaky" };
+        var tildeRes = await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(tilde, "save"));
+        await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, tildeRes);
+        Assert.Contains("can&#x27;t start with ~.", await TextAsync(tildeRes), StringComparison.Ordinal);
+
+        // L3: a save made from an older copy of the page is refused, and nothing changes
+        var staleVer = _ver;
+        await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(rows, "save")));
+        var current = ReadStages(await HttpHelpers.ParseAsync(await c.GetAsync("/settings/stages")));
+        Assert.NotEqual(staleVer, _ver);
+        var versionNow = _ver;
+        _ver = staleVer;
+        var staleRes = await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(current.Select((r, i) => i == 0 ? r with { Name = "Stale edit" } : r).ToList(), "save"));
+        await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, staleRes);
+        Assert.Contains("The stage list was changed by someone else since you opened this page.", await TextAsync(staleRes), StringComparison.Ordinal);
+        _ver = versionNow;
+        var noVer = await c.PostAsync("/settings/stages", HttpHelpers.Form([("_csrf", await HttpHelpers.TokenAsync(c, "/settings/stages")), .. StageFields(current, "save").Where(f => f.Item1 != "ver")]));
+        await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, noVer);
+        Assert.Equal("Needs analysis", ReadStages(await HttpHelpers.ParseAsync(await c.GetAsync("/settings/stages")))[1].Name);
+
         // the only Won stage cannot be removed
         var wonIdx = rows.FindIndex(r => r.Type == "won");
         var wonRefused = await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(rows, $"remove:{wonIdx}"));
@@ -319,6 +372,13 @@ public sealed class SettingsConfigTests(SqlServerFixture fx)
         var inUseText = await TextAsync(inUse);
         Assert.Contains("Can't remove \"Qualification\":", WebUtility.HtmlDecode(inUseText), StringComparison.Ordinal);
         Assert.Contains("View these opportunities", inUseText, StringComparison.Ordinal);
+        // L5: the type of a stage in use cannot change (swap Open/Lost: Qualification becomes Lost, Closed lost becomes Open)
+        var swapped = rows.Select(r => r).ToList();
+        swapped[0] = swapped[0] with { Type = "lost" };
+        swapped[5] = swapped[5] with { Type = "open", Prob = "5" };
+        var typeRes = await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(swapped, "save"));
+        await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, typeRes);
+        Assert.Contains("Can't change the type of \"Qualification\":", WebUtility.HtmlDecode(await TextAsync(typeRes)), StringComparison.Ordinal);
         var forged = rows.Append(new StageRow("2147483647", "Ghost", "10", "open")).ToList();
         var forgedRes = await PostAsync(c, "/settings/stages", "/settings/stages", StageFields(forged, "save"));
         await HttpHelpers.ExpectAsync(HttpStatusCode.UnprocessableEntity, forgedRes);

@@ -125,3 +125,21 @@ public class LikeEscapeTests
         Assert.Equal(0, run % 2);
     }
 }
+
+public class StageSafetyTests
+{
+    [Fact]
+    public void Stage_names_cannot_start_with_the_placeholder_character() =>
+        Assert.Equal("Stage name can't start with ~.", SettingsValidators.ValidateStages([new("", "~1", "10", "open")]).Errors["name0"]);
+
+    [Fact]
+    public void The_stage_version_changes_with_any_id_or_modification_time()
+    {
+        Crm.Web.Data.StageUsageRow S(int id, string at) => new(id, "n", id, 10, "open", 0, at);
+        var a = Crm.Web.Data.AdminRepo.StageVersion([S(1, "2026-01-01T00:00:00.000"), S(2, "2026-01-01T00:00:00.000")]);
+        Assert.Equal(a, Crm.Web.Data.AdminRepo.StageVersion([S(2, "2026-01-01T00:00:00.000"), S(1, "2026-01-01T00:00:00.000")])); // order independent
+        Assert.NotEqual(a, Crm.Web.Data.AdminRepo.StageVersion([S(1, "2026-01-01T00:00:00.000"), S(2, "2026-01-01T00:00:00.001")]));
+        Assert.NotEqual(a, Crm.Web.Data.AdminRepo.StageVersion([S(1, "2026-01-01T00:00:00.000")]));
+        Assert.NotEqual(a, Crm.Web.Data.AdminRepo.StageVersion([S(1, "2026-01-01T00:00:00.000"), S(3, "2026-01-01T00:00:00.000")]));
+    }
+}

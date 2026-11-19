@@ -22,7 +22,7 @@ var builder = WebApplication.CreateBuilder(args);
 CrmConfig config;
 try
 {
-    config = CrmConfigLoader.Load(builder.Configuration);
+    config = CrmConfigLoader.Load(builder.Configuration, builder.Environment.EnvironmentName);
 }
 catch (ConfigException e)
 {
@@ -155,6 +155,21 @@ if (config.TrustProxy > 0)
     fh.KnownIPNetworks.Clear();
     fh.KnownProxies.Clear();
     app.UseForwardedHeaders(fh);
+}
+if (config.BaseUrl.Length > 0)
+{
+    // Host header allow-list (the REDIRECT_URI host). Health probes stay reachable under any Host (platform probes use internal names).
+    var allowedHost = new Uri(config.BaseUrl).Host;
+    app.Use(async (ctx, next) =>
+    {
+        var path = ctx.Request.Path;
+        if (!ctx.Request.Host.Host.Equals(allowedHost, StringComparison.OrdinalIgnoreCase) && !path.StartsWithSegments("/healthz") && !path.StartsWithSegments("/readyz"))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
+        await next(ctx);
+    });
 }
 app.UseMiddleware<RequestContextMiddleware>();
 if (app.Environment.IsDevelopment())

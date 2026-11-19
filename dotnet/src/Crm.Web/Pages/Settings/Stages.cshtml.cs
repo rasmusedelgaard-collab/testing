@@ -18,6 +18,9 @@ public sealed partial class StagesModel(IRlsDb rls, IRlsContextAccessor identity
 
     public IReadOnlyList<StageRowVm> Rows { get; private set; } = [];
 
+    /// <summary>Hash of the stage list as loaded; it travels with the form and a stale save is refused (see AdminRepo.StageVersion).</summary>
+    public string Version { get; private set; } = "";
+
     public string Note { get; private set; } = "";
 
     public string Focus { get; private set; } = "";
@@ -34,8 +37,9 @@ public sealed partial class StagesModel(IRlsDb rls, IRlsContextAccessor identity
     [GeneratedRegex(@"^(up|down|remove):([0-9]{1,2})\z", RegexOptions.CultureInvariant)]
     private static partial Regex RowAction();
 
-    private void Show(List<StageRowVm> rows, IReadOnlyList<StageUsageRow> usage, Dictionary<string, string>? errors = null, IReadOnlyList<string>? summary = null, string note = "", string focus = "")
+    private void Show(List<StageRowVm> rows, IReadOnlyList<StageUsageRow> usage, Dictionary<string, string>? errors = null, IReadOnlyList<string>? summary = null, string note = "", string focus = "", string? version = null)
     {
+        Version = version ?? AdminRepo.StageVersion(usage);
         Setup("stages", "Pipeline stages");
         var used = usage.ToDictionary(u => u.Id.ToString(CultureInfo.InvariantCulture), u => u.Used);
         Rows = rows.Select(r => r with { Used = used.GetValueOrDefault(r.Id) }).ToList();
@@ -59,12 +63,13 @@ public sealed partial class StagesModel(IRlsDb rls, IRlsContextAccessor identity
         var form = Request.Form;
         string F(string k) => form.TryGetValue(k, out var v) ? v.ToString() : "";
         var action = F("action");
+        var posted = F("ver");
         var n = int.TryParse(F("n"), NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) ? Math.Min(parsed, 50) : 0;
         var rows = Enumerable.Range(0, n).Select(i => new StageRowVm(F($"id_{i}"), F($"name_{i}"), F($"prob_{i}"), F($"type_{i}"), 0)).ToList();
         var m = RowAction().Match(action);
         if (action == "add" || m.Success)
         {
-            return await EditInPlaceAsync(action, m, rows);
+            return await EditInPlaceAsync(action, m, rows, posted);
         }
         var (valid, errors, summary) = SettingsValidators.ValidateStages(rows.Select(r => new SettingsValidators.StageForm(r.Id, r.Name, r.Prob, r.Type)).ToList());
         var meta = MetaOf();
@@ -72,24 +77,24 @@ public sealed partial class StagesModel(IRlsDb rls, IRlsContextAccessor identity
         {
             var u = await admin.StageUsageAsync();
             if (errors.Count > 0 || summary.Count > 0) { return (u, (string?)null); }
-            var r = await admin.SaveStagesAsync(valid, meta);
+            var r = await admin.SaveStagesAsync(valid, posted, meta);
             return (u, r.Ok ? null : r.Error);
         });
         if (errors.Count > 0 || summary.Count > 0)
         {
-            Show(rows, usage, errors, summary);
+            Show(rows, usage, errors, summary, version: posted);
             return Invalid();
         }
         if (saveError is not null)
         {
-            Show(rows, usage, summary: [saveError]);
+            Show(rows, usage, summary: [saveError], version: posted);
             return Invalid();
         }
         Flash("Settings saved.");
         return SeeOther("/settings/stages");
     }
 
-    private async Task<IActionResult> EditInPlaceAsync(string action, Match m, List<StageRowVm> rows)
+    private async Task<IActionResult> EditInPlaceAsync(string action, Match m, List<StageRowVm> rows, string posted)
     {
         var usage = await RunAsync(async (admin, _) => await admin.StageUsageAsync());
         var focus = "";
@@ -112,13 +117,13 @@ public sealed partial class StagesModel(IRlsDb rls, IRlsContextAccessor identity
                 {
                     var name = row.Name.Length > 0 ? row.Name : "This stage";
                     Links[$"name{i}"] = $"/opportunities?stage={Uri.EscapeDataString(row.Id)}&status=all";
-                    Show(rows, usage, new Dictionary<string, string> { [$"name{i}"] = $"Can't remove \"{name}\": {inUse} {(inUse == 1 ? "opportunity uses" : "opportunities use")} it. Move {(inUse == 1 ? "it" : "them")} to another stage first." }, focus: $"f-name{i}");
+                    Show(rows, usage, new Dictionary<string, string> { [$"name{i}"] = $"Can't remove \"{name}\": {inUse} {(inUse == 1 ? "opportunity uses" : "opportunities use")} it. Move {(inUse == 1 ? "it" : "them")} to another stage first." }, focus: $"f-name{i}", version: posted);
                     return Invalid();
                 }
                 if (row.Type is "won" or "lost" && sameType <= 1)
                 {
                     var label = row.Type == "won" ? "Won" : "Lost";
-                    Show(rows, usage, new Dictionary<string, string> { [$"name{i}"] = $"Can't remove the only {label} stage. Make another stage {label} first." }, focus: $"f-name{i}");
+                    Show(rows, usage, new Dictionary<string, string> { [$"name{i}"] = $"Can't remove the only {label} stage. Make another stage {label} first." }, focus: $"f-name{i}", version: posted);
                     return Invalid();
                 }
                 rows.RemoveAt(i);
@@ -136,7 +141,7 @@ public sealed partial class StagesModel(IRlsDb rls, IRlsContextAccessor identity
                 }
             }
         }
-        Show(rows, usage, note: "Changes are not saved yet. Choose Save stages to keep them.", focus: focus);
+        Show(rows, usage, note: "Changes are not saved yet. Choose Save stages to keep them.", focus: focus, version: posted);
         return Page();
     }
 }

@@ -116,6 +116,7 @@ public static partial class SettingsValidators
             var prob = StageProb().IsMatch(T(r.Prob)) ? int.Parse(T(r.Prob), System.Globalization.CultureInfo.InvariantCulture) : -1;
             if (name.Length == 0) { errors[$"name{i}"] = "Enter a stage name."; }
             else if (name.Length > 60) { errors[$"name{i}"] = "Stage name must be 60 characters or fewer."; }
+            else if (name.StartsWith('~')) { errors[$"name{i}"] = "Stage name can't start with ~."; } // "~id" is the placeholder used while saving
             else if (seen.Contains(name.ToLowerInvariant())) { errors[$"name{i}"] = "Each stage needs a different name."; }
             seen.Add(name.ToLowerInvariant());
             if (type == "won") { prob = 100; }
