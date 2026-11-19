@@ -107,7 +107,7 @@ public sealed class RedesignUnitTests
         };
         var s = Trends.Spark(rows, "2025-12-01", "2026-11-19", conv, "2026-11", "en-GB");
         Assert.Equal(12, s.Points.Split(' ').Length);
-        Assert.Equal("Last 12 months: highest in Jun 2026, DKK 3.1M.", s.Text);
+        Assert.Equal("Last 12 months: highest in June 2026, DKK 3.1M.", s.Text);
         Assert.Equal("Last 12 months: nothing won.", Trends.Spark([], "2025-12-01", "2026-11-19", conv, "2026-11", "en-GB").Text);
     }
 
@@ -158,6 +158,14 @@ public sealed class RedesignUnitTests
         var act = EntityViews.Sections("activities", new[] { "ActivityType", "Subject", "AccountId", "ContactId", "OpportunityId", "DueDate", "DueTime", "IsDone", "Description", "OwnerId" }.Select(n => new FormField(n, n, "text", "")).ToList());
         Assert.True(act[1].Fieldset);
         Assert.Equal("Related to (link at least one)", act[1].Title);
+    }
+
+    [Fact]
+    public void Icon_ids_are_never_injected_unsafely()
+    {
+        Assert.Contains("#i-call\"", Ui.Icon("call").ToHtml(), StringComparison.Ordinal);
+        Assert.Contains("#i-info\"", Ui.Ring("\"><script>").ToHtml(), StringComparison.Ordinal);
+        Assert.DoesNotContain("<script", Ui.Icon("x\" onload=\"y").ToHtml(), StringComparison.Ordinal);
     }
 
     [Fact]

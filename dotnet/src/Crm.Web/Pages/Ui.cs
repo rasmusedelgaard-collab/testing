@@ -12,13 +12,16 @@ public static class Ui
 {
     private const string Sprite = "/img/ui/icons.svg";
 
+    /// <summary>Icon ids are written into markup unencoded, so anything but lowercase letters, digits and dashes falls back to a neutral icon.</summary>
+    private static string SafeId(string name) => name.Length is > 0 and <= 32 && name.All(c => c is (>= 'a' and <= 'z') or (>= '0' and <= '9') or '-') ? name : "info";
+
     /// <summary>Bare line icon, decorative (the text next to it carries the meaning).</summary>
     public static IHtmlContent Icon(string name, string? cls = null) =>
-        new HtmlString($"<svg class=\"icon{(cls is null ? "" : " " + cls)}\" aria-hidden=\"true\" focusable=\"false\"><use href=\"{Sprite}#i-{name}\"/></svg>");
+        new HtmlString($"<svg class=\"icon{(cls is null ? "" : " " + cls)}\" aria-hidden=\"true\" focusable=\"false\"><use href=\"{Sprite}#i-{SafeId(name)}\"/></svg>");
 
     /// <summary>Icon in a circle. size is "", "r40", "r48" or "r56".</summary>
     public static IHtmlContent Ring(string name, string size = "") =>
-        new HtmlString($"<span class=\"icon-ring{(size.Length == 0 ? "" : " " + size)}\" aria-hidden=\"true\"><svg class=\"icon\" focusable=\"false\"><use href=\"{Sprite}#i-{name}\"/></svg></span>");
+        new HtmlString($"<span class=\"icon-ring{(size.Length == 0 ? "" : " " + size)}\" aria-hidden=\"true\"><svg class=\"icon\" focusable=\"false\"><use href=\"{Sprite}#i-{SafeId(name)}\"/></svg></span>");
 
     /// <summary>The data-theme attribute for the html element: only "light" or "dark" (the stored preference), nothing for "system".</summary>
     public static IHtmlContent ThemeAttr(string? theme) =>

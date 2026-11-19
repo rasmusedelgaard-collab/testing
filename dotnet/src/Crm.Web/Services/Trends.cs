@@ -81,6 +81,10 @@ public static class Trends
         return new TrendResult(pts > 0 ? "up" : "down", $"{(pts > 0 ? "Up" : "Down")} {Math.Abs(pts).ToString(CultureInfo.InvariantCulture)} pts vs previous {Kpi.WinRateDays} days", range);
     }
 
+    /// <summary>"June 2026" from yyyy-MM (English names, like the rest of the UI copy).</summary>
+    private static string MonthName(string yearMonth) =>
+        new DateOnly(int.Parse(yearMonth[..4], CultureInfo.InvariantCulture), int.Parse(yearMonth[5..7], CultureInfo.InvariantCulture), 1).ToString("MMMM yyyy", CultureInfo.InvariantCulture);
+
     /// <summary>Won revenue per month for the months from..to in the base currency, as a polyline on a zero baseline.</summary>
     public static SparkResult Spark(IReadOnlyList<AggRow> wonRows, string from, string to, Converter conv, string currentMonth, string locale)
     {
@@ -98,7 +102,7 @@ public static class Trends
         var last = values.Count - 1;
         var text = max == 0
             ? "Last 12 months: nothing won."
-            : $"Last 12 months: highest in {NumberFormats.MonthLabel(months[values.IndexOf(max)], locale)}, {NumberFormats.CompactMoney(max, conv.Base, locale)}.";
+            : $"Last 12 months: highest in {MonthName(months[values.IndexOf(max)])}, {NumberFormats.CompactMoney(max, conv.Base, locale)}.";
         return new SparkResult(points.ToString().TrimEnd(), last < 0 ? "2" : X(last).ToString("0.##", CultureInfo.InvariantCulture), last < 0 ? "30" : Y(values[last]).ToString("0.##", CultureInfo.InvariantCulture), text);
     }
 }

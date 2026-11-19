@@ -141,7 +141,7 @@ else if (Model.TabTable is { } tt)
     @if (tt.Rows.Count == 0){<div class="empty compact">@Ui.Ring(Model.Tabs.First(t => t.Active).Key)<p>Nothing here yet.</p></div>}
     else
     {
-    <div class="table-wrap"><table class="data dense">
+    <div class="table-wrap" role="region" aria-label="@tt.Title" tabindex="0"><table class="data dense">
       <caption class="visually-hidden">@tt.Title</caption>
       <thead><tr>@foreach (var c in tt.Columns){<th scope="col">@c</th>}</tr></thead>
       <tbody>@foreach (var cells in tt.Rows){<tr>@for (var ci = 0; ci < cells.Count; ci++){<partial name="_Td" model="new TdModel(cells[ci], tt.Columns[ci])" />}</tr>}</tbody>
