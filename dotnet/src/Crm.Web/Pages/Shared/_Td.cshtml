@@ -1,6 +1,10 @@
 @model Crm.Web.Pages.Entity.TdModel
-@{ var c = Model.Cell; }
-<td data-label="@Model.Label" class="@(c.Right ? "num" : null)">
+@{
+    var c = Model.Cell;
+    // c-name = line 1 of the phone card (the record link, also bold in the table), c-k = the two key fields, c-m = chips and owner, c-hide = not on phones.
+    var cls = string.Join(' ', new[] { c.Right ? "num" : null, c.Role is null ? null : "c-" + c.Role, c.Role == "name" ? "record" : null }.Where(x => x is not null));
+}
+<td data-label="@Model.Label" class="@(cls.Length > 0 ? cls : null)">
 @switch (c.Kind)
 {
   case "owner": @Ui.Owner(c.Text); break;

@@ -1,6 +1,7 @@
 @page "/settings/picklists/{code?}"
 @model PicklistsModel
 <h1>Picklists</h1>
+<partial name="_Flash" />
 <nav aria-label="Picklists" class="tabs"><ul>
   @foreach (var (c, name) in new[] { ("industry", "Industry"), ("lead_source", "Lead source"), ("lost_reason", "Lost reason"), ("activity_type", "Activity type") }){<li><a href="/settings/picklists/@c" aria-current="@(c == Model.Code ? "page" : null)">@name</a></li>}
 </ul></nav>

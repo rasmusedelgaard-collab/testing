@@ -11,8 +11,8 @@ EXEC sp_set_session_context @key = N'UserId', @value = 0, @read_only = 0;
 EXEC sp_set_session_context @key = N'Role',   @value = N'Admin', @read_only = 0;
 GO
 SELECT 'D1' AS [Case],
-  CASE WHEN a = 40 AND c = 100 AND o = 180 AND x = 250 THEN 'PASS' ELSE 'FAIL' END AS Result,
-  'Demo volumes: 40 accounts, 100 contacts, 180 opportunities, 250 activities' AS Description,
+  CASE WHEN a = 41 AND c = 100 AND o = 300 AND x = 250 THEN 'PASS' ELSE 'FAIL' END AS Result,
+  'Demo volumes: 41 accounts, 100 contacts, 300 opportunities, 250 activities' AS Description,
   CONCAT('accounts=', a, ' contacts=', c, ' opportunities=', o, ' activities=', x) AS Detail
 FROM (SELECT
   (SELECT COUNT(*) FROM crm.Accounts      WHERE CreatedBy IN (SELECT UserId FROM crm.Users WHERE LOWER(CONVERT(char(36), EntraOid)) LIKE '00000000-0000-4000-8000-00000000d0%')) AS a,
@@ -35,13 +35,15 @@ SELECT 'D4' AS [Case], CASE WHEN bad = 0 AND total > 500 THEN 'PASS' ELSE 'FAIL'
 FROM (SELECT COUNT(*) AS total,
         SUM(CASE WHEN a.ChangedBy <> a.OwnerId OR u.Role = 'Admin' THEN 1 ELSE 0 END) AS bad
       FROM crm.AuditLog a JOIN crm.Users u ON u.UserId = a.ChangedBy
-      WHERE LOWER(CONVERT(char(36), u.EntraOid)) LIKE '00000000-0000-4000-8000-00000000d0%') t;
+      WHERE a.EntityType <> 'fxrate'   -- FX rates are written by the demo admin (the only rows the admin authors)
+        AND LOWER(CONVERT(char(36), u.EntraOid)) LIKE '00000000-0000-4000-8000-00000000d0%') t;
 GO
 SELECT 'D5' AS [Case], CASE WHEN bad = 0 THEN 'PASS' ELSE 'FAIL' END AS Result,
-  'Demo contacts use example.com emails and 555 phone numbers only' AS Description, CONCAT('bad=', bad) AS Detail
+  'Demo contacts use example.com emails; phones only in the reserved fictional US range (+1 555 01xx) or empty' AS Description, CONCAT('bad=', bad) AS Detail
 FROM (SELECT COUNT(*) AS bad FROM crm.Contacts c
       WHERE c.CreatedBy IN (SELECT UserId FROM crm.Users WHERE LOWER(CONVERT(char(36), EntraOid)) LIKE '00000000-0000-4000-8000-00000000d0%')
-        AND (c.Email NOT LIKE '%@%example.com' OR c.Phone NOT LIKE '+% 555 0%' OR c.Mobile NOT LIKE '+% 555 0%')) t;
+        AND (c.Email NOT LIKE '%@%example.com'
+          OR (c.Phone IS NOT NULL AND c.Phone NOT LIKE '+1 555 01__') OR (c.Mobile IS NOT NULL AND c.Mobile NOT LIKE '+1 555 01__'))) t;
 GO
 SELECT 'D6' AS [Case], CASE WHEN cur = 4 AND cn = 7 THEN 'PASS' ELSE 'FAIL' END AS Result,
   'Opportunities use DKK, EUR, SEK, USD; accounts cover DK, SE, DE, PL, US, IT, CN' AS Description,

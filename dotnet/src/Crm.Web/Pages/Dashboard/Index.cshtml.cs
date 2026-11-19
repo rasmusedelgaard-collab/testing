@@ -36,6 +36,11 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
 
     public IReadOnlyList<UpcomingGroup> Upcoming { get; private set; } = [];
 
+    /// <summary>"View all due" in My day: the user's own overdue and due-today work.</summary>
+    public string ViewAllDueHref { get; private set; } = "/activities";
+
+    private const string ActivitiesLink = "/activities?status=open&type=actionable";
+
     public IReadOnlyList<FunnelRow> Funnel { get; private set; } = [];
 
     public IReadOnlyList<string> FunnelNotes { get; private set; } = [];
@@ -74,7 +79,6 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
             var openRows = await repo.OppAggregatesAsync(new OppAggFilter(["open"], GroupBy: ["stage"]));
             var quarterWon = await repo.OppAggregatesAsync(new OppAggFilter(["won"], From: quarter.From, To: quarter.To, GroupBy: ["month"]));
             var winRows = await repo.OppAggregatesAsync(new OppAggFilter(["won", "lost"], From: win.From, To: win.To));
-            var counts = await repo.ActivityCountsAsync(today);
             var uid = ctx.UserId.ToString(CultureInfo.InvariantCulture);
             var mine = await repo.ListAsync("opportunities", Q(today, new() { ["status"] = "open", ["owner"] = uid }, "close"));
             Dictionary<string, string> Act(string due) => new() { ["owner"] = uid, ["status"] = "open", ["type"] = "actionable", ["due"] = due };
@@ -94,7 +98,7 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
                 await repo.OppAggregatesAsync(new OppAggFilter(["won"], qtd.Previous.From, qtd.Previous.To, GroupBy: ["month"])),
                 await repo.OppAggregatesAsync(new OppAggFilter(["won", "lost"], prevWin.From, prevWin.To)),
                 await repo.OppAggregatesAsync(new OppAggFilter(["won"], sparkFrom, Periods.EndAfterMonths(Periods.MonthStartPlus(today, 0), 1), GroupBy: ["month"])));
-            return (lk, today, tiles, counts, mine, overdue, dueToday, week, rates, openRows, winRows, trendRows, mtd, qtd, prevWin, sparkFrom);
+            return (lk, today, tiles, mine, overdue, dueToday, week, rates, openRows, winRows, trendRows, mtd, qtd, prevWin, sparkFrom);
         }, HttpContext.RequestAborted);
 
         var set = data.lk.Settings;
@@ -118,10 +122,11 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
             var key = data.tiles[i].Key;
             vms[i] = vms[i] with { Trend = trends.GetValueOrDefault(key), Spark = key is "won-month" or "won-quarter" ? spark : null };
         }
-        // Overdue work leads when there is any; otherwise the tile shows what is due today.
-        var anyOverdue = data.counts.Overdue > 0;
-        vms.Add(new TileVm("Activities due", "/activities?status=open&type=actionable&due=due", anyOverdue ? $"{data.counts.Overdue} overdue" : $"{data.counts.Today} due today", "",
-            anyOverdue ? $"{data.counts.Today} due today" : "Nothing overdue", [], false, "", anyOverdue, true));
+        // "Mine" everywhere on this page (D1): the tile, the My day headings and every View all link use the same numbers and the same owner filter,
+        // so a click shows exactly the count that was on the dashboard. Overdue work leads when there is any; otherwise the tile shows what is due today.
+        var anyOverdue = data.overdue.Total > 0;
+        vms.Add(new TileVm("My activities due", $"{ActivitiesLink}&due=due&owner={ctx.UserId.ToString(CultureInfo.InvariantCulture)}", anyOverdue ? $"{data.overdue.Total} overdue" : $"{data.dueToday.Total} due today", "",
+            anyOverdue ? $"{data.dueToday.Total} due today" : "Nothing overdue", [], false, "", anyOverdue, true));
         Tiles = vms;
         // The dashboard lists are "mine", so the Owner column would only repeat the user's own name.
         int OwnerIdx(string e) => EntityViews.ColumnsFor(e).ToList().FindIndex(c => c.Label == "Owner");
@@ -138,12 +143,14 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
         OppColumns = EntityViews.ColumnsFor("opportunities").Select(c => c.Label).Where(l => l != "Owner").ToList();
         Opps = Rows(data.mine.Rows, "opportunities");
         OppTotal = data.mine.Total;
+        var mineLink = $"{ActivitiesLink}&owner={ctx.UserId.ToString(CultureInfo.InvariantCulture)}";
         Upcoming =
         [
-            new("Overdue", data.overdue.Total, Items(data.overdue.Rows), "/activities?status=open&type=actionable&due=overdue", "View all overdue activities"),
-            new("Today", data.dueToday.Total, Items(data.dueToday.Rows), "/activities?status=open&type=actionable&due=today", "View all activities due today"),
-            new("Next 7 days", data.counts.Next7, Items(data.week.Rows), "/activities?status=open&type=actionable&due=week", "View all activities in the next 7 days"),
+            new("Overdue", data.overdue.Total, Items(data.overdue.Rows), $"{mineLink}&due=overdue", "View all overdue activities"),
+            new("Today", data.dueToday.Total, Items(data.dueToday.Rows), $"{mineLink}&due=today", "View all activities due today"),
+            new("Next 7 days", data.week.Total, Items(data.week.Rows), $"{mineLink}&due=week", "View all activities in the next 7 days"),
         ];
+        ViewAllDueHref = $"{mineLink}&due=due";
         // Open pipeline by stage: the aggregate the tiles already use (no new query), converted as the tiles are.
         var openStages = data.lk.Stages.Where(st => st.Type == "open").OrderBy(st => st.SortOrder).ToList();
         var perStage = openStages.Select(st => (Stage: st, Conv: conv.ConvertRows(data.openRows.Where(r => r.StageId == st.Id), r => (r.Currency, r.Count, r.Amount), _ => curMonth), Count: data.openRows.Where(r => r.StageId == st.Id).Sum(r => r.Count))).ToList();

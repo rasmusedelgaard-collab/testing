@@ -10,8 +10,9 @@ public sealed record DoneForm(string Action, string Context, bool Checked, strin
 /// <summary>
 /// One table cell. Kind picks the rendering: text, owner (avatar + name), stage (chip with pips; N of Of, Aux = stage type), segment (Aux = code),
 /// email (mailto link), type (activity type icon; Aux = type code), done (the mark-done icon button).
+/// Role is the place of the cell in the phone card (ui-redesign 4.3): "name" (line 1), "k" (line 2, two key fields), "m" (line 3, chips and owner), "hide" (not shown on phones).
 /// </summary>
-public sealed record Cell(string Text, string? Href = null, bool Right = false, string? Note = null, DoneForm? DoneForm = null, string Kind = "text", string? Aux = null, int N = 0, int Of = 0, bool NoteDanger = false);
+public sealed record Cell(string Text, string? Href = null, bool Right = false, string? Note = null, DoneForm? DoneForm = null, string Kind = "text", string? Aux = null, int N = 0, int Of = 0, bool NoteDanger = false, string? Role = null);
 
 public sealed record TdModel(Cell Cell, string Label);
 
@@ -75,25 +76,25 @@ public static class EntityViews
     {
         var path = EntityDefinitions.All[entity].Path;
         var link = $"{path}/{r.Int("Id")}";
-        Cell Owner() => new(r.S("OwnerName"), Kind: "owner");
+        Cell Owner() => new(r.S("OwnerName"), Kind: "owner", Role: "m");
         switch (entity)
         {
             case "accounts":
-                return [new(r.S("Name"), link), Ui.SegmentOf(r.S("IndustryCode")) is not null ? new(r.S("IndustryLabel"), Kind: "segment", Aux: r.S("IndustryCode")) : new(r.S("IndustryLabel")), new(r.S("City")), Owner(), new(r.S("OpenPipeline") is { Length: > 0 } op ? op : "–", Right: true)];
+                return [new(r.S("Name"), link, Role: "name"), Ui.SegmentOf(r.S("IndustryCode")) is not null ? new(r.S("IndustryLabel"), Kind: "segment", Aux: r.S("IndustryCode"), Role: "m") : new(r.S("IndustryLabel"), Role: "m"), new(r.S("City"), Role: "k"), Owner(), new(r.S("OpenPipeline") is { Length: > 0 } op ? op : "–", Right: true, Role: "k")];
             case "contacts":
-                return [new(RecordName(entity, r), link), new(r.S("AccountName"), r.Int("AccountId") != 0 ? $"/accounts/{r.Int("AccountId")}" : null), new(r.S("JobTitle")),
-                    r.S("Email").Length > 0 ? new(r.S("Email"), $"mailto:{r.S("Email")}", Kind: "email") : new(""), new(r.S("Phone")), Owner()];
+                return [new(RecordName(entity, r), link, Role: "name"), new(r.S("AccountName"), r.Int("AccountId") != 0 ? $"/accounts/{r.Int("AccountId")}" : null, Role: "k"), new(r.S("JobTitle"), Role: "k"),
+                    r.S("Email").Length > 0 ? new(r.S("Email"), $"mailto:{r.S("Email")}", Kind: "email", Role: "hide") : new("", Role: "hide"), new(r.S("Phone"), Role: "hide"), Owner()];
             case "opportunities":
                 var past = r.S("StageType") == "open" && string.CompareOrdinal(r.S("CloseDate"), today) < 0;
                 var (idx, cnt) = OpenPosition(stages, r.Int("StageId"));
-                return [new(r.S("Name"), link), new(r.S("AccountName"), $"/accounts/{r.Int("AccountId")}"), new(r.S("StageName"), Kind: "stage", Aux: r.S("StageType"), N: idx, Of: cnt),
-                    new(f.Money(r.Dec("Amount"), r.S("CurrencyCode")), Right: true), new(f.Date(r.S("CloseDate")), Note: past ? "Past close date" : null), Owner()];
+                return [new(r.S("Name"), link, Role: "name"), new(r.S("AccountName"), $"/accounts/{r.Int("AccountId")}", Role: "k"), new(r.S("StageName"), Kind: "stage", Aux: r.S("StageType"), N: idx, Of: cnt, Role: "m"),
+                    new(f.Money(r.Dec("Amount"), r.S("CurrencyCode")), Right: true, Role: "k"), new(f.Date(r.S("CloseDate")), Note: past ? "Past close date" : null, Role: "m"), Owner()];
             default:
                 var done = r.Bool("IsDone");
                 var overdue = !done && r.S("ActivityType") != "note" && r.S("DueDate").Length > 0 && string.CompareOrdinal(r.S("DueDate"), today) < 0;
-                return [new(done ? "Done" : "Open", DoneForm: new DoneForm($"{path}/{r.Int("Id")}/{(done ? "undone" : "done")}", r.S("Subject"), done, returnTo), Kind: "done"),
-                    new(TypeLabel.GetValueOrDefault(r.S("ActivityType")) ?? r.S("ActivityType"), Kind: "type", Aux: r.S("ActivityType")), new(r.S("Subject"), link), RelatedTo(r),
-                    new(f.Date(r.S("DueDate")) + (r.S("DueTime").Length > 0 ? " " + r.S("DueTime") : ""), Note: overdue ? "Overdue" : null, NoteDanger: overdue), Owner()];
+                return [new(done ? "Done" : "Open", DoneForm: new DoneForm($"{path}/{r.Int("Id")}/{(done ? "undone" : "done")}", r.S("Subject"), done, returnTo), Kind: "done", Role: "m"),
+                    new(TypeLabel.GetValueOrDefault(r.S("ActivityType")) ?? r.S("ActivityType"), Kind: "type", Aux: r.S("ActivityType"), Role: "m"), new(r.S("Subject"), link, Role: "name"), RelatedTo(r) with { Role = "k" },
+                    new(f.Date(r.S("DueDate")) + (r.S("DueTime").Length > 0 ? " " + r.S("DueTime") : ""), Note: overdue ? "Overdue" : null, NoteDanger: overdue, Role: "k"), Owner()];
         }
     }
 

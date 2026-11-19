@@ -370,20 +370,6 @@ public sealed partial class CrmRepo(RlsTx tx, RlsContext ctx)
         return rows.Select(r => new FxRateRow(r.CurrencyCode.Trim(), r.Month, r.Rate)).ToList();
     }
 
-    public async Task<(int Overdue, int Today, int Next7)> ActivityCountsAsync(string today)
-    {
-        var p = P();
-        p.Add("t", today, DbType.AnsiString, size: 10);
-        var rows = await tx.QueryRowsAsync(
-            """
-            SELECT ISNULL(SUM(CASE WHEN DueDate < @t THEN 1 ELSE 0 END), 0) AS Overdue, ISNULL(SUM(CASE WHEN DueDate = @t THEN 1 ELSE 0 END), 0) AS Today,
-                ISNULL(SUM(CASE WHEN DueDate > @t AND DueDate <= DATEADD(day, 7, CAST(@t AS date)) THEN 1 ELSE 0 END), 0) AS Next7
-              FROM crm.Activities WHERE IsDone = 0 AND ActivityType <> 'note' AND DueDate IS NOT NULL
-            """, p).ConfigureAwait(false);
-        var r = rows[0];
-        return (r.Int("Overdue"), r.Int("Today"), r.Int("Next7"));
-    }
-
     private sealed record TeamRow(int Id, string Name);
 
     /// <summary>Teams for the Analytics filter (team names are not sensitive; crm.Teams has no FILTER).</summary>

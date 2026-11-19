@@ -10,7 +10,7 @@ public sealed partial class DemoGeneratorTests
 {
     private static readonly DateOnly Today = new(2026, 11, 19);
 
-    [GeneratedRegex(@"^\+\d{1,3} 555 0[12]\d\d\z", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^(\+1 555 01\d\d|\+44 7700 900\d\d\d)\z", RegexOptions.CultureInvariant)]
     private static partial Regex FakePhone();
 
     private static readonly string[] OpenStageNames = ["Qualification", "Needs analysis", "Proposal", "Negotiation"];
@@ -73,12 +73,13 @@ public sealed partial class DemoGeneratorTests
         Assert.Equal(3, s.Teams.Count);
         Assert.Equal(10, s.Users.Count);
         Assert.Equal(["Admin", "Manager", "User"], s.Users.Select(u => u.Role).Distinct().Order().ToArray());
-        Assert.Equal(40, s.Accounts.Count);
+        Assert.Equal(41, s.Accounts.Count);
         Assert.Equal(100, s.Contacts.Count);
-        Assert.Equal(180, s.Opportunities.Count);
+        Assert.Equal(DemoGenerator.OpenTotal, s.Opportunities.Count(o => o.IsOpen));
+        Assert.InRange(s.Opportunities.Count(o => !o.IsOpen), 220, 250);
         Assert.Equal(250, s.Activities.Count);
         Assert.Equal(["CN", "DE", "DK", "IT", "PL", "SE", "US"], s.Accounts.Select(a => a.Country).Distinct().Order().ToArray());
-        Assert.Equal(40, s.Accounts.Select(a => a.Name).Distinct().Count());
+        Assert.Equal(41, s.Accounts.Select(a => a.Name).Distinct().Count());
         Assert.Equal(["Americas & Asia", "DACH & Poland", "Nordics"], s.Teams.Select(t => t.Name).Order().ToArray());
         Assert.All(s.Users, u => Assert.StartsWith("00000000-0000-4000-8000-", u.Oid.ToString(), StringComparison.Ordinal));
         Assert.All(s.Accounts, a => Assert.Contains(s.Users, u => u.Key == a.OwnerKey && u.Role != "Admin" && u.Active));
@@ -106,13 +107,14 @@ public sealed partial class DemoGeneratorTests
         var open = s.Opportunities.Where(o => o.IsOpen).ToList();
         Assert.Equal(66, open.Count);
         Assert.Equal([25, 18, 14, 9], Enumerable.Range(0, 4).Select(i => open.Count(o => o.StageSlot == i)).ToArray());
-        Assert.Equal(180, won.Count + lost.Count + open.Count);
+        Assert.InRange(won.Count + lost.Count, 220, 250);
+        Assert.True(won.Count >= 8 * DemoGenerator.HistoryMonths - 8);
         Assert.Equal(["DKK", "EUR", "SEK", "USD"], s.Opportunities.Select(o => o.Currency).Distinct().Order().ToArray());
         Assert.All(s.Opportunities, o =>
         {
             var dkk = o.Amount * Rate(o.Currency, o.IsOpen ? Today : o.CloseDate);
             if (o.Amount == 0m) { return; }
-            Assert.InRange(dkk, 50_000m, 5_000_000m);
+            Assert.InRange(dkk, 50_000m, 5_500_000m);
         });
         Assert.Equal(["Competitor", "No budget", "No decision", "Other", "Price", "Timing"], lost.Select(o => o.LostReason!).Distinct().Order().ToArray());
         Assert.All(won.Concat(open), o => Assert.Null(o.LostReason));
@@ -170,7 +172,9 @@ public sealed partial class DemoGeneratorTests
         Assert.True(actionable.Count(a => !a.IsDone && a.DueDate < Today) >= 7);
         Assert.True(actionable.Count(a => !a.IsDone && a.DueDate > Today && a.DueDate <= Today.AddDays(7)) >= 7);
         Assert.True(actionable.Count(a => !a.IsDone && a.DueDate > Today.AddDays(7)) >= 7);
-        Assert.All(actionable.Where(a => a.IsDone), a => { Assert.True(a.DueDate < Today); Assert.NotNull(a.DoneAt); });
+        // Done activities are in the past, except the one edge case: done although its due date is still ahead.
+        Assert.All(actionable.Where(a => a.IsDone), a => { Assert.True(a.DueDate < Today || a.DueDate == Today.AddDays(3)); Assert.NotNull(a.DoneAt); });
+        Assert.Single(actionable, a => a.IsDone && a.DueDate > Today);
         Assert.All(s.Activities.Where(a => a.Type == "note"), a => { Assert.Null(a.DueDate); Assert.Null(a.DueTime); });
         // Every non-admin user has work due today and overdue on their dashboard.
         foreach (var u in s.Users.Where(u => u.Role != "Admin" && u.Active))
@@ -217,11 +221,11 @@ public sealed partial class DemoGeneratorTests
         }
         foreach (var a in s.Accounts)
         {
-            Ok("accounts", new() { ["OwnerId"] = "1", ["Name"] = a.Name, ["Website"] = a.Website, ["Phone"] = a.Phone, ["IndustryValueId"] = a.Industry is null ? "" : N(industry[a.Industry]), ["Street"] = a.Street, ["PostalCode"] = a.PostalCode, ["City"] = a.City, ["CountryCode"] = a.Country, ["Notes"] = a.Notes });
+            Ok("accounts", new() { ["OwnerId"] = "1", ["Name"] = a.Name, ["Website"] = a.Website, ["Phone"] = a.Phone ?? "", ["IndustryValueId"] = a.Industry is null ? "" : N(industry[a.Industry]), ["Street"] = a.Street, ["PostalCode"] = a.PostalCode, ["City"] = a.City, ["CountryCode"] = a.Country, ["Notes"] = a.Notes });
         }
         foreach (var c in s.Contacts)
         {
-            Ok("contacts", new() { ["OwnerId"] = "1", ["AccountId"] = "1", ["FirstName"] = c.FirstName ?? "", ["LastName"] = c.LastName, ["JobTitle"] = c.JobTitle, ["Email"] = c.Email, ["Phone"] = c.Phone, ["Mobile"] = c.Mobile });
+            Ok("contacts", new() { ["OwnerId"] = "1", ["AccountId"] = c.AccountKey is null ? "" : "1", ["FirstName"] = c.FirstName ?? "", ["LastName"] = c.LastName, ["JobTitle"] = c.JobTitle, ["Email"] = c.Email, ["Phone"] = c.Phone ?? "", ["Mobile"] = c.Mobile ?? "" });
         }
         foreach (var o in s.Opportunities)
         {
@@ -278,10 +282,38 @@ public sealed partial class DemoGeneratorTests
         var emails = s.Contacts.Select(c => c.Email).Concat(s.Users.Select(u => u.Email)).ToList();
         Assert.All(emails, e => Assert.Matches(@"^[a-z0-9.]+@([a-z0-9-]+\.)*example\.com\z", e));
         Assert.Equal(emails.Count, emails.Select(e => e.ToUpperInvariant()).Distinct().Count());
-        Assert.All(s.Accounts, a => Assert.Matches(@"^www\.[a-z0-9-]+\.example\.com\z", a.Website));
-        Assert.All(s.Accounts.Select(a => a.Phone).Concat(s.Contacts.SelectMany(c => new[] { c.Phone, c.Mobile })), p => Assert.Matches(FakePhone(), p));
+        Assert.All(s.Accounts, a => Assert.Matches(@"^https://[a-z0-9-]+\.example\.com\z", a.Website));
+        // L-3: phones only in the reserved fictional ranges (US +1 555 01xx, UK +44 7700 900xxx); every other country has none.
+        var phones = s.Accounts.Select(a => (a.Country, Phone: a.Phone)).Concat(s.Contacts.SelectMany(c => new[] { (Country: AccountCountry(s, c), Phone: c.Phone), (Country: AccountCountry(s, c), Phone: c.Mobile) })).ToList();
+        Assert.All(phones.Where(p => p.Country != "US" && p.Country != "GB"), p => Assert.Null(p.Phone));
+        Assert.All(phones.Where(p => p.Country == "US"), p => Assert.Matches(FakePhone(), p.Phone!));
+        Assert.Contains(phones, p => p.Country == "US");
         // Free text never carries a real address or number.
         Assert.All(s.Activities, a => Assert.DoesNotMatch(@"@(?!example\.com)|https?://|\d{6,}", (a.Subject + " " + a.Description)));
+    }
+
+    private static string AccountCountry(DemoDataset s, DemoContact c) => c.AccountKey is null ? "DK" : s.Accounts.Single(a => a.Key == c.AccountKey).Country;
+
+    /// <summary>D9: the cheap edge cases from the brief exist.</summary>
+    [Fact]
+    public void Edge_cases_from_the_brief_exist()
+    {
+        var s = DemoGenerator.Generate(Today);
+        Assert.Contains(s.Accounts, a => a.Name.Length is >= 100 and <= 120);
+        Assert.Contains(s.Accounts, a => a.Notes.Length is >= 1_400 and <= 2_000);
+        var keyCounts = s.Opportunities.GroupBy(o => o.AccountKey).Select(g => g.Count()).ToList();
+        Assert.True(keyCounts.Max() >= 12);
+        Assert.Equal(8, s.Contacts.Count(c => c.AccountKey == DemoCatalog.KeyAccountKey));
+        Assert.Contains(s.Accounts, a => s.Contacts.All(c => c.AccountKey != a.Key));
+        Assert.Single(s.Contacts, c => c.AccountKey is null);
+        Assert.Contains(s.Contacts, c => c.JobTitle.Length > 100);
+        Assert.Contains(s.Activities, a => a.Subject.Length == 160);
+        Assert.Contains(s.Activities, a => a.Description is { Length: > 2_800 });
+        Assert.Contains(s.Activities, a => a.IsDone && a.DueDate > Today);
+        // Everything still fits the columns.
+        Assert.All(s.Accounts, a => Assert.True(a.Name.Length <= 120 && a.Notes.Length <= 2_000));
+        Assert.All(s.Opportunities, o => Assert.True(o.Name.Length <= 120));
+        Assert.All(s.Activities, a => Assert.True(a.Subject.Length <= 160 && (a.Description?.Length ?? 0) <= 4_000));
     }
 
     [Fact]

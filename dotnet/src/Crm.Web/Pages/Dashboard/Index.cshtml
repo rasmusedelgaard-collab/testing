@@ -12,7 +12,7 @@
   </div>
 </div>
 <partial name="_Flash" />
-<section aria-label="Key figures">
+<section aria-label="Key figures" class="tiles-box">
 <ul class="tiles">
   @for (var ti = 0; ti < Model.Tiles.Count; ti++)
   {
@@ -29,14 +29,14 @@
       }
       @if (t.Spark is { } sp)
       {
-      <svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true" focusable="false"><polyline points="@sp.Points"/><circle cx="@sp.LastX" cy="@sp.LastY" r="1.5"/></svg>
+      <svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true" focusable="false"><polyline points="@sp.Points"/></svg>
       <span class="visually-hidden">@sp.Text</span>
       }
     </a>
     @for (var ni = 0; ni < t.Notes.Count; ni++)
     {
     var n = t.Notes[ni];
-    <p class="tile-note"><span id="tn-@ti-@ni">@Ui.Icon("warning") @n</span>@if (t.Excluded && n.Contains("not included", StringComparison.Ordinal)){<text> </text>@if (Model.IsAdmin){<a href="/settings/fx">Add FX rates<span class="visually-hidden"> for @t.FxCurrencies</span></a>}else{<text>Ask an administrator.</text>}}</p>
+    <p class="tile-note"><span id="tn-@ti-@ni">@Ui.Icon("warning") @n</span>@if (t.Excluded && n.Contains("not included", StringComparison.Ordinal)){<text>. </text>@if (Model.IsAdmin){<a href="/settings/fx">Add FX rates<span class="visually-hidden"> for @t.FxCurrencies</span></a>}else{<text>Ask an administrator.</text>}}</p>
     }
   </li>
   }
@@ -44,7 +44,7 @@
 </section>
 <div class="dash-top">
 <section aria-labelledby="upcoming-h" class="panel">
-  <div class="panel-head"><h2 id="upcoming-h">My day</h2><p><a href="/activities?status=open&amp;type=actionable&amp;due=due">View all due</a></p></div>
+  <div class="panel-head"><h2 id="upcoming-h">My day</h2><p><a href="@Model.ViewAllDueHref">View all due</a></p></div>
   @if (Model.Upcoming.All(u => u.Items.Count == 0)){<div class="empty compact">@Ui.Ring("check")<p>Nothing due. You're all caught up.</p></div>}
   @foreach (var u in Model.Upcoming)
   {
@@ -71,13 +71,13 @@
     </li>
   }
   </ol>
-  <p><a href="@u.ViewAll">@u.ViewAllLabel</a></p>
+  <p class="view-all"><a href="@u.ViewAll">@u.ViewAllLabel</a></p>
   }
   }
 </section>
 <section aria-labelledby="funnel-h" class="panel">
   <div class="panel-head"><h2 id="funnel-h">Open pipeline by stage</h2><p><a href="/pipeline">Open board</a></p></div>
-  @if (Model.Funnel.Count == 0){<div class="empty compact">@Ui.Ring("pipeline")<p>No open stages.</p></div>}
+  @if (Model.Funnel.Count == 0){<div class="empty compact">@Ui.Ring("pipeline")<p>No open stages. An administrator can add them in Settings &gt; Pipeline stages.</p></div>}
   else
   {
   <div class="table-wrap"><table class="data funnel dense">

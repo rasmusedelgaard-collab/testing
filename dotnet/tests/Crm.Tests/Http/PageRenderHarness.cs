@@ -67,6 +67,8 @@ public static class PageRenderHarness
             Directory.CreateDirectory(dir);
             File.WriteAllText(Path.Combine(dir, pageName.Trim('/').Replace('/', '_') + "-" + typeof(T).Name + "-" + (dumpSuffix ?? "") + ".html"), html);
         }
-        return new AngleSharp.Html.Parser.HtmlParser().ParseDocument(html);
+        var doc = new AngleSharp.Html.Parser.HtmlParser().ParseDocument(html);
+        RenderA11yStructureTests.AssertLandmarks(doc, pageName + " " + dumpSuffix);
+        return doc;
     }
 }

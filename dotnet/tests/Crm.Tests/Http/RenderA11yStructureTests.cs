@@ -29,8 +29,42 @@ public sealed class RenderA11yStructureTests : IDisposable
         return string.IsNullOrWhiteSpace(text) ? imgAlt : text;
     }
 
+    /// <summary>
+    /// D11: every landmark of the same role has its own name, search forms are named, and no content (the test-environment banner) sits outside a landmark.
+    /// Called for every page the render harness produces.
+    /// </summary>
+    internal static void AssertLandmarks(IDocument doc, string where)
+    {
+        string? RoleOf(IElement e)
+        {
+            var explicitRole = e.GetAttribute("role");
+            var named = !string.IsNullOrWhiteSpace(e.GetAttribute("aria-label")) || !string.IsNullOrWhiteSpace(e.GetAttribute("aria-labelledby"));
+            if (explicitRole is "search" or "region" or "navigation" or "complementary") { return explicitRole; }
+            return e.LocalName switch
+            {
+                "nav" => "navigation",
+                "aside" => "complementary",
+                "section" when named => "region",
+                "form" when named => "form",
+                _ => null,
+            };
+        }
+        var landmarks = doc.QuerySelectorAll("nav, aside, section, form, [role]").Select(e => (Role: RoleOf(e), Name: Name(e).Trim(), El: e)).Where(x => x.Role is not null).ToList();
+        foreach (var x in landmarks.Where(x => x.Role is "search" or "region" or "navigation" or "form"))
+        {
+            Assert.True(x.Name.Length > 0, $"{where}: unnamed {x.Role} landmark {x.El.OuterHtml[..Math.Min(100, x.El.OuterHtml.Length)]}");
+        }
+        var duplicates = landmarks.Where(x => x.Role is not null).GroupBy(x => (x.Role, x.Name)).Where(g => g.Count() > 1).Select(g => $"{g.Key.Role} '{g.Key.Name}'").ToList();
+        Assert.True(duplicates.Count == 0, $"{where}: duplicate landmark names: {string.Join("; ", duplicates)}");
+        foreach (var banner in doc.QuerySelectorAll(".env-banner"))
+        {
+            Assert.True(banner.GetAttribute("role") == "region" && !string.IsNullOrWhiteSpace(banner.GetAttribute("aria-label")), $"{where}: the environment banner must be a named region");
+        }
+    }
+
     private static void AssertStructure(IDocument doc, string where)
     {
+        AssertLandmarks(doc, where);
         var dup = doc.QuerySelectorAll("[id]").GroupBy(e => e.Id).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
         Assert.True(dup.Count == 0, $"{where}: duplicate ids {string.Join(", ", dup)}");
         Assert.True(doc.QuerySelectorAll("h1").Length == 1, $"{where}: expected exactly one h1");

@@ -7,6 +7,7 @@
 else
 {
 <h1>FX rates</h1>
+<partial name="_Flash" />
 <p>Base currency: <strong>@Model.Base</strong>. A rate means 1 unit of the currency = X @Model.Base for that month.</p>
 <partial name="_ErrorSummary" model="Model.Summary" />
 @if (Model.DupId > 0){<p><a href="/settings/fx/@Model.DupId/edit">Edit the existing rate</a></p>}

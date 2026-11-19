@@ -1,13 +1,17 @@
 namespace Crm.Web.Services.Demo;
 
 /// <summary>
-/// Demo-data conventions. A row is a demo row when it was CREATED by one of the demo users (CreatedBy is never changed by the app),
-/// FX rates when they were last written by the demo admin, and the whole set is marked by the Settings key <see cref="MarkerKey"/>.
+/// Demo-data conventions. Rows are tracked, never guessed: the seeder writes one 'C' audit row per record (and per FX rate) with the run's
+/// CorrelationId, and the run id is kept in the Settings key <see cref="RunIdKey"/>. A reset deletes exactly those records. The whole set is
+/// marked by <see cref="MarkerKey"/>, and only a database marked <see cref="TestEnvKey"/>=<see cref="TestEnvValue"/> (written by seed-test) is seeded at all.
 /// The demo users live in the reserved test-oid range (00000000-0000-4000-8000-...), so the test-login picker lists them.
 /// </summary>
 public static class DemoMarker
 {
     public const string MarkerKey = "demo.seeded";
+    public const string RunIdKey = "demo.runId";
+    public const string TestEnvKey = "environment";
+    public const string TestEnvValue = "test";
     public const string InactiveKey = "peter";
     public const string NoTeamKey = "lise";
     public const string PersonaKey = "lars";
@@ -19,9 +23,9 @@ public sealed record DemoTeam(string Key, string Name, Guid GroupId);
 
 public sealed record DemoUser(string Key, Guid Oid, string Name, string Email, string Role, string? TeamKey, bool Active = true);
 
-public sealed record DemoAccount(string Key, string Name, string Website, string Phone, string? Industry, string Street, string PostalCode, string City, string Country, string Notes, string OwnerKey, DateTime CreatedAt);
+public sealed record DemoAccount(string Key, string Name, string Website, string? Phone, string? Industry, string Street, string PostalCode, string City, string Country, string Notes, string OwnerKey, DateTime CreatedAt);
 
-public sealed record DemoContact(string Key, string AccountKey, string? FirstName, string LastName, string JobTitle, string Email, string Phone, string Mobile, string OwnerKey, DateTime CreatedAt);
+public sealed record DemoContact(string Key, string? AccountKey, string? FirstName, string LastName, string JobTitle, string Email, string? Phone, string? Mobile, string OwnerKey, DateTime CreatedAt);
 
 /// <param name="StageSlot">0-3 = open stage by rank, <see cref="DemoOpportunity.SlotWon"/>, <see cref="DemoOpportunity.SlotLost"/>. The seeder maps slots to the stages that exist.</param>
 public sealed record DemoOpportunity(string Key, string Name, string AccountKey, string? ContactKey, int StageSlot, decimal Amount, string Currency, DateOnly CloseDate, string LeadSource, string? LostReason, DateTime? ClosedAt, string OwnerKey, DateTime CreatedAt, DateTime ModifiedAt)
@@ -56,7 +60,8 @@ public sealed record DemoDataset(
     IReadOnlyList<DemoFxRate> FxRates);
 
 /// <param name="FxEdge">QA variant: the current month's SEK rate is missing and two open deals are in NOK, which has no rates at all (FX notes appear on the dashboard).</param>
-public sealed record DemoOptions(bool FxEdge = false);
+/// <param name="DemoSettings">Also set the demo settings: visibility team, locale da-DK, enabled currencies DKK, EUR, SEK, USD (plus NOK with <paramref name="FxEdge"/>). Industry values are never deactivated.</param>
+public sealed record DemoOptions(bool FxEdge = false, bool DemoSettings = false);
 
 /// <summary>SplitMix64: tiny, fully specified, identical on every platform and runtime version (System.Random is not specified to be).</summary>
 public sealed class DemoRandom(ulong seed)

@@ -30,7 +30,6 @@ else
     <p class="col-count">@col.Count @(col.Count == 1 ? "opportunity" : "opportunities")</p>
     <p class="col-total">@col.TotalShort<span class="visually-hidden"> (@col.TotalFull)</span></p>
     <p class="col-weighted">@col.WeightedShort weighted</p>
-    @foreach (var n in col.Notes){<p class="tile-note">@Ui.Icon("warning") @n</p>}
     @Ui.Bar(col.Share)
     @if (col.Cards.Count == 0)
     {
@@ -44,10 +43,8 @@ else
       <li class="deal-card" id="opp-@card.Id">
         <span class="drag-handle" aria-hidden="true">@Ui.Icon("drag")</span>
         <a class="deal-name" href="/opportunities/@card.Id" data-autofocus="@(card.Moved ? "" : null)">@card.Name</a>
-        <p><a href="/accounts/@card.AccountId">@card.Account</a></p>
-        <p class="deal-money"><span>@card.Money</span><span>@card.CloseDate</span></p>
+        <p class="deal-meta"><a href="/accounts/@card.AccountId">@card.Account</a><span aria-hidden="true"> · </span><span class="visually-hidden">, </span>@card.Money<span aria-hidden="true"> · </span><span class="visually-hidden">, </span>@card.CloseDate<span class="deal-owner" title="@card.Owner">@Ui.Avatar(card.Owner, "s24")<span class="visually-hidden">, owner @card.Owner</span></span></p>
         @if (card.PastClose){<p><span class="chip warn">@Ui.Icon("warning")Past close date</span></p>}
-        <p>@Ui.Owner(card.Owner, "")</p>
         <form method="post" action="/opportunities/@card.Id/stage" asp-antiforgery="true" class="move-form">
           <input type="hidden" name="rowVer" value="@card.RowVer"><input type="hidden" name="returnTo" value="@Model.ReturnTo">
           <div class="field"><label for="mv-@card.Id">Move to<span class="visually-hidden"> @card.Name</span></label>

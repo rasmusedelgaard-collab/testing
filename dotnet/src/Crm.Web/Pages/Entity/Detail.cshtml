@@ -135,10 +135,10 @@ else if (Model.Tabs.Count == 1)
 }
 else if (Model.TabTable is { } tt)
 {
-  <section aria-labelledby="rel-h">
+  <section>
     <h2 id="rel-h" class="visually-hidden">@tt.Title</h2>
     <p><a class="button secondary" href="@tt.NewHref">@Ui.Icon("plus") @tt.NewLabel</a></p>
-    @if (tt.Rows.Count == 0){<div class="empty compact">@Ui.Ring(Model.Tabs.First(t => t.Active).Key)<p>Nothing here yet.</p></div>}
+    @if (tt.Rows.Count == 0){<div class="empty compact">@Ui.Ring(Model.Tabs.First(t => t.Active).Key)<p>No @Model.Tabs.First(t => t.Active).Key yet.</p></div>}
     else
     {
     <div class="table-wrap" role="region" aria-label="@tt.Title" tabindex="0"><table class="data dense">

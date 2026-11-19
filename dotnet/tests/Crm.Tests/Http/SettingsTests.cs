@@ -61,7 +61,7 @@ public sealed class SettingsTests(SqlServerFixture fx)
         var badText = await bad.Content.ReadAsStringAsync();
         Assert.Contains("Enter a CRM name.", badText, StringComparison.Ordinal);
         Assert.Contains("This colour is too light for text and buttons. Choose a darker shade.", badText, StringComparison.Ordinal);
-        Assert.Contains("Enter a colour like #1D4ED8.", await (await c.PostAsync("/settings/general", HttpHelpers.Form(("_csrf", await HttpHelpers.TokenAsync(c, "/settings/general")), ("appName", "X"), ("accentColor", "red")))).Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Contains("Enter a colour like #00456C.", await (await c.PostAsync("/settings/general", HttpHelpers.Form(("_csrf", await HttpHelpers.TokenAsync(c, "/settings/general")), ("appName", "X"), ("accentColor", "red")))).Content.ReadAsStringAsync(), StringComparison.Ordinal);
         try
         {
             var ok = await c.PostAsync("/settings/general", HttpHelpers.Form(("_csrf", await HttpHelpers.TokenAsync(c, "/settings/general")), ("appName", "Acme CRM"), ("accentColor", "#0b5d57")));

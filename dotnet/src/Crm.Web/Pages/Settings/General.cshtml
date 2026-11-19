@@ -1,6 +1,7 @@
 @page "/settings/general/{handler:regex(^logo$)?}"
 @model GeneralModel
 <h1>General</h1>
+<partial name="_Flash" />
 <partial name="_ErrorSummary" model="Model.Summary" />
 <form method="post" action="/settings/general" asp-antiforgery="true" class="form" novalidate>
   <div class="field@(Model.Errors.ContainsKey("appName") ? " has-error" : "")">

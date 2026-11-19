@@ -9,6 +9,7 @@ namespace Crm.Tests.Http;
 public sealed class RedesignSqlTests(SqlServerFixture fx)
 {
     private const string UserA1 = "00000000-0000-4000-8000-00000000a003";
+    private const string ManagerA = "00000000-0000-4000-8000-00000000a002";
     private const string UserB1 = "00000000-0000-4000-8000-00000000b002";
 
     private static string I(int n) => n.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -90,6 +91,81 @@ public sealed class RedesignSqlTests(SqlServerFixture fx)
 
         var stale = await c.PostAsync($"/opportunities/{seed.OppId}/stage", HttpHelpers.Form(("_csrf", token), ("rowVer", rowVer), ("stageId", seed.OpenStage)));
         await HttpHelpers.ExpectAsync(HttpStatusCode.Conflict, stale);
+    }
+
+    /// <summary>D1: every count on My day and the "My activities due" tile is the user's own, matches its list, and the View all links filter by the same owner.</summary>
+    [SqlFact]
+    public async Task My_day_counts_tile_and_view_all_links_are_all_the_users_own()
+    {
+        var (fa, a) = await AsAsync(UserA1);
+        using var _a = fa;
+        var (fm, m) = await AsAsync(ManagerA);
+        using var _m = fm;
+        var a1 = await UserIdAsync(UserA1);
+        var mgr = await UserIdAsync(ManagerA);
+        var seedA = await SeedOpportunityAsync(a, UserA1);
+        var seedM = await SeedOpportunityAsync(m, ManagerA);
+        string Day(int offset) => DateTime.UtcNow.Date.AddDays(offset).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        // The teammate has more work than the manager: team-wide numbers would differ from the manager's own.
+        foreach (var (client, owner, opp) in new[] { (a, a1, seedA), (a, a1, seedA), (a, a1, seedA), (m, mgr, seedM) })
+        {
+            await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, await PostAsync(client, "/activities/new", "/activities", ("ActivityType", "task"), ("Subject", Unique("Mine")), ("OpportunityId", I(opp.OppId)), ("DueDate", Day(-3)), ("OwnerId", I(owner))));
+        }
+        var doc = await HttpHelpers.ParseAsync(await m.GetAsync("/"));
+        var overdueList = doc.QuerySelectorAll("section[aria-labelledby=upcoming-h] h3").First(h => h.TextContent.StartsWith("Overdue", StringComparison.Ordinal));
+        var heading = System.Text.RegularExpressions.Regex.Match(overdueList.TextContent, @"\((\d+)\)").Groups[1].Value;
+        Assert.True(int.Parse(heading, System.Globalization.CultureInfo.InvariantCulture) >= 1);
+        var tile = doc.QuerySelectorAll("li.tile").Last();
+        Assert.Equal("My activities due", tile.QuerySelector(".tile-label")!.TextContent);
+        Assert.Contains($"owner={mgr}", tile.QuerySelector("a")!.GetAttribute("href"), StringComparison.Ordinal);
+        Assert.Contains($"{heading} overdue", tile.QuerySelector(".tile-value")!.TextContent, StringComparison.Ordinal);
+        foreach (var link in doc.QuerySelectorAll("section[aria-labelledby=upcoming-h] a[href^='/activities?']"))
+        {
+            Assert.Contains($"owner={mgr}", link.GetAttribute("href"), StringComparison.Ordinal);
+        }
+        // The list behind the link shows the same number.
+        var list = await HttpHelpers.ParseAsync(await m.GetAsync(tile.QuerySelector("a")!.GetAttribute("href")!.Replace("&amp;", "&", StringComparison.Ordinal)));
+        Assert.Contains($"{heading} activities found", list.QuerySelector("p[role=status]")!.TextContent, StringComparison.Ordinal);
+    }
+
+    /// <summary>L-2: when the database refuses the resulting row (here: the owner was deactivated, so a manager may not write it), the board says so.</summary>
+    [SqlFact]
+    public async Task A_move_the_database_refuses_flashes_write_blocked_and_returns_to_the_board()
+    {
+        var (fa, a) = await AsAsync(UserA1);
+        using var _a = fa;
+        var seed = await SeedOpportunityAsync(a, UserA1);
+        var (fm, m) = await AsAsync(ManagerA);
+        using var _m = fm;
+        var board = await HttpHelpers.ParseAsync(await m.GetAsync("/pipeline"));
+        var rowVer = Card(board, seed.OppName).QuerySelector("input[name=rowVer]")!.GetAttribute("value")!;
+        var other = Card(board, seed.OppName).QuerySelectorAll("option").First(o => !o.HasAttribute("selected")).GetAttribute("value")!;
+        var token = board.QuerySelector("input[name=_csrf]")!.GetAttribute("value")!;
+        var owner = await UserIdAsync(UserA1);
+        await SetActiveAsync(owner, false);
+        try
+        {
+            var r = await m.PostAsync($"/opportunities/{seed.OppId}/stage", HttpHelpers.Form(("_csrf", token), ("rowVer", rowVer), ("stageId", other), ("returnTo", "/pipeline")));
+            await HttpHelpers.ExpectAsync(HttpStatusCode.SeeOther, r);
+            Assert.Equal("/pipeline", r.Headers.Location!.OriginalString);
+            var after = await HttpHelpers.ParseAsync(await m.GetAsync("/pipeline"));
+            Assert.Equal("You can't save this record with that owner. Choose an owner from your team.", after.QuerySelector(".flash")!.TextContent);
+            Assert.Equal(seed.OpenStage, Card(after, seed.OppName).Closest("section.board-col")!.GetAttribute("data-stage"));
+        }
+        finally
+        {
+            await SetActiveAsync(owner, true);
+        }
+    }
+
+    private async Task SetActiveAsync(int userId, bool active)
+    {
+        await using var c = new SqlConnection(SqlConnectionFactory.Build(fx.OwnerDb, "owner-redesign", 1, false, 30));
+        await c.OpenAsync();
+        await using var cmd = new SqlCommand("UPDATE crm.Users SET IsActive = @a WHERE UserId = @u", c);
+        cmd.Parameters.AddWithValue("@a", active);
+        cmd.Parameters.AddWithValue("@u", userId);
+        await cmd.ExecuteNonQueryAsync();
     }
 
     [SqlFact]

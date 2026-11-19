@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Html;
+using Microsoft.AspNetCore.Http;
 
 namespace Crm.Web.Pages;
 
@@ -26,6 +27,22 @@ public static class Ui
     /// <summary>The data-theme attribute for the html element: only "light" or "dark" (the stored preference), nothing for "system".</summary>
     public static IHtmlContent ThemeAttr(string? theme) =>
         theme is "light" or "dark" ? new HtmlString($" data-theme=\"{theme}\"") : HtmlString.Empty;
+
+    /// <summary>
+    /// Where the theme toggle returns to. A GET page can simply be reloaded; the page shown after a POST (validation errors, confirm, conflict) lives
+    /// at a URL that only accepts POST, so going back there would fail: use the record page when the path names one, otherwise the dashboard.
+    /// </summary>
+    public static string ThemeReturnTo(string method, string path, string query)
+    {
+        if (HttpMethods.IsGet(method) || HttpMethods.IsHead(method))
+        {
+            return path + query;
+        }
+        var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2 && parts[0] is "accounts" or "contacts" or "opportunities" or "activities" && parts[1].Length > 0 && parts[1].All(char.IsAsciiDigit)
+            ? $"/{parts[0]}/{parts[1]}"
+            : "/";
+    }
 
     public static string Initials(string name)
     {

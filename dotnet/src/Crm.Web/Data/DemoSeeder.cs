@@ -12,7 +12,10 @@ namespace Crm.Web.Data;
 /// Writes the generated demo dataset (seed-demo). Runs on the migrator (DB owner) connection but writes through the same tables and
 /// row-level-security predicates as the app: each owner's rows are inserted with that owner's session context, so CreatedBy, ModifiedBy and
 /// the audit trail name the real owner. One transaction: either the whole set and the marker exist, or nothing changed.
-/// Demo rows are recognised by CreatedBy = a demo user (see <see cref="DemoMarker"/>); nothing else is ever touched.
+/// Safety: the database must carry the test marker (Settings environment=test, written by seed-test), otherwise nothing is written.
+/// Tracking: every record (and FX rate) gets a 'C' audit row carrying this run's CorrelationId (RunId), and the RunId is stored in
+/// <see cref="DemoMarker.RunIdKey"/>. A reset deletes exactly the records those audit rows name, never "rows created by a demo user":
+/// a person who signed in as a demo user and created data keeps it.
 /// </summary>
 public sealed class DemoSeeder(TimeProvider time, TextWriter output)
 {
@@ -32,43 +35,58 @@ public sealed class DemoSeeder(TimeProvider time, TextWriter output)
     public async Task<DemoDataset?> RunAsync(SqlConnection conn, bool reset, DemoOptions options, CancellationToken ct)
     {
         var settings = (await conn.QueryAsync<SettingRow>(
-            "SELECT SettingKey, SettingValue FROM crm.Settings WHERE SettingKey IN (N'currency.base', N'locale.timezone', N'demo.seeded')").ConfigureAwait(false))
+            "SELECT SettingKey, SettingValue FROM crm.Settings WHERE SettingKey IN (N'currency.base', N'locale.timezone', N'demo.seeded', N'demo.runId', N'environment')").ConfigureAwait(false))
             .ToDictionary(s => s.SettingKey, s => s.SettingValue, StringComparer.Ordinal);
+        if (settings.GetValueOrDefault(DemoMarker.TestEnvKey) != DemoMarker.TestEnvValue)
+        {
+            throw new MigrationException($"seed-demo is refused: this database has no test marker (Settings {DemoMarker.TestEnvKey}={DemoMarker.TestEnvValue}). Run seed-test on the test database first; never run seed-demo against a real database.");
+        }
         if (settings.GetValueOrDefault("currency.base", "DKK") != "DKK")
         {
             throw new MigrationException("seed-demo expects the base currency DKK (Settings currency.base); the demo FX rates and amounts are defined against DKK.");
         }
         var today = TimeZones.TodayIn(settings.GetValueOrDefault("locale.timezone"), time);
         var data = DemoGenerator.Generate(today, options);
+        var previousRun = Guid.TryParse(settings.GetValueOrDefault(DemoMarker.RunIdKey), out var g) ? g : (Guid?)null;
 
         // Not committed on an early return or an exception: disposing the transaction rolls everything back.
         await using var tx = (SqlTransaction)await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
         // Admin context for the checks and the reset. UserId 0 is a migration-scoped context, not a real user (as in 004_seed.sql).
         await SetContextAsync(conn, tx, 0, "Admin", null, ct).ConfigureAwait(false);
-        var existingIds = await DemoUserIdsAsync(conn, tx, data, ct).ConfigureAwait(false);
         var hasMarker = settings.ContainsKey(DemoMarker.MarkerKey);
-        var rows = existingIds.Count == 0 ? 0 : await CountDemoRowsAsync(conn, tx, existingIds, ct).ConfigureAwait(false);
+        var rows = previousRun is null ? 0 : await LoadTrackedAsync(conn, tx, previousRun.Value, ct).ConfigureAwait(false);
 
         if (hasMarker && !reset)
         {
             output.WriteLine($"Demo data is already present ({settings[DemoMarker.MarkerKey]}); nothing to do. Use --reset-demo to rebuild it.");
+            if (options.DemoSettings)
+            {
+                await ApplyDemoSettingsAsync(conn, tx, await AdminIdAsync(conn, tx, data, ct).ConfigureAwait(false), options, ct).ConfigureAwait(false);
+                await tx.CommitAsync(ct).ConfigureAwait(false);
+                output.WriteLine("Applied the demo settings (visibility team, locale da-DK, enabled currencies).");
+            }
             return null;
         }
         if (!hasMarker && rows > 0 && !reset)
         {
-            throw new MigrationException($"Found {rows} demo rows but no '{DemoMarker.MarkerKey}' marker: a previous run was interrupted or the marker was removed. Run with --reset-demo.");
+            throw new MigrationException($"Found {rows} demo rows but no '{DemoMarker.MarkerKey}' marker: the marker was removed. Run with --reset-demo.");
         }
         if (reset)
         {
-            await ResetAsync(conn, tx, existingIds, output, ct).ConfigureAwait(false);
+            if (hasMarker && previousRun is null)
+            {
+                throw new MigrationException($"Cannot reset: the demo data was written by an earlier version of seed-demo that did not record its rows ('{DemoMarker.RunIdKey}' is missing). Nothing was changed. Remove it by hand, or rebuild the test database.");
+            }
+            await ResetAsync(conn, tx, previousRun, output, ct).ConfigureAwait(false);
         }
 
-        await WriteAsync(conn, tx, data, ct).ConfigureAwait(false);
+        await WriteAsync(conn, tx, data, options, ct).ConfigureAwait(false);
         await tx.CommitAsync(ct).ConfigureAwait(false);
         output.WriteLine($"Seeded demo data relative to {today:yyyy-MM-dd}: {data.Teams.Count} teams, {data.Users.Count} users, {data.Accounts.Count} accounts, {data.Contacts.Count} contacts, "
             + $"{data.Opportunities.Count} opportunities, {data.Activities.Count} activities, {data.FxRates.Count} FX rates.");
         output.WriteLine("Demo users are listed in the test sign-in picker (Astrid Holm is the demo Admin, Lars Eriksen the demo persona).");
         if (options.FxEdge) { output.WriteLine("FX edge variant: SEK for the current month is missing and two open deals are in NOK (no NOK rates)."); }
+        if (options.DemoSettings) { output.WriteLine("Applied the demo settings (visibility team, locale da-DK, enabled currencies)."); }
         return data;
     }
 
@@ -77,56 +95,77 @@ public sealed class DemoSeeder(TimeProvider time, TextWriter output)
             "EXEC sp_set_session_context N'UserId', @u, @read_only = 0; EXEC sp_set_session_context N'Role', @r, @read_only = 0; EXEC sp_set_session_context N'TeamId', @t, @read_only = 0;",
             new { u = userId, r = role, t = teamId }, tx, cancellationToken: ct)).ConfigureAwait(false);
 
-    private static async Task<List<int>> DemoUserIdsAsync(SqlConnection conn, SqlTransaction tx, DemoDataset data, CancellationToken ct) =>
-        (await conn.QueryAsync<int>(new CommandDefinition("SELECT UserId FROM crm.Users WHERE EntraOid IN @oids", new { oids = data.Users.Select(u => u.Oid).ToList() }, tx, cancellationToken: ct)).ConfigureAwait(false)).ToList();
-
-    private static async Task<int> CountDemoRowsAsync(SqlConnection conn, SqlTransaction tx, List<int> ids, CancellationToken ct) =>
-        await conn.ExecuteScalarAsync<int>(new CommandDefinition(
-            """
-            SELECT (SELECT COUNT(*) FROM crm.Accounts      WHERE CreatedBy IN @ids)
-                 + (SELECT COUNT(*) FROM crm.Contacts      WHERE CreatedBy IN @ids)
-                 + (SELECT COUNT(*) FROM crm.Opportunities WHERE CreatedBy IN @ids)
-                 + (SELECT COUNT(*) FROM crm.Activities    WHERE CreatedBy IN @ids)
-            """, new { ids }, tx, cancellationToken: ct)).ConfigureAwait(false);
+    private static async Task<int> AdminIdAsync(SqlConnection conn, SqlTransaction tx, DemoDataset data, CancellationToken ct)
+    {
+        var oid = data.Users.First(u => u.Key == DemoMarker.AdminKey).Oid;
+        return await conn.QuerySingleAsync<int>(new CommandDefinition("SELECT UserId FROM crm.Users WHERE EntraOid = @oid", new { oid }, tx, cancellationToken: ct)).ConfigureAwait(false);
+    }
 
     /// <summary>
-    /// Removes demo rows only: created by a demo user, and (for parents) not referenced by any row a real user created.
-    /// Audit rows are append-only by design and stay. Demo users and teams stay too (audit rows reference them).
+    /// Fills #demo with the (entity type, id) pairs the given run inserted, read from its 'C' audit rows, and returns how many of them still exist.
     /// </summary>
-    private static async Task ResetAsync(SqlConnection conn, SqlTransaction tx, List<int> ids, TextWriter output, CancellationToken ct)
+    private static async Task<int> LoadTrackedAsync(SqlConnection conn, SqlTransaction tx, Guid runId, CancellationToken ct)
     {
-        if (ids.Count == 0)
+        await conn.ExecuteAsync(new CommandDefinition(
+            """
+            DROP TABLE IF EXISTS #demo;
+            CREATE TABLE #demo (EntityType varchar(20) NOT NULL, EntityId int NOT NULL, PRIMARY KEY (EntityType, EntityId));
+            INSERT #demo (EntityType, EntityId)
+              SELECT DISTINCT EntityType, EntityId FROM crm.AuditLog
+              WHERE Action = 'C' AND CorrelationId = @runId AND EntityType IN ('account', 'contact', 'opportunity', 'activity', 'fxrate');
+            """, new { runId }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        return await CountTrackedAsync(conn, tx, ct).ConfigureAwait(false);
+    }
+
+    private static async Task<int> CountTrackedAsync(SqlConnection conn, SqlTransaction tx, CancellationToken ct) =>
+        await conn.ExecuteScalarAsync<int>(new CommandDefinition(
+            """
+            SELECT (SELECT COUNT(*) FROM crm.Accounts      x JOIN #demo d ON d.EntityType = 'account'     AND d.EntityId = x.AccountId)
+                 + (SELECT COUNT(*) FROM crm.Contacts      x JOIN #demo d ON d.EntityType = 'contact'     AND d.EntityId = x.ContactId)
+                 + (SELECT COUNT(*) FROM crm.Opportunities x JOIN #demo d ON d.EntityType = 'opportunity' AND d.EntityId = x.OpportunityId)
+                 + (SELECT COUNT(*) FROM crm.Activities    x JOIN #demo d ON d.EntityType = 'activity'    AND d.EntityId = x.ActivityId)
+            """, transaction: tx, cancellationToken: ct)).ConfigureAwait(false);
+
+    /// <summary>
+    /// Removes exactly the records the previous run inserted (see #demo), nothing else. A parent that something not inserted by the seeder still
+    /// references (for example a note a person added to a demo account) is kept. Audit rows are append-only by design and stay.
+    /// Demo users and teams stay too (audit rows reference them).
+    /// </summary>
+    private static async Task ResetAsync(SqlConnection conn, SqlTransaction tx, Guid? runId, TextWriter output, CancellationToken ct)
+    {
+        if (runId is null)
         {
             return;
         }
-        async Task<int> Del(string sql) => await conn.ExecuteAsync(new CommandDefinition(sql, new { ids }, tx, cancellationToken: ct)).ConfigureAwait(false);
-        var act = await Del("DELETE FROM crm.Activities WHERE CreatedBy IN @ids").ConfigureAwait(false);
+        async Task<int> Del(string sql) => await conn.ExecuteAsync(new CommandDefinition(sql, transaction: tx, cancellationToken: ct)).ConfigureAwait(false);
+        var act = await Del("DELETE x FROM crm.Activities x JOIN #demo d ON d.EntityType = 'activity' AND d.EntityId = x.ActivityId").ConfigureAwait(false);
         var opp = await Del("""
-            DELETE o FROM crm.Opportunities o WHERE o.CreatedBy IN @ids
-              AND NOT EXISTS (SELECT 1 FROM crm.Activities a WHERE a.OpportunityId = o.OpportunityId)
+            DELETE o FROM crm.Opportunities o JOIN #demo d ON d.EntityType = 'opportunity' AND d.EntityId = o.OpportunityId
+              WHERE NOT EXISTS (SELECT 1 FROM crm.Activities a WHERE a.OpportunityId = o.OpportunityId)
             """).ConfigureAwait(false);
         var con = await Del("""
-            DELETE c FROM crm.Contacts c WHERE c.CreatedBy IN @ids
-              AND NOT EXISTS (SELECT 1 FROM crm.Opportunities o WHERE o.PrimaryContactId = c.ContactId)
-              AND NOT EXISTS (SELECT 1 FROM crm.Activities a WHERE a.ContactId = c.ContactId)
+            DELETE c FROM crm.Contacts c JOIN #demo d ON d.EntityType = 'contact' AND d.EntityId = c.ContactId
+              WHERE NOT EXISTS (SELECT 1 FROM crm.Opportunities o WHERE o.PrimaryContactId = c.ContactId)
+                AND NOT EXISTS (SELECT 1 FROM crm.Activities a WHERE a.ContactId = c.ContactId)
             """).ConfigureAwait(false);
         var acc = await Del("""
-            DELETE a FROM crm.Accounts a WHERE a.CreatedBy IN @ids
-              AND NOT EXISTS (SELECT 1 FROM crm.Contacts c WHERE c.AccountId = a.AccountId)
-              AND NOT EXISTS (SELECT 1 FROM crm.Opportunities o WHERE o.AccountId = a.AccountId)
-              AND NOT EXISTS (SELECT 1 FROM crm.Activities x WHERE x.AccountId = a.AccountId)
+            DELETE a FROM crm.Accounts a JOIN #demo d ON d.EntityType = 'account' AND d.EntityId = a.AccountId
+              WHERE NOT EXISTS (SELECT 1 FROM crm.Contacts c WHERE c.AccountId = a.AccountId)
+                AND NOT EXISTS (SELECT 1 FROM crm.Opportunities o WHERE o.AccountId = a.AccountId)
+                AND NOT EXISTS (SELECT 1 FROM crm.Activities x WHERE x.AccountId = a.AccountId)
             """).ConfigureAwait(false);
-        var fx = await Del("DELETE FROM crm.FxRates WHERE ModifiedBy IN @ids").ConfigureAwait(false);
-        await conn.ExecuteAsync(new CommandDefinition("DELETE FROM crm.Settings WHERE SettingKey = @k", new { k = DemoMarker.MarkerKey }, tx, cancellationToken: ct)).ConfigureAwait(false);
-        output.WriteLine($"Reset: removed {acc} accounts, {con} contacts, {opp} opportunities, {act} activities and {fx} FX rates created by demo users.");
-        var left = await CountDemoRowsAsync(conn, tx, ids, ct).ConfigureAwait(false);
+        // FX: only the (currency, month) rates this run inserted; a rate somebody else entered for the same month was never touched by the seeder.
+        var fx = await Del("DELETE f FROM crm.FxRates f JOIN #demo d ON d.EntityType = 'fxrate' AND d.EntityId = f.FxRateId").ConfigureAwait(false);
+        await conn.ExecuteAsync(new CommandDefinition("DELETE FROM crm.Settings WHERE SettingKey IN (@m, @r)", new { m = DemoMarker.MarkerKey, r = DemoMarker.RunIdKey }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        output.WriteLine($"Reset (run {runId}): removed {acc} accounts, {con} contacts, {opp} opportunities, {act} activities and {fx} FX rates that the seeder inserted.");
+        var left = await CountTrackedAsync(conn, tx, ct).ConfigureAwait(false);
         if (left > 0)
         {
             output.WriteLine($"Note: {left} demo records were kept because rows created by real users still reference them.");
         }
     }
 
-    private static async Task WriteAsync(SqlConnection conn, SqlTransaction tx, DemoDataset data, CancellationToken ct)
+    private static async Task WriteAsync(SqlConnection conn, SqlTransaction tx, DemoDataset data, DemoOptions options, CancellationToken ct)
     {
         var teamIds = await EnsureTeamsAsync(conn, tx, data, ct).ConfigureAwait(false);
         var userIds = await EnsureUsersAsync(conn, tx, data, teamIds, ct).ConfigureAwait(false);
@@ -153,10 +192,46 @@ public sealed class DemoSeeder(TimeProvider time, TextWriter output)
 
         var adminId = userIds[DemoMarker.AdminKey];
         await SetContextAsync(conn, tx, adminId, "Admin", null, ct).ConfigureAwait(false);
-        await WriteFxAsync(conn, tx, data, adminId, ct).ConfigureAwait(false);
+        await WriteFxAsync(conn, tx, ctx, adminId, ct).ConfigureAwait(false);
+        if (options.DemoSettings)
+        {
+            await ApplyDemoSettingsAsync(conn, tx, adminId, options, ct).ConfigureAwait(false);
+        }
         await conn.ExecuteAsync(new CommandDefinition(
-            "INSERT crm.Settings (SettingKey, SettingValue, ModifiedBy) VALUES (@k, @v, @by)",
-            new { k = DemoMarker.MarkerKey, v = $"v{DemoMarker.SchemaVersion.ToString(CultureInfo.InvariantCulture)} {data.Today:yyyy-MM-dd}", by = adminId }, tx, cancellationToken: ct)).ConfigureAwait(false);
+            "INSERT crm.Settings (SettingKey, SettingValue, ModifiedBy) VALUES (@k, @v, @by), (@rk, @rv, @by)",
+            new
+            {
+                k = DemoMarker.MarkerKey,
+                v = $"v{DemoMarker.SchemaVersion.ToString(CultureInfo.InvariantCulture)} {data.Today:yyyy-MM-dd}",
+                rk = DemoMarker.RunIdKey,
+                rv = ctx.RunId.ToString(),
+                by = adminId,
+            }, tx, cancellationToken: ct)).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// --demo-settings: visibility team, locale da-DK, and the demo currencies (NOK only for the edge variant). The generic industry values are NOT
+    /// deactivated: that is a product-owner decision. Runs in the demo admin's context, like a change on the Settings pages.
+    /// </summary>
+    private static async Task ApplyDemoSettingsAsync(SqlConnection conn, SqlTransaction tx, int adminId, DemoOptions options, CancellationToken ct)
+    {
+        await SetContextAsync(conn, tx, adminId, "Admin", null, ct).ConfigureAwait(false);
+        var values = new (string Key, string Value)[]
+        {
+            ("visibility.mode", "team"),
+            ("locale.code", "da-DK"),
+            ("currency.enabled", options.FxEdge ? "DKK,EUR,SEK,USD,NOK" : "DKK,EUR,SEK,USD"),
+        };
+        foreach (var (key, value) in values)
+        {
+            await conn.ExecuteAsync(new CommandDefinition(
+                """
+                IF EXISTS (SELECT 1 FROM crm.Settings WHERE SettingKey = @k)
+                  UPDATE crm.Settings SET SettingValue = @v, ModifiedBy = @by, ModifiedAt = SYSUTCDATETIME() WHERE SettingKey = @k AND SettingValue <> @v
+                ELSE
+                  INSERT crm.Settings (SettingKey, SettingValue, ModifiedBy) VALUES (@k, @v, @by)
+                """, new { k = key, v = value, by = adminId }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        }
     }
 
     private sealed record WriteContext(DemoDataset Data, Dictionary<string, int> UserIds, Dictionary<string, int> TeamIds, Lookups Lookups, Guid RunId)
@@ -200,7 +275,7 @@ public sealed class DemoSeeder(TimeProvider time, TextWriter output)
 
         var contactIds = await InsertAsync(conn, tx, "crm.Contacts",
             ["AccountId", "FirstName", "LastName", "JobTitle", "Email", "Phone", "Mobile", "OwnerId", "TeamId", "CreatedBy", "CreatedAt", "ModifiedBy", "ModifiedAt"],
-            contacts.Select(c => new object?[] { ctx.AccountId[c.AccountKey], c.FirstName, c.LastName, c.JobTitle, c.Email, c.Phone, c.Mobile, ownerId, teamId, ownerId, c.CreatedAt, ownerId, c.CreatedAt }).ToList(), true, ct).ConfigureAwait(false);
+            contacts.Select(c => new object?[] { c.AccountKey is null ? null : ctx.AccountId[c.AccountKey], c.FirstName, c.LastName, c.JobTitle, c.Email, c.Phone, c.Mobile, ownerId, teamId, ownerId, c.CreatedAt, ownerId, c.CreatedAt }).ToList(), true, ct).ConfigureAwait(false);
         for (var i = 0; i < contacts.Count; i++)
         {
             ctx.ContactId[contacts[i].Key] = contactIds[i];
@@ -345,14 +420,18 @@ public sealed class DemoSeeder(TimeProvider time, TextWriter output)
         return new Lookups(open, won.Value, lost.Value, stages.ToDictionary(s => s.StageId, s => s.Name), Pick, picks.Where(p => p.PCode == "lost_reason").Select(p => p.ValueId).ToList());
     }
 
-    private static async Task WriteFxAsync(SqlConnection conn, SqlTransaction tx, DemoDataset data, int adminId, CancellationToken ct)
+    private static async Task WriteFxAsync(SqlConnection conn, SqlTransaction tx, WriteContext ctx, int adminId, CancellationToken ct)
     {
-        // Never overwrite a rate somebody else entered for the same month.
+        // Never overwrite a rate somebody else entered for the same month. Only inserted rates come back with an id and get tracked.
         const string sql = """
             IF NOT EXISTS (SELECT 1 FROM crm.FxRates WHERE BaseCurrency = 'DKK' AND CurrencyCode = @c AND RateMonth = @m)
-              INSERT crm.FxRates (BaseCurrency, CurrencyCode, RateMonth, Rate, ModifiedBy, ModifiedAt) VALUES ('DKK', @c, @m, @r, @by, @at)
+            BEGIN
+              INSERT crm.FxRates (BaseCurrency, CurrencyCode, RateMonth, Rate, ModifiedBy, ModifiedAt) VALUES ('DKK', @c, @m, @r, @by, @at);
+              SELECT CAST(SCOPE_IDENTITY() AS int);
+            END
             """;
-        foreach (var r in data.FxRates)
+        var audit = new List<object?[]>();
+        foreach (var r in ctx.Data.FxRates)
         {
             var p = new DynamicParameters();
             p.Add("c", r.Currency, DbType.AnsiStringFixedLength, size: 3);
@@ -360,8 +439,14 @@ public sealed class DemoSeeder(TimeProvider time, TextWriter output)
             p.Add("r", r.Rate, DbType.Decimal, precision: 19, scale: 8);
             p.Add("by", adminId, DbType.Int32);
             p.Add("at", r.Month.ToDateTime(new TimeOnly(8, 0)), DbType.DateTime2);
-            await conn.ExecuteAsync(new CommandDefinition(sql, p, tx, cancellationToken: ct)).ConfigureAwait(false);
+            var id = await conn.QuerySingleOrDefaultAsync<int?>(new CommandDefinition(sql, p, tx, cancellationToken: ct)).ConfigureAwait(false);
+            if (id is { } inserted)
+            {
+                // The tracked key is (currency, month); the id pins the exact row so a rate somebody re-enters later is never mistaken for ours.
+                audit.Add(AuditRow(ctx, DemoMarker.AdminKey, "fxrate", inserted, "C", "CurrencyMonth", null, $"{r.Currency} {r.Month:yyyy-MM}", r.Month.ToDateTime(new TimeOnly(8, 0))));
+            }
         }
+        await WriteAuditAsync(conn, tx, ctx, DemoMarker.AdminKey, audit, ct).ConfigureAwait(false);
     }
 
     /// <summary>Multi-row insert in chunks. With <paramref name="wantIds"/> the new identity values come back in row order.</summary>

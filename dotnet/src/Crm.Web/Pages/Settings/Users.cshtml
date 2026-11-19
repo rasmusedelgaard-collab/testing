@@ -1,6 +1,7 @@
 @page "/settings/users"
 @model UsersModel
 <h1>Users &amp; teams</h1>
+<partial name="_Flash" />
 <partial name="_ErrorSummary" model="Model.Summary" />
 <p class="muted" id="connection-info">Your connection: IP @Model.ConnectionIp (X-Forwarded-For hops trusted: @Model.Hops)</p>
 <h2>Teams</h2>

@@ -30,7 +30,7 @@ on:
         type: boolean
         default: false
       seed_demo:
-        description: Also seed demo data (seed-demo --yes-demo; fictitious accounts, deals and activities; TEST data only; idempotent; with run_migrations and migrator=dotnet only)
+        description: Also seed demo data (seed-demo --yes-demo; fictitious accounts, deals and activities; TEST data only; idempotent; with run_migrations and migrator=dotnet only; the database must have been through seed-test, which writes the test marker)
         type: boolean
         default: false
       reset_demo:
@@ -153,13 +153,18 @@ jobs:
           SEED_TEST: ${{ inputs.seed_test }}
           SEED_DEMO: ${{ inputs.seed_demo }}
           RESET_DEMO: ${{ inputs.reset_demo }}
+          # seed-demo checks the target, not only the host: it refuses unless all of these say "test deployment" (and the database carries
+          # the marker that seed-test wrote). They are set only when demo data was asked for.
+          ALLOW_DEMO_SEED: ${{ (inputs.seed_demo || inputs.reset_demo) && 'true' || '' }}
+          AUTH_MODE: ${{ (inputs.seed_demo || inputs.reset_demo) && 'test-access-code' || '' }}
         run: |
           dotnet --version
           dotnet run --project "$WEB_PROJECT" -c Release -- migrate
           if [ "$SEED_TEST" = "true" ]; then dotnet run --project "$WEB_PROJECT" -c Release --no-build -- seed-test; fi
-          # Demo data runs after seed-test. The command itself refuses LIVE=true and Azure, and needs --yes-demo.
+          # Demo data runs after seed-test (which writes the test marker). The command itself refuses LIVE=true, Azure and any target
+          # that is not sql-password + test-access-code + ALLOW_DEMO_SEED=true + the marker, and needs --yes-demo.
           if [ "$SEED_DEMO" = "true" ] || [ "$RESET_DEMO" = "true" ]; then
-            demo_args=(seed-demo --yes-demo)
+            demo_args=(seed-demo --yes-demo --demo-settings)
             if [ "$RESET_DEMO" = "true" ]; then demo_args+=(--reset-demo); fi
             dotnet run --project "$WEB_PROJECT" -c Release --no-build -- "${demo_args[@]}"
           fi

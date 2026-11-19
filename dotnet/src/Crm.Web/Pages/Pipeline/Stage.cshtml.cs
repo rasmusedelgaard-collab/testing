@@ -39,25 +39,38 @@ public sealed class StageModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
         }
         var res = await RunAsync(async repo =>
         {
-            var row = await repo.GetAsync(def.Key, id);
-            if (row is null) { return new StageResult("notfound"); }
-            if (!CrmRepo.IsRowVer(rowVer)) { return new StageResult("conflict"); }
-            var lk = await repo.LookupsAsync();
-            var target = lk.Stages.FirstOrDefault(s => s.Id == stageId);
-            if (target is null) { return new StageResult("badstage"); }
-            var name = EntityViews.RecordName(def.Key, row);
-            if (target.Type is "won" or "lost")
+            try
             {
-                var close = await CloseCoreAsync(repo, target.Type, id, rowVer, lostRaw, confirmed, meta, null);
-                return new StageResult(close.Kind, name, target.Name, close, target.Type);
+                return await MoveAsync(repo);
             }
-            if (row.Int("StageId") == target.Id) { return new StageResult("same", name, target.Name); }
-            var values = def.Columns.ToDictionary(c => c.Name, c => ColumnValue(row, c), StringComparer.Ordinal);
-            values["StageId"] = target.Id;
-            values["LostReasonValueId"] = null; // moving back to an open stage clears a lost reason
-            values["OwnerId"] = row.Int("OwnerId");
-            var r = await repo.UpdateAsync(def.Key, id, values, rowVer, meta);
-            return new StageResult(r == UpdateResult.Ok ? "ok" : r == UpdateResult.Conflict ? "conflict" : "notfound", name, target.Name);
+            catch (ForbiddenException)
+            {
+                // The database refused the resulting row (33504, row-level security): say so on the board instead of showing a 403 page.
+                return new StageResult("forbidden");
+            }
+
+            async Task<StageResult> MoveAsync(CrmRepo repo)
+            {
+                var row = await repo.GetAsync(def.Key, id);
+                if (row is null) { return new StageResult("notfound"); }
+                if (!CrmRepo.IsRowVer(rowVer)) { return new StageResult("conflict"); }
+                var lk = await repo.LookupsAsync();
+                var target = lk.Stages.FirstOrDefault(s => s.Id == stageId);
+                if (target is null) { return new StageResult("badstage"); }
+                var name = EntityViews.RecordName(def.Key, row);
+                if (target.Type is "won" or "lost")
+                {
+                    var close = await CloseCoreAsync(repo, target.Type, id, rowVer, lostRaw, confirmed, meta, null);
+                    return new StageResult(close.Kind, name, target.Name, close, target.Type);
+                }
+                if (row.Int("StageId") == target.Id) { return new StageResult("same", name, target.Name); }
+                var values = def.Columns.ToDictionary(c => c.Name, c => ColumnValue(row, c), StringComparer.Ordinal);
+                values["StageId"] = target.Id;
+                values["LostReasonValueId"] = null; // moving back to an open stage clears a lost reason
+                values["OwnerId"] = row.Int("OwnerId");
+                var r = await repo.UpdateAsync(def.Key, id, values, rowVer, meta);
+                return new StageResult(r == UpdateResult.Ok ? "ok" : r == UpdateResult.Conflict ? "conflict" : "notfound", name, target.Name);
+            }
         });
         switch (res.Kind)
         {
@@ -65,6 +78,9 @@ public sealed class StageModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
             case "conflict": throw new EditConflictException($"{def.Path}/{id}");
             case "badstage":
                 Flash("Choose a stage from the list.", "error");
+                return SeeOther(back);
+            case "forbidden":
+                Flash(WriteBlocked, "error");
                 return SeeOther(back);
             case "same":
                 Flash($"{res.Name} is already in {res.Stage}.", "info");

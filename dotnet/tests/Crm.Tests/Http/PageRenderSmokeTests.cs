@@ -290,7 +290,7 @@ public sealed class PageRenderSmokeTests : IDisposable
     {
         var signin = PageRenderHarness.Model<SigninModel>(("Expired", true), ("ReturnTo", "/accounts"));
         var doc = await PageRenderHarness.RenderAsync(_f, "/Signin", signin);
-        Assert.Contains("Your session has ended.", doc.QuerySelector(".flash")!.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Your session has ended.", doc.QuerySelector(".alert")!.TextContent, StringComparison.Ordinal);
         Assert.Equal("/auth/login?returnTo=%2Faccounts", doc.QuerySelector("a.button.primary")!.GetAttribute("href"));
         var notFound = PageRenderHarness.Model<ErrorModel>(("Heading", "We can't find that page or record."), ("Message", "It may have been deleted, or you may not have access."), ("Reference", "abc"), ("Status", 404), ("PageTitle", "Not found"));
         var shell = await PageRenderHarness.RenderAsync(_f, "/Errors/Error", notFound, PageRenderHarness.User(), dumpSuffix: "404");

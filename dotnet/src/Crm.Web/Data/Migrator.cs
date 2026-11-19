@@ -30,6 +30,17 @@ public sealed class Migrator(SqlConnectionFactory factory, TextWriter output, Te
           VALUES (@oid, '00000000-0000-0000-0000-000000000000', @name, @email, 'Admin', NULL, 'none');
         """;
 
+    private const string TestMarkerUpsert = """
+        EXEC sp_set_session_context N'UserId', 0, @read_only = 0;
+        EXEC sp_set_session_context N'Role', N'Admin', @read_only = 0;
+        IF NOT EXISTS (SELECT 1 FROM crm.Settings WHERE SettingKey = 'environment')
+          INSERT crm.Settings (SettingKey, SettingValue) VALUES ('environment', N'test')
+        ELSE
+          UPDATE crm.Settings SET SettingValue = N'test', ModifiedAt = SYSUTCDATETIME() WHERE SettingKey = 'environment' AND SettingValue <> N'test';
+        EXEC sp_set_session_context N'UserId', NULL, @read_only = 0;
+        EXEC sp_set_session_context N'Role', NULL, @read_only = 0;
+        """;
+
     /// <summary>Embedded resources: migrations/NNN_name.sql and seed/test-users.sql.</summary>
     public static IReadOnlyList<(string File, byte[] Bytes)> EmbeddedMigrations()
     {
@@ -139,6 +150,9 @@ public sealed class Migrator(SqlConnectionFactory factory, TextWriter output, Te
                 await ExecBatchAsync(conn, null, batch, ct).ConfigureAwait(false);
             }
             output.WriteLine("Seeded test users and teams.");
+            // The test marker: seed-demo refuses any database without it. Written under the migration-scoped Admin context (UserId 0), like 004_seed.sql.
+            await ExecBatchAsync(conn, null, TestMarkerUpsert, ct).ConfigureAwait(false);
+            output.WriteLine("Set the test-environment marker (Settings environment=test).");
             if (admin is not null)
             {
                 await using var cmd = new SqlCommand(TestAdminUpsert, conn);
@@ -151,11 +165,11 @@ public sealed class Migrator(SqlConnectionFactory factory, TextWriter output, Te
         }).ConfigureAwait(false);
 
     /// <summary>seed-demo (the safety gate lives in CliRunner). Test databases only; see <see cref="DemoSeeder"/>.</summary>
-    public async Task<int> SeedDemoAsync(bool reset, TimeProvider time, CancellationToken ct, bool fxEdge = false) =>
+    public async Task<int> SeedDemoAsync(bool reset, TimeProvider time, CancellationToken ct, bool fxEdge = false, bool demoSettings = false) =>
         await GuardedAsync(async () =>
         {
             await using var conn = await factory.OpenMigratorAsync(ct).ConfigureAwait(false);
-            await new DemoSeeder(time, output).RunAsync(conn, reset, new Crm.Web.Services.Demo.DemoOptions(fxEdge), ct).ConfigureAwait(false);
+            await new DemoSeeder(time, output).RunAsync(conn, reset, new Crm.Web.Services.Demo.DemoOptions(fxEdge, demoSettings), ct).ConfigureAwait(false);
         }).ConfigureAwait(false);
 
     /// <summary>Port of runSqlFile.ts: batches run on one connection; failures are reported and the run continues.</summary>

@@ -9,6 +9,8 @@
 }
 @if (Model.Kind == ErrorKind.Waking)
 {
+<div class="system-page">
+@Ui.Ornament()
 <div class="wake" id="wake" data-post="@(Model.IsPost ? "true" : "false")">
   <a class="brand" href="/" aria-label="@branding.AppName, go to dashboard">
   @if (branding.LogoSha is not null){<img class="logo" src="/branding/logo?v=@branding.LogoSha[..12]" alt="">}
@@ -23,6 +25,7 @@
   <p id="wake-status" role="status">Still waking up.</p>
   <p id="wake-giveup" class="alert error" role="alert" tabindex="-1" hidden>@Ui.Ring("error")This is taking longer than usual. Try again, or contact your administrator if this continues. Reference: @Model.Reference</p>
   @if (Model.IsPost){<a class="button primary" id="wake-back" href="/">Go to dashboard</a>}else{<a class="button primary" id="wake-retry" href="">Try again now</a>}
+</div>
 </div>
 <script src="/js/wake.js" defer></script>
 }

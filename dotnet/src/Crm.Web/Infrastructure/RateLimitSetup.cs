@@ -7,16 +7,23 @@ namespace Crm.Web.Infrastructure;
 /// <summary>One GlobalLimiter keyed by (policy, client IP), policy chosen by path (dotnet.md 13.2). In memory, per instance.</summary>
 public static class RateLimitSetup
 {
+    /// <summary>
+    /// Search runs four list queries per request, so it is the one authenticated page with its own limit: 60 per minute per client IP.
+    /// (The limiter runs before authentication, so the user is not known yet; the IP is the key.)
+    /// </summary>
+    internal static (string Policy, int Limit) PolicyFor(PathString path) =>
+        path.StartsWithSegments("/auth", StringComparison.OrdinalIgnoreCase) ? ("auth", 120)
+        : path.Equals("/readyz", StringComparison.OrdinalIgnoreCase) ? ("readyz", 30)
+        : path.Equals("/branding/logo", StringComparison.OrdinalIgnoreCase) ? ("logo", 120)
+        : path.Equals("/search", StringComparison.OrdinalIgnoreCase) || path.Equals("/search/", StringComparison.OrdinalIgnoreCase) ? ("search", 60)
+        : ("", 0);
+
     public static void Configure(RateLimiterOptions o)
     {
         o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
         o.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
         {
-            var path = ctx.Request.Path;
-            var (policy, limit) = path.StartsWithSegments("/auth", StringComparison.OrdinalIgnoreCase) ? ("auth", 120)
-                : path.Equals("/readyz", StringComparison.OrdinalIgnoreCase) ? ("readyz", 30)
-                : path.Equals("/branding/logo", StringComparison.OrdinalIgnoreCase) ? ("logo", 120)
-                : ("", 0);
+            var (policy, limit) = PolicyFor(ctx.Request.Path);
             if (limit == 0)
             {
                 return RateLimitPartition.GetNoLimiter("none");

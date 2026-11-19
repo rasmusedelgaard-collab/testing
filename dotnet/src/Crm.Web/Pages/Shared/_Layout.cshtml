@@ -14,7 +14,7 @@
     var title = ViewData["Title"] as string ?? "";
     var theme = Context.Request.Cookies["theme"] is "light" or "dark" ? Context.Request.Cookies["theme"] : null;
     var themeChoice = theme ?? "system";
-    var returnTo = Context.Request.Path.Value + Context.Request.QueryString.Value;
+    var returnTo = Ui.ThemeReturnTo(Context.Request.Method, Context.Request.Path.Value ?? "/", Context.Request.QueryString.Value ?? "");
 }
 <!DOCTYPE html>
 <html lang="en" class="no-js"@Ui.ThemeAttr(theme)>
@@ -31,7 +31,7 @@
 <a class="skip-link" href="#main">Skip to main content</a>
 @if (Config.IsTestAccess)
 {
-<div class="env-banner" role="note"><strong>TEST ENVIRONMENT — test data only</strong></div>
+<div class="env-banner" role="region" aria-label="Test environment"><strong>TEST ENVIRONMENT — test data only</strong></div>
 }
 @if (bare)
 {
@@ -88,7 +88,7 @@ else
 @if (branding.LogoSha is not null){<img src="/branding/logo?v=@branding.LogoSha[..12]" alt="" height="32">}
 else{<img class="logo-light" src="/img/brand/dafa-rings-gray.svg" alt="" width="32" height="32"><img class="logo-dark" src="/img/brand/dafa-rings-white.svg" alt="" width="32" height="32">}
       </a>
-      <form class="search" action="/search" method="get" role="search">
+      <form class="search" action="/search" method="get" role="search" aria-label="Search all records">
         <label class="visually-hidden" for="q">Search all records</label>
         @Ui.Icon("search")
         <input id="q" name="q" type="search" placeholder="Search accounts, contacts, opportunities..." autocomplete="off" maxlength="100">

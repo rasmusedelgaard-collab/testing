@@ -198,7 +198,6 @@ public static partial class CrmConfigLoader
             notices, db!);
     }
 
-    /// <summary>Validates only the database variables. Used by the migrator commands as well.</summary>
     /// <summary>
     /// seed-demo refusal (null = allowed). Fail closed: LIVE must be unset or exactly "false", and no Azure App Service marker may be present.
     /// </summary>
@@ -218,6 +217,29 @@ public static partial class CrmConfigLoader
         return null;
     }
 
+    /// <summary>
+    /// seed-demo target check (null = allowed): the environment itself must say this is a test deployment, not just the CLI host.
+    /// All three must hold: ALLOW_DEMO_SEED=true, DB_AUTH_MODE=sql-password, AUTH_MODE=test-access-code. The database marker is checked separately.
+    /// </summary>
+    public static string? DemoTargetRefusal(IConfiguration configuration)
+    {
+        string? Get(string k) => string.IsNullOrWhiteSpace(configuration[k]) ? null : configuration[k]!.Trim();
+        if (Get("ALLOW_DEMO_SEED") != "true")
+        {
+            return "seed-demo is refused: set ALLOW_DEMO_SEED=true (only the test deployment sets it).";
+        }
+        if (Get("DB_AUTH_MODE") != "sql-password")
+        {
+            return "seed-demo is refused: DB_AUTH_MODE must be sql-password (managed identity means a real environment).";
+        }
+        if (Get("AUTH_MODE") != "test-access-code")
+        {
+            return "seed-demo is refused: AUTH_MODE must be test-access-code.";
+        }
+        return null;
+    }
+
+    /// <summary>Validates only the database variables. Used by the migrator commands as well.</summary>
     public static DbConfig LoadDb(IConfiguration configuration) => LoadDb(k => configuration[k]);
 
     public static DbConfig LoadDb(IReadOnlyDictionary<string, string?> values) => LoadDb(k => values.TryGetValue(k, out var v) ? v : null);

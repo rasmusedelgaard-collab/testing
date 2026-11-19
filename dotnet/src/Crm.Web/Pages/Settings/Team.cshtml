@@ -7,6 +7,7 @@
 else
 {
 <h1>Edit @Model.Team.Name</h1>
+<partial name="_Flash" />
 <partial name="_ErrorSummary" model="Model.Summary" />
 <form method="post" action="/settings/teams/@Model.Team.Id" asp-antiforgery="true" class="form" novalidate>
   <div class="field@(Model.Errors.ContainsKey("name") ? " has-error" : "")"><label for="f-name">Team name (required)</label>

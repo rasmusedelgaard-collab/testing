@@ -2,7 +2,7 @@
 @model SearchModel
 <div class="page-header"><div class="titles"><h1>Search</h1></div></div>
 <partial name="_Flash" />
-<form method="get" action="/search" class="search-page" role="search">
+<form method="get" action="/search" class="search-page" role="search" aria-label="Search">
   <div class="field"><label for="search-q">Search all records</label><input id="search-q" name="q" type="search" value="@Model.Text" maxlength="100" autocomplete="off"></div>
   <button type="submit" class="button primary">@Ui.Icon("search") Search</button>
 </form>
@@ -21,7 +21,7 @@ else
 @foreach (var g in Model.Groups)
 {
 <section class="result-group" aria-labelledby="rg-@g.Key">
-  <div class="panel-head"><h2 id="rg-@g.Key">@g.Plural (@g.Total)</h2><p><a href="@g.SeeAllHref">See all @g.Total @g.Plural.ToLowerInvariant()</a></p></div>
+  <div class="panel-head"><h2 id="rg-@g.Key">@g.Plural (@g.Total)</h2>@if (g.Total > g.Hits.Count){<p><a href="@g.SeeAllHref">See all @g.Total @g.Plural.ToLowerInvariant()</a></p>}</div>
   <ul class="result-list">
   @foreach (var h in g.Hits)
   {

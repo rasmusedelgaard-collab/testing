@@ -50,7 +50,7 @@ public sealed class DashboardTests(SqlServerFixture fx)
         await HttpHelpers.ExpectAsync(HttpStatusCode.OK, page);
         var doc = await HttpHelpers.ParseAsync(page);
         var tiles = doc.QuerySelectorAll("li.tile").ToList();
-        Assert.Equal(["Open pipeline", "Weighted pipeline", "Won this month", "Won this quarter", "Win rate (last 90 d)", "Activities due"], tiles.Select(t => t.QuerySelector(".tile-label")!.TextContent));
+        Assert.Equal(["Open pipeline", "Weighted pipeline", "Won this month", "Won this quarter", "Win rate (last 90 d)", "My activities due"], tiles.Select(t => t.QuerySelector(".tile-label")!.TextContent));
         var open = tiles[0];
         Assert.Contains("100 t kr.", open.QuerySelector(".tile-value")!.TextContent, StringComparison.Ordinal);
         Assert.Contains("(DKK 100.000,00)", open.QuerySelector(".tile-value")!.TextContent, StringComparison.Ordinal);

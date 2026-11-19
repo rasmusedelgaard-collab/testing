@@ -119,4 +119,64 @@ public sealed partial class DesignSystemTests
             Assert.Contains($"id=\"i-{id}\"", sprite, StringComparison.Ordinal);
         }
     }
+
+    /// <summary>UX review H1: the dense-table row height (40px) is more specific than the card-view reset, so the phone block must reset both.</summary>
+    [Fact]
+    public void Phone_card_view_resets_the_dense_row_height_too()
+    {
+        var css = Norm(Css());
+        var phone = css[css.IndexOf("@media (max-width: 639px) { table.data, table.data tbody", StringComparison.Ordinal)..];
+        phone = phone[..phone.IndexOf(".act-text { display: none; }", StringComparison.Ordinal)];
+        Assert.Matches(@"table\.data tbody tr, table\.data\.dense tbody tr \{[^}]*height: auto;", phone);
+        // The card view: record link first, two key fields, chips and owner, actions last; Edit shows its text.
+        foreach (var rule in new[] { "table.data td.c-name { order: 1;", "table.data td.c-k { order: 2;", "table.data td.c-m { order: 3;", "table.data td.act { order: 4;", "table.data td.act .act-text { display: inline; }" })
+        {
+            Assert.Contains(rule, phone, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>UX review M1: the rail rules belong to the sidebar's brand link, not to every .brand (the waking page has one too).</summary>
+    [Fact]
+    public void Collapsed_sidebar_rules_are_scoped_to_the_sidebar()
+    {
+        var css = Css();
+        Assert.DoesNotMatch(@"data-sidebar=""collapsed""\] \.brand", css);
+        Assert.Contains("html[data-sidebar=\"collapsed\"] .sidebar .brand .logo-full", css, StringComparison.Ordinal);
+    }
+
+    /// <summary>UX review M2: in Dark the current stage is not the same colour as the passed ones.</summary>
+    [Fact]
+    public void Dark_stage_track_tells_the_current_stage_from_passed_ones()
+    {
+        var css = Css();
+        foreach (var block in new[] { SystemDark().Match(css).Groups["body"].Value, ManualDark().Match(css).Groups["body"].Value })
+        {
+            var b = Norm(block).Replace(": ", ":", StringComparison.Ordinal);
+            Assert.Contains("--stage-passed:var(--dafa-gray-25)", b, StringComparison.Ordinal);
+            Assert.Contains("--stage-current:var(--chart-1)", b, StringComparison.Ordinal);
+        }
+        Assert.Contains(".stage-track .passed .seg-bar { fill: var(--stage-passed); }", Norm(css), StringComparison.Ordinal);
+        Assert.Contains(".stage-track .current .seg-bar { fill: var(--stage-current); }", Norm(css), StringComparison.Ordinal);
+    }
+
+    /// <summary>UX review M5 (approved by the product owner): large panels and board columns are lighter, KPI cards keep the mid grey, sparklines are 40px.</summary>
+    [Fact]
+    public void Panels_and_board_columns_use_the_subtle_surface_and_kpi_cards_the_panel_surface()
+    {
+        var css = Norm(Css());
+        Assert.Contains(".panel { background: var(--surface-subtle);", css, StringComparison.Ordinal);
+        Assert.Contains(".board-col { flex: 1 0 272px; max-width: 320px; background: var(--surface-subtle);", css, StringComparison.Ordinal);
+        Assert.Contains(".tile { min-width: 0; position: relative; background: var(--surface-panel);", css, StringComparison.Ordinal);
+        Assert.Contains(".spark { display: block; width: 100%; height: 40px;", css, StringComparison.Ordinal);
+    }
+
+    /// <summary>UX review L1: six KPI columns follow the width of the content area, not the viewport.</summary>
+    [Fact]
+    public void Kpi_grid_switches_on_the_container_width()
+    {
+        var css = Norm(Css());
+        Assert.Contains(".tiles-box { container-type: inline-size; }", css, StringComparison.Ordinal);
+        Assert.Matches(@"@container \(min-width: 1[23]\d\dpx\) \{ \.tiles \{ grid-template-columns: repeat\(6,", css);
+        Assert.DoesNotMatch(@"\.tile-value \{[^}]*\dvw", css);
+    }
 }

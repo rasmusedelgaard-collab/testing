@@ -9,7 +9,7 @@ public sealed record DemoCompany(string Name, string Short, string Country, stri
 
 /// <summary>
 /// Hand-written, invented names. None is meant to match a real company; every web address and email uses example.com (RFC 2606)
-/// and every phone number uses the 555 01xx / 555 02xx ranges, so nothing can reach a real person.
+/// and phone numbers exist only in the reserved fictional ranges (US +1 555 01xx, UK +44 7700 900xxx), so nothing can reach a real person.
 /// </summary>
 public static class DemoCatalog
 {
@@ -86,7 +86,37 @@ public static class DemoCatalog
         new("Brianza Meccanica S.r.l.", "Brianza Meccanica", "IT", "Monza", DemoSegment.Industry),
         new("Jiangnan Precision Seals Co., Ltd.", "Jiangnan Precision", "CN", "Suzhou", DemoSegment.Industry),
         new("Pearl River Automation Co., Ltd.", "Pearl River Automation", "CN", "Shenzhen", DemoSegment.Industry),
+
+        // Edge case: a name of 100+ characters (the column holds 120).
+        new("Nordisk Vindenergi Komponenter og Tætningssystemer til Havvindmølleparker og Landbaserede Anlæg i Danmark A/S", "Nordisk Vindenergi", "DK", "Frederikshavn", DemoSegment.WindEnergy),
     ];
+
+    // Edge cases, by account key (A + 1-based index in Companies) or by index.
+    public const string KeyAccountKey = "A001";
+    public const int KeyAccountContacts = 8;
+    public const string NoContactsAccountKey = "A023";
+    public const int NoIndustryCompany = 39;
+    public const int LongNotesCompany = 3;
+    public const int LongNameCompany = 40;
+    public const int KeyAccountMinOpportunities = 12;
+
+    public const string LongJobTitle = "Senior Director of Global Strategic Sourcing, Supplier Quality and Sustainable Materials Programmes (EMEA and Americas)";
+
+    /// <summary>About 1,500 characters, built from sentences so it reads like real call notes (the column holds 2,000).</summary>
+    public static string LongNotes(DemoSegment s)
+    {
+        var sb = new StringBuilder($"Segment: {SegmentLabel(s)}. Fictitious demo account with long notes. ");
+        string[] parts =
+        [
+            "Annual review: volumes are stable, but the customer wants shorter lead times on repeat orders. ",
+            "Purchasing is centralised; technical approval sits with the plant and takes about six weeks. ",
+            "Contract renewal is due after the summer; price pressure from two competitors is expected. ",
+            "Delivery terms were renegotiated last year after a delayed shipment; keep the account manager informed of any slippage. ",
+            "Sample batches are tested in the customer's own lab; results are shared in the quarterly meeting. ",
+        ];
+        for (var i = 0; sb.Length < 1_450; i++) { sb.Append(parts[i % parts.Length]); }
+        return sb.ToString().TrimEnd();
+    }
 
     public static string SegmentLabel(DemoSegment s) => s switch
     {
@@ -106,17 +136,6 @@ public static class DemoCatalog
         "DK" or "SE" => "nordics",
         "DE" or "PL" or "IT" => "dach",
         _ => "americas",
-    };
-
-    public static string DialCode(string country) => country switch
-    {
-        "DK" => "+45",
-        "SE" => "+46",
-        "DE" => "+49",
-        "PL" => "+48",
-        "US" => "+1",
-        "IT" => "+39",
-        _ => "+86",
     };
 
     public static readonly IReadOnlyDictionary<string, string[]> Streets = new Dictionary<string, string[]>
@@ -184,10 +203,10 @@ public static class DemoCatalog
     ];
 
     public static readonly IReadOnlyList<(string Label, int Weight)> LeadSources =
-        [("Website", 20), ("Referral", 22), ("Event", 18), ("Outbound", 20), ("Partner", 14), ("Other", 6)];
+        [("Referral", 25), ("Event", 20), ("Website", 20), ("Outbound", 20), ("Partner", 15)];
 
     public static readonly IReadOnlyList<(string Label, int Weight)> LostReasons =
-        [("Price", 30), ("Competitor", 25), ("No budget", 15), ("No decision", 12), ("Timing", 13), ("Other", 5)];
+        [("Price", 35), ("Competitor", 25), ("No decision", 20), ("Timing", 12), ("No budget", 5), ("Other", 3)];
 
     public static IReadOnlyList<(string Currency, int Weight)> CurrenciesFor(string country) => country switch
     {

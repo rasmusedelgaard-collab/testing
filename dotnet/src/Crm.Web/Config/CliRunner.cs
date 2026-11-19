@@ -39,14 +39,17 @@ public static class CliRunner
         {
             "migrate" => await migrator.MigrateAsync(CancellationToken.None),
             "seed-test" => await migrator.SeedTestAsync(admin, CancellationToken.None),
-            "seed-demo" => await migrator.SeedDemoAsync(args.Contains("--reset-demo"), TimeProvider.System, CancellationToken.None, args.Contains("--edge-fx")),
+            "seed-demo" => await migrator.SeedDemoAsync(args.Contains("--reset-demo"), TimeProvider.System, CancellationToken.None, args.Contains("--edge-fx"), args.Contains("--demo-settings")),
             _ => await migrator.RunSqlFileAsync(args[1], CancellationToken.None),
         };
     }
 
-    private const string DemoUsage = "usage: seed-demo --yes-demo [--reset-demo] [--edge-fx]";
+    private const string DemoUsage = "usage: seed-demo --yes-demo [--reset-demo] [--edge-fx] [--demo-settings]";
 
-    /// <summary>Safety gate for seed-demo: refused on live/Azure hosts, needs the explicit flag, and rejects unknown options. Null = go ahead.</summary>
+    /// <summary>
+    /// Safety gate for seed-demo: refused on live/Azure hosts, needs the explicit flag, rejects unknown options and checks the target
+    /// (environment variables here; the test marker in the database is checked by the seeder). Null = go ahead.
+    /// </summary>
     internal static string? DemoArgsError(string[] args, IConfiguration configuration)
     {
         if (CrmConfigLoader.DemoRefusal(configuration) is { } refusal)
@@ -54,10 +57,14 @@ public static class CliRunner
             return refusal;
         }
         var options = args.Skip(1).ToList();
-        if (options.Exists(o => o is not ("--yes-demo" or "--reset-demo" or "--edge-fx")))
+        if (options.Exists(o => o is not ("--yes-demo" or "--reset-demo" or "--edge-fx" or "--demo-settings")))
         {
             return DemoUsage;
         }
-        return options.Contains("--yes-demo") ? null : "seed-demo writes about 600 fictitious rows into the database. Add --yes-demo to confirm this is a test database. " + DemoUsage;
+        if (!options.Contains("--yes-demo"))
+        {
+            return "seed-demo writes a few thousand fictitious rows (accounts, deals, activities, audit and FX rows) into the database. Add --yes-demo to confirm this is a test database. " + DemoUsage;
+        }
+        return CrmConfigLoader.DemoTargetRefusal(configuration);
     }
 }

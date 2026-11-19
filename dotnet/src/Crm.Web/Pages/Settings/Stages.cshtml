@@ -2,6 +2,7 @@
 @using Crm.Web.Data
 @model StagesModel
 <h1>Pipeline stages</h1>
+<partial name="_Flash" />
 @if (Model.Stale){<p class="flash flash-error" role="alert" tabindex="-1" data-autofocus>@Ui.Ring("error")@AdminRepo.StaleStages <a href="/settings/stages">Load the current stage list</a></p>}
 <partial name="_ErrorSummary" model="Model.Summary" />
 @if (Model.Note.Length > 0){<p class="flash-warn" role="status">@Ui.Ring("warning")@Model.Note</p>}
