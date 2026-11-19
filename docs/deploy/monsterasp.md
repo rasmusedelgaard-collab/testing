@@ -20,7 +20,7 @@ Nothing is uploaded by hand.
 
 ## Deploy
 
-5. GitHub > Actions > **Deploy .NET to test (MonsterASP)** > Run workflow. Defaults are right for a normal deploy (it requires a green ".NET CI" run for the commit). Options: `self_contained` (fallback), `require_green_ci`, `run_migrations` / `seed_test` / `migrator` (below), `debug_stdout` (debug only).
+5. GitHub > Actions > **Deploy .NET to test (MonsterASP)** > Run workflow. Defaults are right for a normal deploy (it requires a green ".NET CI" run for the commit). Options: `self_contained` (fallback), `require_green_ci`, `run_migrations` / `seed_test` / `migrator` (below), `debug_stdout` (debug only), `diagnose` (debug only, see Troubleshooting).
 6. **Tables and test users (first time, and after each new migration).** Preferred, from your PC (the DB firewall blocks GitHub's changing IPs), with the .NET 10 SDK and the repo checked out:
    ```
    export DB_AUTH_MODE=sql-password DB_CONNECTION_STRING='<same string as the secret>'
@@ -50,6 +50,7 @@ Set `debug_stdout` and redeploy: logs appear in `logs\stdout*` on the host (file
 | Web Deploy: 401 / ERROR_USER_UNAUTHORIZED | Wrong user/password/site name, or Web Deploy not enabled. |
 | Web Deploy: certificate / trust error | Set variable `MONSTERASP_WEBDEPLOY_ALLOW_UNTRUSTED=true`. |
 | Web Deploy: file in use | Retried 3 times with app_offline; rerun. |
+| HTTP 500 with an empty body, no `logs` folder | IIS rejected `web.config` (500.19) before ANCM started. MonsterASP's shared IIS rejects `<security><requestFiltering>`; the template therefore contains only handlers + `aspNetCore`. Run the workflow with `diagnose=true` (after the normal deploy it pushes web.config variants and probes `/healthz`; leaves the site on the first that returns 200). Do not re-add IIS sections to the template without proving them this way. |
 | HTTP 500.30 | App stopped at startup: invalid configuration (the log names keys, never values) or DB unreachable. |
 | HTTP 500.31 / 500.32 | .NET 10 runtime missing or wrong bitness: rerun with `self_contained`. |
 | `/readyz` 503 | Database unreachable, migrations not applied (step 6), or time zone check failed. |
@@ -61,3 +62,5 @@ Set `debug_stdout` and redeploy: logs appear in `logs\stdout*` on the host (file
 - **App runs as the database owner** (host gives one login). RLS still filters the app's queries, but the owner can switch policies off; the RLS test proves the policies with a low-privilege user. Must not carry over to Azure.
 - **Secrets are readable on the host** (`web.config` environment variables) by anyone with panel/FTP access, and by repo admins via the Environment. Rotate `TEST_ACCESS_CODE` (edit the secret, redeploy) when a tester leaves.
 - **Shared host:** no staging, limited logs, backups per the host plan. Actions are pinned to major tags, not commit SHAs. The workflow has not been run yet; the first real run is the test.
+
+- **web.config is minimal:** no request filtering, `httpErrors`, `httpProtocol` or WebSocket section (the host rejects at least `requestFiltering`; the others were not proven individually and were dropped to match the proven variant). IIS therefore sends its `Server: Microsoft-IIS/10.0` header and the 1 MB body limit comes from the app (middleware in `Program.cs` via `IHttpMaxRequestBodySizeFeature`, `[RequestSizeLimit(600_000)]` for the logo upload, Kestrel limit for local runs).
