@@ -361,13 +361,27 @@ jobs:
           New-Item -ItemType Directory -Force -Path $work | Out-Null
           $srcCfg = (Resolve-Path (Join-Path package 'web.config')).Path   # already contains the environment variables; never printed
 
-          # Push ONE file to the site root (filePath provider; no AppOffline, a web.config change recycles the app anyway).
-          function Push-File([string]$local, [string]$name) {
-            $dest = "filePath=$($env:WD_SITE)/$name,computerName=https://$server/msdeploy.axd?site=$($env:WD_SITE),userName=$($env:WD_USER),password=$($env:WD_PASSWORD),authType=Basic"
-            $a = @('-verb:sync', "-source:filePath=$local", "-dest:$dest", '-retryAttempts:2', '-retryInterval:3000')
+          # MonsterASP only allows the contentPath provider (filePath -> ERROR_USER_NOT_AUTHORIZED_FOR_DEPLOYMENTPROVIDER).
+          # So: stage the file(s) alone in a folder and sync that folder with DoNotDeleteRule, so nothing else on the site is deleted.
+          # No AppOffline rule: a web.config change recycles the app anyway, and AppOffline would write/remove app_offline.htm.
+          function Push-Files([string[]]$locals, [switch]$WhatIf) {
+            $stage = Join-Path $work 'stage'
+            if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+            New-Item -ItemType Directory -Force -Path $stage | Out-Null
+            foreach ($l in $locals) { Copy-Item $l (Join-Path $stage (Split-Path $l -Leaf)) }
+            $dest = "contentPath=$($env:WD_SITE),computerName=https://$server/msdeploy.axd?site=$($env:WD_SITE),userName=$($env:WD_USER),password=$($env:WD_PASSWORD),authType=Basic"
+            $a = @('-verb:sync', "-source:contentPath=$stage", "-dest:$dest", '-enableRule:DoNotDeleteRule', '-retryAttempts:2', '-retryInterval:3000')
+            if ($WhatIf) { $a += '-whatif' }
             if ($env:WD_ALLOW_UNTRUSTED -eq 'true') { $a += '-allowUntrusted' }
-            $out = & $env:MSDEPLOY @a 2>&1 | Out-String
-            if ($LASTEXITCODE -ne 0) { Write-Host "  msdeploy FAILED for ${name} (exit $LASTEXITCODE)"; Write-Host ($out -replace [regex]::Escape($env:WD_PASSWORD), '***'); return $false }
+            $out = (& $env:MSDEPLOY @a 2>&1 | Out-String) -replace [regex]::Escape($env:WD_PASSWORD), '***'
+            $code = $LASTEXITCODE
+            $summary = ($out -split "`r?`n" | Where-Object { $_ -match 'Total changes|Deleted|deleted|Updated|Added|ERROR' }) -join ' | '
+            Write-Host "  msdeploy$(if ($WhatIf) { ' -whatif' }) exit=$code; $summary"
+            if ($code -ne 0) { Write-Host $out; return $false }
+            if ($WhatIf) {
+              if ($out -match '(\d+)\s+objects? deleted' -and [int]$Matches[1] -gt 0) { Write-Host "  whatif would DELETE $($Matches[1]) objects"; return $false }
+              if ($out -match '(\d+)\s+deleted' -and [int]$Matches[1] -gt 0) { Write-Host "  whatif would DELETE $($Matches[1]) objects"; return $false }
+            }
             return $true
           }
 
@@ -428,12 +442,17 @@ jobs:
             return $f
           }
 
+          # Safety check: -whatif of the exact command; abort if it would delete anything on the site.
+          Write-Host '=== whatif precheck (DoNotDeleteRule must keep all other files) ==='
+          $wf = Write-Variant $variants[0]
+          if (-not (Push-Files @($wf) -WhatIf)) { throw 'Diagnose aborted: whatif failed or would delete files' }
+
           # V7: does IIS itself read web.config? Static file, no ANCM handler. 200 = IIS config is fine; 500 = IIS cannot parse the file.
           Write-Host '=== V7 static probe (no aspNetCore handler) ==='
           $v7dir = Join-Path $work 'v7'; New-Item -ItemType Directory -Force -Path $v7dir | Out-Null
           Set-Content -Path (Join-Path $v7dir 'diag.txt') -Value 'diag-ok' -NoNewline
           Set-Content -Path (Join-Path $v7dir 'web.config') -Value '<?xml version="1.0" encoding="utf-8"?><configuration><system.webServer><staticContent /></system.webServer></configuration>'
-          if ((Push-File (Join-Path $v7dir 'diag.txt') 'diag.txt') -and (Push-File (Join-Path $v7dir 'web.config') 'web.config')) {
+          if (Push-Files @((Join-Path $v7dir 'diag.txt'), (Join-Path $v7dir 'web.config'))) {
             Start-Sleep -Seconds 5
             $r7 = Probe "$base/diag.txt"
             Write-Host ("V7 result: " + $(if ($r7.Code -eq 200) { 'IIS serves static files with a trivial web.config (host and site OK; problem is in our web.config or in ANCM)' } else { 'IIS fails even with a trivial web.config (host/site-level problem, not our web.config elements)' }))
@@ -443,7 +462,7 @@ jobs:
           foreach ($v in $variants) {
             Write-Host "=== $($v.Name) ==="
             $f = Write-Variant $v
-            if (-not (Push-File $f 'web.config')) { continue }
+            if (-not (Push-Files @($f))) { continue }
             for ($i = 1; $i -le 3; $i++) {
               Start-Sleep -Seconds $(if ($i -eq 1) { 8 } else { 6 })
               $r = Probe "$base/healthz"
