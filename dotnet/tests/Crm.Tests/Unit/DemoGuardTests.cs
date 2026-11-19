@@ -47,6 +47,7 @@ public sealed class DemoGuardTests
     [InlineData("--reset-demo")]
     [InlineData("--edge-fx")]
     [InlineData("--demo-settings")]
+    [InlineData("--purge-legacy-demo")]
     public void Allowed_invocations_pass_on_a_test_target(string extra)
     {
         Assert.Null(CliRunner.DemoArgsError(["seed-demo", "--yes-demo", extra], TargetEnv(("LIVE", "false"))));

@@ -61,7 +61,8 @@ public sealed record DemoDataset(
 
 /// <param name="FxEdge">QA variant: the current month's SEK rate is missing and two open deals are in NOK, which has no rates at all (FX notes appear on the dashboard).</param>
 /// <param name="DemoSettings">Also set the demo settings: visibility team, locale da-DK, enabled currencies DKK, EUR, SEK, USD (plus NOK with <paramref name="FxEdge"/>). Industry values are never deactivated.</param>
-public sealed record DemoOptions(bool FxEdge = false, bool DemoSettings = false);
+/// <param name="PurgeLegacy">One-time clean-up of demo data written by the first seeder version (no run id recorded): deletes it by the old definition and removes the marker. Seeds nothing.</param>
+public sealed record DemoOptions(bool FxEdge = false, bool DemoSettings = false, bool PurgeLegacy = false);
 
 /// <summary>SplitMix64: tiny, fully specified, identical on every platform and runtime version (System.Random is not specified to be).</summary>
 public sealed class DemoRandom(ulong seed)

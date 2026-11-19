@@ -44,8 +44,8 @@ public sealed class DemoDb : IAsyncDisposable
 
     public Migrator Migrator(TextWriter output) => new(new SqlConnectionFactory(OwnerDb), output, Console.Error);
 
-    public async Task<int> SeedAsync(bool reset, TextWriter? output = null, bool demoSettings = false, bool fxEdge = false) =>
-        await Migrator(output ?? TextWriter.Null).SeedDemoAsync(reset, TimeProvider.System, CancellationToken.None, fxEdge, demoSettings);
+    public async Task<int> SeedAsync(bool reset, TextWriter? output = null, bool demoSettings = false, bool fxEdge = false, bool purgeLegacy = false) =>
+        await Migrator(output ?? TextWriter.Null).SeedDemoAsync(reset, TimeProvider.System, CancellationToken.None, fxEdge, demoSettings, purgeLegacy);
 
     /// <summary>Records the current (not yet reset) run inserted, found the way the seeder finds them: 'C' audit rows with the stored RunId.</summary>
     public Task<int> TrackedAsync(string entityType, string table, string idColumn) => CountAsync(
@@ -376,5 +376,43 @@ public sealed class DemoSeedTests
         // NOK is enabled only for the edge variant.
         Assert.Equal(0, await db.SeedAsync(true, demoSettings: true, fxEdge: true));
         Assert.Equal(1, await db.CountAsync("SELECT COUNT(*) FROM crm.Settings WHERE SettingKey = 'currency.enabled' AND SettingValue = N'DKK,EUR,SEK,USD,NOK'"));
+    }
+
+    [SqlFact]
+    public async Task Purge_legacy_demo_removes_old_style_data_then_a_new_seed_records_a_run_id_and_reset_works()
+    {
+        await using var db = await DemoDb.CreateAsync();
+        // Not legacy yet: nothing to purge, nothing changes.
+        var err = new StringWriter();
+        var m = new Migrator(new SqlConnectionFactory(db.OwnerDb), TextWriter.Null, err);
+        Assert.Equal(1, await m.SeedDemoAsync(false, TimeProvider.System, CancellationToken.None, purgeLegacy: true));
+        Assert.Contains("applies only to demo data without a run id", err.ToString(), StringComparison.Ordinal);
+
+        // Legacy state: demo rows and the marker, but no run id (what the first seeder version left behind).
+        Assert.Equal(0, await db.SeedAsync(false));
+        await db.ScalarAsync<int>("DELETE FROM crm.Settings WHERE SettingKey = 'demo.runId'; SELECT 1;");
+        await db.ScalarAsync<int>("""
+            DECLARE @u int = (SELECT UserId FROM crm.Users WHERE EntraOid = '00000000-0000-4000-8000-00000000a002'), @t int = (SELECT TeamId FROM crm.Users WHERE EntraOid = '00000000-0000-4000-8000-00000000a002');
+            INSERT crm.Accounts (Name, OwnerId, TeamId, CreatedBy, ModifiedBy) VALUES (N'Real customer', @u, @t, @u, @u);
+            SELECT 1;
+            """);
+        var output = new StringWriter();
+        Assert.Equal(0, await db.SeedAsync(false, output, purgeLegacy: true));
+        var log = output.ToString();
+        Assert.Contains($"found {Expected[0]} accounts, {Expected[1]} contacts, {Expected[2]} opportunities, {Expected[3]} activities and {Expected[4]} FX rates", log, StringComparison.Ordinal);
+        Assert.Equal(new int[Expected.Length], await db.DemoCountsAsync());
+        Assert.Equal(0, await db.CountAsync("SELECT COUNT(*) FROM crm.Settings WHERE SettingKey = 'demo.seeded'"));
+        Assert.Equal(1, await db.CountAsync("SELECT COUNT(*) FROM crm.Accounts WHERE Name = N'Real customer'"));
+        Assert.Equal(1, await db.CountAsync("SELECT COUNT(*) FROM crm.AuditLog WHERE EntityType = 'setting' AND Action = 'D' AND NewValue LIKE N'Legacy demo purge:%'"));
+        // Once the marker is gone the purge refuses again.
+        Assert.Equal(1, await m.SeedDemoAsync(false, TimeProvider.System, CancellationToken.None, purgeLegacy: true));
+
+        // A normal seed now works, records its run id, and reset removes exactly that run.
+        Assert.Equal(0, await db.SeedAsync(false));
+        Assert.Equal(1, await db.CountAsync("SELECT COUNT(*) FROM crm.Settings WHERE SettingKey = 'demo.runId'"));
+        Assert.Equal(Expected, await db.DemoCountsAsync());
+        Assert.Equal(0, await db.SeedAsync(true));
+        Assert.Equal(Expected, await db.DemoCountsAsync());
+        Assert.Equal(1, await db.CountAsync("SELECT COUNT(*) FROM crm.Accounts WHERE Name = N'Real customer'"));
     }
 }

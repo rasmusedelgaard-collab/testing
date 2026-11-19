@@ -54,6 +54,12 @@ public sealed class DemoSeeder(TimeProvider time, TextWriter output)
         // Admin context for the checks and the reset. UserId 0 is a migration-scoped context, not a real user (as in 004_seed.sql).
         await SetContextAsync(conn, tx, 0, "Admin", null, ct).ConfigureAwait(false);
         var hasMarker = settings.ContainsKey(DemoMarker.MarkerKey);
+        if (options.PurgeLegacy)
+        {
+            await PurgeLegacyAsync(conn, tx, data, settings, ct).ConfigureAwait(false);
+            await tx.CommitAsync(ct).ConfigureAwait(false);
+            return null;
+        }
         var rows = previousRun is null ? 0 : await LoadTrackedAsync(conn, tx, previousRun.Value, ct).ConfigureAwait(false);
 
         if (hasMarker && !reset)
@@ -99,6 +105,51 @@ public sealed class DemoSeeder(TimeProvider time, TextWriter output)
     {
         var oid = data.Users.First(u => u.Key == DemoMarker.AdminKey).Oid;
         return await conn.QuerySingleAsync<int>(new CommandDefinition("SELECT UserId FROM crm.Users WHERE EntraOid = @oid", new { oid }, tx, cancellationToken: ct)).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// One-time purge of demo data from the first seeder version, which recorded no run id. Only when the marker exists and the run id does not.
+    /// Old definition: records created by a demo user (parents only when no row by anyone else still references them), FX rates last modified by
+    /// the demo admin. Counts are logged first; everything happens in the caller's transaction; one audit row summarises it; the marker is removed.
+    /// </summary>
+    private async Task PurgeLegacyAsync(SqlConnection conn, SqlTransaction tx, DemoDataset data, Dictionary<string, string> settings, CancellationToken ct)
+    {
+        if (!settings.TryGetValue(DemoMarker.MarkerKey, out var marker) || settings.ContainsKey(DemoMarker.RunIdKey))
+        {
+            throw new MigrationException($"--purge-legacy-demo applies only to demo data without a run id: '{DemoMarker.MarkerKey}' must exist and '{DemoMarker.RunIdKey}' must not. Nothing was changed.");
+        }
+        var oids = data.Users.Select(u => u.Oid).ToList();
+        var ids = (await conn.QueryAsync<int>(new CommandDefinition("SELECT UserId FROM crm.Users WHERE EntraOid IN @oids", new { oids }, tx, cancellationToken: ct)).ConfigureAwait(false)).ToList();
+        var adminOid = data.Users.First(u => u.Key == DemoMarker.AdminKey).Oid;
+        var adminId = await conn.QuerySingleOrDefaultAsync<int?>(new CommandDefinition("SELECT UserId FROM crm.Users WHERE EntraOid = @adminOid", new { adminOid }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        if (ids.Count == 0 || adminId is null)
+        {
+            throw new MigrationException("--purge-legacy-demo found no demo users; nothing to purge. Nothing was changed.");
+        }
+        async Task<int> Count(string sql) => await conn.ExecuteScalarAsync<int>(new CommandDefinition(sql, new { ids, adminId }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        var counts = (
+            Acc: await Count("SELECT COUNT(*) FROM crm.Accounts WHERE CreatedBy IN @ids").ConfigureAwait(false),
+            Con: await Count("SELECT COUNT(*) FROM crm.Contacts WHERE CreatedBy IN @ids").ConfigureAwait(false),
+            Opp: await Count("SELECT COUNT(*) FROM crm.Opportunities WHERE CreatedBy IN @ids").ConfigureAwait(false),
+            Act: await Count("SELECT COUNT(*) FROM crm.Activities WHERE CreatedBy IN @ids").ConfigureAwait(false),
+            Fx: await Count("SELECT COUNT(*) FROM crm.FxRates WHERE ModifiedBy = @adminId").ConfigureAwait(false));
+        output.WriteLine($"Legacy demo purge: found {counts.Acc} accounts, {counts.Con} contacts, {counts.Opp} opportunities, {counts.Act} activities and {counts.Fx} FX rates (created by demo users / last modified by the demo admin).");
+        async Task<int> Del(string sql) => await conn.ExecuteAsync(new CommandDefinition(sql, new { ids, adminId }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        var act = await Del("DELETE FROM crm.Activities WHERE CreatedBy IN @ids").ConfigureAwait(false);
+        var opp = await Del("DELETE o FROM crm.Opportunities o WHERE o.CreatedBy IN @ids AND NOT EXISTS (SELECT 1 FROM crm.Activities a WHERE a.OpportunityId = o.OpportunityId)").ConfigureAwait(false);
+        var con = await Del("DELETE c FROM crm.Contacts c WHERE c.CreatedBy IN @ids AND NOT EXISTS (SELECT 1 FROM crm.Opportunities o WHERE o.PrimaryContactId = c.ContactId) AND NOT EXISTS (SELECT 1 FROM crm.Activities a WHERE a.ContactId = c.ContactId)").ConfigureAwait(false);
+        var acc = await Del("DELETE a FROM crm.Accounts a WHERE a.CreatedBy IN @ids AND NOT EXISTS (SELECT 1 FROM crm.Contacts c WHERE c.AccountId = a.AccountId) AND NOT EXISTS (SELECT 1 FROM crm.Opportunities o WHERE o.AccountId = a.AccountId) AND NOT EXISTS (SELECT 1 FROM crm.Activities x WHERE x.AccountId = a.AccountId)").ConfigureAwait(false);
+        var fx = await Del("DELETE FROM crm.FxRates WHERE ModifiedBy = @adminId").ConfigureAwait(false);
+        var settingId = await conn.ExecuteScalarAsync<int>(new CommandDefinition("SELECT SettingId FROM crm.Settings WHERE SettingKey = @k", new { k = DemoMarker.MarkerKey }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        var summary = $"Legacy demo purge: removed {acc} accounts, {con} contacts, {opp} opportunities, {act} activities, {fx} FX rates";
+        await SetContextAsync(conn, tx, adminId.Value, "Admin", null, ct).ConfigureAwait(false);
+        await conn.ExecuteAsync(new CommandDefinition(
+            "INSERT crm.AuditLog (EntityType, EntityId, Action, FieldName, OldValue, NewValue, OwnerId, TeamId, ChangedBy, CorrelationId) VALUES ('setting', @sid, 'D', @k, @old, @new, @by, NULL, @by, @cid)",
+            new { sid = settingId, k = DemoMarker.MarkerKey, old = marker, @new = summary, by = adminId.Value, cid = Guid.NewGuid() }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        await conn.ExecuteAsync(new CommandDefinition("DELETE FROM crm.Settings WHERE SettingKey = @k", new { k = DemoMarker.MarkerKey }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        output.WriteLine($"{summary}. Removed the '{DemoMarker.MarkerKey}' marker; a normal seed-demo can run now.");
+        var left = counts.Acc + counts.Con + counts.Opp + counts.Act - (acc + con + opp + act);
+        if (left > 0) { output.WriteLine($"Note: {left} legacy demo records were kept because rows created by real users still reference them."); }
     }
 
     private static string Tracked(string entityType) =>
