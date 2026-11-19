@@ -86,7 +86,7 @@ public sealed class DemoSeeder(TimeProvider time, TextWriter output)
             {
                 throw new MigrationException($"Cannot reset: the demo data was written by an earlier version of seed-demo that did not record its rows ('{DemoMarker.RunIdKey}' is missing). Nothing was changed. Remove it by hand, or rebuild the test database.");
             }
-            await ResetAsync(conn, tx, previousRun, runId, options.DryRun, output, ct).ConfigureAwait(false);
+            await ResetAsync(conn, tx, previousRun, runId, options.DryRun, () => AdminIdAsync(conn, tx, data, ct), output, ct).ConfigureAwait(false);
             if (options.DryRun)
             {
                 output.WriteLine("Dry run: nothing was changed.");
@@ -209,7 +209,7 @@ public sealed class DemoSeeder(TimeProvider time, TextWriter output)
     /// references (for example a note a person added to a demo account) is kept. Audit rows are append-only by design and stay.
     /// Demo users and teams stay too (audit rows reference them).
     /// </summary>
-    private static async Task ResetAsync(SqlConnection conn, SqlTransaction tx, Guid? previousRun, Guid newRunId, bool dryRun, TextWriter output, CancellationToken ct)
+    private static async Task ResetAsync(SqlConnection conn, SqlTransaction tx, Guid? previousRun, Guid newRunId, bool dryRun, Func<Task<int>> adminId, TextWriter output, CancellationToken ct)
     {
         if (previousRun is not { } runId)
         {
@@ -236,7 +236,7 @@ public sealed class DemoSeeder(TimeProvider time, TextWriter output)
             output.WriteLine($"Note: {left} demo records {(dryRun ? "would be" : "were")} kept because rows created by real users still reference them.");
             if (!dryRun)
             {
-                await CarryForwardAsync(conn, tx, runId, newRunId, ct).ConfigureAwait(false);
+                await CarryForwardAsync(conn, tx, runId, newRunId, await adminId().ConfigureAwait(false), ct).ConfigureAwait(false);
             }
         }
         if (dryRun)
@@ -250,15 +250,17 @@ public sealed class DemoSeeder(TimeProvider time, TextWriter output)
     /// Rows a reset keeps (a person's data still references them) stay demo rows: they get 'C' tracking rows under the new RunId, so the next
     /// reset finds them. Their original 'C' rows (old run) stay as they are.
     /// </summary>
-    private static async Task CarryForwardAsync(SqlConnection conn, SqlTransaction tx, Guid oldRun, Guid newRun, CancellationToken ct)
+    private static async Task CarryForwardAsync(SqlConnection conn, SqlTransaction tx, Guid oldRun, Guid newRun, int adminId, CancellationToken ct)
     {
+        // The audit insert policy needs ChangedBy = the session user, so this runs as the demo admin (a real user row, unlike the UserId 0 reset context).
+        await SetContextAsync(conn, tx, adminId, "Admin", null, ct).ConfigureAwait(false);
         foreach (var (type, table, idColumn) in new[] { ("account", "Accounts", "AccountId"), ("contact", "Contacts", "ContactId"), ("opportunity", "Opportunities", "OpportunityId"), ("activity", "Activities", "ActivityId") })
         {
             // type, table and column are literals from the array above, never external input.
             await conn.ExecuteAsync(new CommandDefinition(
                 "INSERT crm.AuditLog (EntityType, EntityId, Action, FieldName, OldValue, NewValue, OwnerId, TeamId, ChangedBy, CorrelationId) "
-                + "SELECT '" + type + "', " + idColumn + ", 'C', N'CarriedForward', NULL, @note, OwnerId, TeamId, OwnerId, @newRun FROM crm.[" + table + "] WHERE " + idColumn + " IN " + Tracked(type),
-                new { runId = oldRun, newRun, note = "kept by reset of run " + oldRun }, tx, cancellationToken: ct)).ConfigureAwait(false);
+                + "SELECT '" + type + "', " + idColumn + ", 'C', N'CarriedForward', NULL, @note, OwnerId, TeamId, @by, @newRun FROM crm.[" + table + "] WHERE " + idColumn + " IN " + Tracked(type),
+                new { runId = oldRun, newRun, by = adminId, note = "kept by reset of run " + oldRun }, tx, cancellationToken: ct)).ConfigureAwait(false);
         }
     }
 
