@@ -50,7 +50,6 @@ for (const s of shots) {
   const page = await ctx.newPage();
   await page.goto(`${base}/__page/${file}`, { waitUntil: 'load' });
   await page.addStyleTag({ content: '.env-banner { display: none !important; }' }); // the test-environment banner is not part of the design
-  await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(150);
   const target = path.join(out, `${s.name.replace('-', '-' + prefix + '-')}.png`);
   await page.screenshot({ path: target, fullPage: !!s.full });
