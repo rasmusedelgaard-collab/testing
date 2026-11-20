@@ -41,7 +41,7 @@ else
     <input type="hidden" name="returnTo" value="@Model.ReturnTo">
     <div class="field@(Model.Error is not null ? " has-error" : "")">
     <label for="code">Access code (required)</label>
-    <input id="code" name="code" type="password" autocomplete="off" required data-autofocus="@(Model.Error is not null ? "" : null)" aria-invalid="@(Model.Error is not null ? "true" : null)" aria-describedby="@(Model.Error is not null ? "e-code" : null)">
+    <input id="code" name="code" type="password" autocomplete="off" required @(Model.Error is not null ? "data-autofocus" : "") aria-invalid="@(Model.Error is not null ? "true" : null)" aria-describedby="@(Model.Error is not null ? "e-code" : null)">
     </div>
     <button type="submit" class="button primary">Continue</button>
   </form>

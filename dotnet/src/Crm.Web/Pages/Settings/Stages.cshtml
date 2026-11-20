@@ -23,12 +23,12 @@
       var probErr = Model.Errors.TryGetValue("prob" + i, out var ep) ? ep : null;
     <tr>
       <td data-label="Order"><input type="hidden" name="id_@i" value="@r.Id">
-        <button type="submit" id="up-@i" data-autofocus="@(Model.Focus == "up-" + i ? "" : null)" class="button secondary icon-only" name="action" value="up:@i" aria-label="Move @(r.Name.Length > 0 ? r.Name : "stage") up" disabled="@(i == 0)">@Ui.Icon("sort-asc")</button>
-        <button type="submit" id="down-@i" data-autofocus="@(Model.Focus == "down-" + i ? "" : null)" class="button secondary icon-only" name="action" value="down:@i" aria-label="Move @(r.Name.Length > 0 ? r.Name : "stage") down" disabled="@(i == Model.Rows.Count - 1)">@Ui.Icon("sort-desc")</button></td>
+        <button type="submit" id="up-@i" @(Model.Focus == "up-" + i ? "data-autofocus" : "") class="button secondary icon-only" name="action" value="up:@i" aria-label="Move @(r.Name.Length > 0 ? r.Name : "stage") up" disabled="@(i == 0)">@Ui.Icon("sort-asc")</button>
+        <button type="submit" id="down-@i" @(Model.Focus == "down-" + i ? "data-autofocus" : "") class="button secondary icon-only" name="action" value="down:@i" aria-label="Move @(r.Name.Length > 0 ? r.Name : "stage") down" disabled="@(i == Model.Rows.Count - 1)">@Ui.Icon("sort-desc")</button></td>
       <td data-label="Stage name"><label class="visually-hidden" for="f-name@(i)">Stage name @(i + 1)</label>
         @if (nameErr is not null){<span class="field-error" id="e-name@(i)">@Ui.Icon("error")@nameErr</span>}
         @if (Model.Links.TryGetValue("name" + i, out var link)){<a href="@link">View these opportunities</a><br>}
-        <input id="f-name@(i)" data-autofocus="@(Model.Focus == "f-name" + i ? "" : null)" name="name_@i" type="text" maxlength="60" value="@r.Name" aria-invalid="@(nameErr is not null ? "true" : null)" aria-describedby="@(nameErr is not null ? "e-name" + i : null)"></td>
+        <input id="f-name@(i)" @(Model.Focus == "f-name" + i ? "data-autofocus" : "") name="name_@i" type="text" maxlength="60" value="@r.Name" aria-invalid="@(nameErr is not null ? "true" : null)" aria-describedby="@(nameErr is not null ? "e-name" + i : null)"></td>
       <td data-label="Probability"><label class="visually-hidden" for="f-prob@(i)">Probability @(i + 1) (percent)</label>
         @if (probErr is not null){<span class="field-error" id="e-prob@(i)">@Ui.Icon("error")@probErr</span>}
         <input id="f-prob@(i)" name="prob_@i" type="text" inputmode="numeric" size="4" value="@(r.Type == "won" ? "100" : r.Type == "lost" ? "0" : r.Prob)" aria-invalid="@(probErr is not null ? "true" : null)" aria-describedby="@(probErr is not null ? "e-prob" + i : null)"> %</td>
