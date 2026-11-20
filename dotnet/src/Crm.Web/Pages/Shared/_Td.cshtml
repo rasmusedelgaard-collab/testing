@@ -2,9 +2,9 @@
 @{
     var c = Model.Cell;
     // c-name = line 1 of the phone card (the record link, also bold in the table), c-k = the two key fields, c-m = chips and owner, c-hide = not on phones.
-    var cls = string.Join(' ', new[] { c.Right ? "num" : null, c.Role is null ? null : "c-" + c.Role, c.Role == "name" ? "record" : null }.Where(x => x is not null));
+    var cls = string.Join(' ', new[] { c.Right ? "num" : null, c.Role is null ? null : "c-" + c.Role, c.Role == "name" ? "rec-link" : null }.Where(x => x is not null));
 }
-<td data-label="@Model.Label" class="@(cls.Length > 0 ? cls : null)">
+<td data-label="@Model.Label" class="@(cls.Length > 0 ? cls : null)" title="@(c.Role is "k" && c.Kind == "text" && c.Text.Length > 24 ? c.Text : null)">
 @switch (c.Kind)
 {
   case "owner": @Ui.Owner(c.Text); break;
@@ -16,7 +16,7 @@
     @if (c.DoneForm.Checked){<span class="visually-hidden">Done</span>}
     break;
   default:
-    if (c.Href is not null){<a href="@c.Href">@c.Text</a>}else{@c.Text}
+    if (c.Href is not null){<a href="@c.Href" title="@(c.Role == "name" ? c.Text : null)">@c.Text</a>}else{@c.Text}
     break;
 }
 @if (c.Note is not null){<text> </text><span class="chip @(c.NoteDanger ? "danger" : "warn")">@if (c.NoteDanger){@Ui.Icon("error")}else{@Ui.Icon("warning")}@c.Note</span>}
