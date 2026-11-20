@@ -4,7 +4,7 @@
 <partial name="_Flash" />
 <partial name="_ErrorSummary" model="Model.Summary" />
 @foreach (var w in Model.Warnings){<p class="flash-warn" role="status">@Ui.Ring("warning")@w</p>}
-<form method="post" action="/settings/locale" asp-antiforgery="true" class="form" novalidate>
+<form method="post" action="/settings/locale" asp-antiforgery="true" class="form panel" novalidate>
   <div class="field@(Model.Errors.ContainsKey("base") ? " has-error" : "")"><label for="f-base">Base currency</label>
     <span class="help">Dashboard and analytics totals are converted to this currency. Changing it makes existing FX rates (which are stored per base currency) unused until you enter new ones.</span>
     @if (Model.Errors.TryGetValue("base", out var e1)){<span class="field-error" id="e-base">@Ui.Icon("error")@e1</span>}
@@ -24,6 +24,6 @@
   <div class="field@(Model.Errors.ContainsKey("fiscalStart") ? " has-error" : "")"><label for="f-fiscalStart">Fiscal year starts in</label>
     @if (Model.Errors.TryGetValue("fiscalStart", out var e5)){<span class="field-error" id="e-fiscalStart">@Ui.Icon("error")@e5</span>}
     <select id="f-fiscalStart" name="fiscalStart" aria-invalid="@(Model.Errors.ContainsKey("fiscalStart") ? "true" : null)" aria-describedby="@(Model.Errors.ContainsKey("fiscalStart") ? "e-fiscalStart" : null)">@for (var i = 0; i < LocaleModel.Months.Count; i++){<option value="@(i + 1)" selected="@((i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) == Model.Values.FiscalStart)">@LocaleModel.Months[i]</option>}</select></div>
-  @if (Model.Preview.Length > 0){<div class="panel"><p class="muted">Preview (saved settings): <strong>@Model.Preview</strong></p></div>}
+  @if (Model.Preview.Length > 0){<div class="panel plain"><p class="muted">Preview (saved settings): <strong>@Model.Preview</strong></p></div>}
   <div class="actions"><button type="submit" class="button primary">Save</button></div>
 </form>

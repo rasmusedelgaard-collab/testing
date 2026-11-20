@@ -8,11 +8,11 @@
   </div>
 </div>
 <partial name="_Flash" />
-<form method="get" action="/pipeline" class="filters">
-  <div class="field"><label for="f-owner">Owner</label>
+<form method="get" action="/pipeline" class="filters-form board-filters">
+  <div class="filters"><div class="field"><label for="f-owner">Owner</label>
     <select id="f-owner" name="owner">@foreach (var o in Model.Filters[0].Options){<option value="@o.Value" selected="@(o.Value == Model.OwnerValue)">@o.Label</option>}</select></div>
-  <button type="submit" class="button secondary">Apply</button>
-  <p class="muted">Open pipeline <strong>@Model.TotalShort</strong><span class="visually-hidden"> (@Model.TotalFull)</span> · @Model.TotalCount @(Model.TotalCount == 1 ? "opportunity" : "opportunities")</p>
+  <button type="submit" class="button secondary">Apply</button></div>
+  <p class="board-total muted">Open pipeline <strong>@Model.TotalShort</strong><span class="visually-hidden"> (@Model.TotalFull)</span> · @Model.TotalCount @(Model.TotalCount == 1 ? "opportunity" : "opportunities")</p>
 </form>
 @foreach (var n in Model.Notes){<p class="flash-warn" role="status">@Ui.Ring("warning")@n</p>}
 @if (Model.TotalCount == 0)
@@ -21,15 +21,17 @@
 }
 else
 {
-<nav class="stage-jump" aria-label="Stages"><p>@for (var i = 0; i < Model.Columns.Count; i++){var c = Model.Columns[i];@if (i > 0){<text> · </text>}<a href="#stage-@c.StageId">@c.Name (@c.Count)</a>}</p></nav>
+<nav class="stage-jump" aria-label="Stages"><ul>@foreach (var c in Model.Columns){<li><a href="#stage-@c.StageId">@c.Name (@c.Count)</a></li>}</ul></nav>
 <div class="board" role="region" aria-label="Pipeline board" tabindex="0">
 @foreach (var col in Model.Columns)
 {
   <section class="board-col" id="stage-@col.StageId" data-stage="@col.StageId" aria-labelledby="stage-h-@col.StageId">
-    <h2 id="stage-h-@col.StageId"><span>@col.Name</span><span class="chip">@col.Probability</span></h2>
-    <p class="col-count">@col.Count @(col.Count == 1 ? "opportunity" : "opportunities")</p>
-    <p class="col-total">@col.TotalShort<span class="visually-hidden"> (@col.TotalFull)</span></p>
-    <p class="col-weighted">@col.WeightedShort weighted</p>
+    <h2 id="stage-h-@col.StageId"><span class="col-name" title="@col.Name">@col.Name</span><span class="chip">@col.Probability</span></h2>
+    <div class="col-stats">
+      <p class="col-total" title="@col.TotalFull">@col.TotalShort<span class="visually-hidden"> (@col.TotalFull)</span></p>
+      <p class="col-weighted">@col.WeightedShort weighted</p>
+      <p class="col-count">@col.Count @(col.Count == 1 ? "opportunity" : "opportunities")</p>
+    </div>
     @Ui.Bar(col.Share)
     @if (col.Cards.Count == 0)
     {
@@ -42,22 +44,22 @@ else
     {
       <li class="deal-card" id="opp-@card.Id">
         <span class="drag-handle" aria-hidden="true">@Ui.Icon("drag")</span>
-        <a class="deal-name" href="/opportunities/@card.Id" data-autofocus="@(card.Moved ? "" : null)">@card.Name</a>
-        <p class="deal-meta"><a href="/accounts/@card.AccountId">@card.Account</a><span aria-hidden="true"> · </span><span class="visually-hidden">, </span>@card.Money<span aria-hidden="true"> · </span><span class="visually-hidden">, </span>@card.CloseDate<span class="deal-owner" title="@card.Owner">@Ui.Avatar(card.Owner, "s24")<span class="visually-hidden">, owner @card.Owner</span></span></p>
-        @if (card.PastClose){<p><span class="chip warn">@Ui.Icon("warning")Past close date</span></p>}
+        <a class="deal-name" href="/opportunities/@card.Id" title="@card.Name" @(card.Moved ? "data-autofocus" : "")>@card.Name</a>
+        <p class="deal-account"><a href="/accounts/@card.AccountId" title="@card.Account">@card.Account</a></p>
+        <p class="deal-meta"><span class="deal-amount" title="@card.Money">@card.MoneyShort</span><span class="deal-date@(card.PastClose ? " late" : "")">@if (card.PastClose){@Ui.Icon("warning")<span class="visually-hidden">Past close date: </span>}@card.CloseDate</span><span class="deal-owner" title="@card.Owner">@Ui.Avatar(card.Owner, "s24")<span class="visually-hidden">Owner @card.Owner</span></span></p>
         <form method="post" action="/opportunities/@card.Id/stage" asp-antiforgery="true" class="move-form">
           <input type="hidden" name="rowVer" value="@card.RowVer"><input type="hidden" name="returnTo" value="@Model.ReturnTo">
-          <div class="field"><label for="mv-@card.Id">Move to<span class="visually-hidden"> @card.Name</span></label>
+          <div class="field"><label class="visually-hidden" for="mv-@card.Id">Move to<span class="visually-hidden"> @card.Name</span></label>
             <select id="mv-@card.Id" name="stageId">@foreach (var o in card.Options){<option value="@o.StageId" selected="@o.Current">@o.Label</option>}</select></div>
           <button type="submit" class="button secondary small">Move<span class="visually-hidden"> @card.Name</span></button>
         </form>
       </li>
     }
     </ol>
-    @if (col.ShowAll){<a class="show-all" href="@col.AllHref">Show all @col.Count in @col.Name</a>}
+    @if (col.ShowAll){<a class="show-all more-link" href="@col.AllHref">Show all @col.Count in @col.Name</a>}
     }
   </section>
 }
 </div>
-<p class="muted">Closed opportunities are in the list: <a href="@Model.ClosedHref">View won and lost opportunities</a></p>
+<p class="muted board-foot">Closed opportunities are in the list: <a class="more-link" href="@Model.ClosedHref">View won and lost opportunities</a></p>
 }

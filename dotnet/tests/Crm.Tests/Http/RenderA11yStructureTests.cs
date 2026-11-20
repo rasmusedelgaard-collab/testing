@@ -110,8 +110,8 @@ public sealed class RenderA11yStructureTests : IDisposable
         var options = new List<MoveOption> { new(1, "Qualification (current)", true), new(2, "Needs analysis", false) };
         var cards = new List<DealCard>
         {
-            new(7, "Blade root seals 2027", "Nordvind Rotor A/S", 3, "EUR 240.000,00", "15.12.2026", true, "Anna Holm", "AAAAAAAAB9E=", false, options),
-            new(8, "Nacelle noise insulation", "Nordvind Rotor A/S", 3, "EUR 1.000,00", "15.12.2026", false, "Anna Holm", "AAAAAAAAB9E=", false, options),
+            new(7, "Blade root seals 2027", "Nordvind Rotor A/S", 3, "EUR 240.000,00", "EUR 240 t", "15.12.2026", true, "Anna Holm", "AAAAAAAAB9E=", false, options),
+            new(8, "Nacelle noise insulation", "Nordvind Rotor A/S", 3, "EUR 1.000,00", "EUR 1 t", "15.12.2026", false, "Anna Holm", "AAAAAAAAB9E=", false, options),
         };
         var cols = new List<BoardColumn> { new(1, "Qualification", "10 %", 2, "6,0 mio. kr.", "DKK 6.000.000,00", "0,6 mio. kr.", 83, [], cards, "/opportunities?status=open&stage=1", false) };
         var board = PageRenderHarness.Model<Crm.Web.Pages.Pipeline.IndexModel>(("Columns", cols), ("Filters", new List<FilterField> { new("owner", "Owner", [new SelectOption("", "All I can see")], "") }), ("TotalShort", "6,0 mio. kr."), ("TotalFull", "DKK 6.000.000,00"), ("TotalCount", 2), ("Notes", Array.Empty<string>()));

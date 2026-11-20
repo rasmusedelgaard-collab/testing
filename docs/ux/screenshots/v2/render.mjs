@@ -41,8 +41,17 @@ const allShots = [
   { name: 'dashboard-full-light-1440', key: 'v2-dashboard', w: 1440, h: 1800, scheme: 'light' },
   { name: 'dashboard-phone-390', key: 'v2-dashboard', w: 390, h: 844, scheme: 'light', mobile: true },
   { name: 'dashboard-phone-full-390', key: 'v2-dashboard', w: 390, h: 844, scheme: 'light', mobile: true, full: true },
+  // Rollout (round 4): the other pages. Names are final file names (rollout-*.png); run with prefix "rollout" and filter "rollout".
+  ...[
+    ['board', 'v2-board', 'light', 1440, 900], ['opportunity', 'v2-opportunity', 'light', 1440, 900, 'full'], ['account', 'v2-account', 'light', 1440, 900, 'full'], ['opportunities', 'v2-opps', 'light', 1440, 900],
+    ['activities', 'v2-acts', 'light', 1440, 900], ['opportunity-edit', 'v2-form', 'light', 1440, 900, 'full'], ['analytics', 'v2-analytics', 'light', 1440, 900, 'full'], ['settings-general', 'v2-general', 'light', 1440, 900],
+    ['settings-fx', 'v2-fx', 'light', 1440, 900, 'full'], ['signin', 'v2-signin', 'light', 1440, 900], ['test-user-picker', 'v2-picker', 'light', 1440, 900], ['404', 'v2-404', 'light', 1440, 900],
+    ['contact', 'v2-contact', 'light', 1440, 900], ['search', 'v2-search', 'light', 1440, 900],
+    ['board-dark', 'v2-board', 'dark', 1440, 900], ['opportunity-dark', 'v2-opportunity', 'dark', 1440, 900], ['opportunities-dark', 'v2-opps', 'dark', 1440, 900],
+    ['board-phone', 'v2-board', 'light', 390, 844], ['opportunity-phone', 'v2-opportunity', 'light', 390, 844], ['opportunities-phone', 'v2-opps', 'light', 390, 844],
+  ].map(([n, key, scheme, w, h, full]) => ({ name: `rollout-${n}${scheme === 'dark' || w === 390 ? '' : '-light'}${w === 390 ? '-390' : w === 1440 && scheme === 'dark' ? '-1440' : '-1440'}`.replace('-light-1440-1440', '-light-1440'), raw: true, key, w, h, scheme, mobile: w === 390, full: !!full })),
 ];
-const shots = allShots.filter(s => only === 'all' || s.name.startsWith(only));
+const shots = allShots.filter(s => only === 'all' || (s.raw ? only === 'rollout' : s.name.startsWith(only)));
 fs.mkdirSync(out, { recursive: true });
 const browser = await chromium.launch();
 for (const s of shots) {
@@ -52,8 +61,13 @@ for (const s of shots) {
   const page = await ctx.newPage();
   await page.goto(`${base}/__page/${file}`, { waitUntil: 'load' });
   await page.addStyleTag({ content: '.env-banner { display: none !important; }' }); // the test-environment banner is not part of the design
-  await page.waitForTimeout(150);
-  const target = path.join(out, `${s.name.replace('-', '-' + prefix + '-')}.png`);
+  await page.waitForTimeout(s.key === 'v2-analytics' ? 800 : 150); // Chart.js draws after load
+  const target = path.join(out, `${s.raw ? s.name : s.name.replace('-', '-' + prefix + '-')}.png`);
+  if (s.raw && s.full) { // a viewport as tall as the page, so the sticky sidebar spans it like it does for a real reader
+    const height = await page.evaluate('document.documentElement.scrollHeight');
+    await page.setViewportSize({ width: s.w, height });
+    await page.waitForTimeout(100);
+  }
   await page.screenshot({ path: target, fullPage: !!s.full });
   console.log(target, fs.statSync(target).size);
   await ctx.close();

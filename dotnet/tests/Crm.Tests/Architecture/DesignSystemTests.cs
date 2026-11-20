@@ -69,7 +69,7 @@ public sealed partial class DesignSystemTests
         var map = Map(LightBlock());
         string[] names =
         [
-            "--page", "--surface", "--surface-subtle", "--surface-panel", "--field-bg", "--tint", "--tint-strong", "--ink", "--ink-muted", "--hairline", "--border-input", "--btn-border",
+            "--page", "--surface", "--surface-subtle", "--surface-panel", "--column-bg", "--field-bg", "--tint", "--tint-strong", "--ink", "--ink-muted", "--hairline", "--border-input", "--btn-border",
             "--glass", "--action", "--action-hover", "--on-action", "--focus", "--accent-soft", "--danger", "--on-danger", "--shadow-1", "--shadow-2", "--hero-1", "--hero-2",
             "--blue-bg", "--blue-fg", "--green-bg", "--green-fg", "--orange-bg", "--orange-fg", "--red-bg", "--red-fg", "--purple-bg", "--purple-fg", "--teal-bg", "--teal-fg", "--gray-bg", "--gray-fg",
             "--chart-1", "--chart-2", "--chart-3", "--chart-4", "--chart-5", "--chart-6", "--chart-grid", "--chart-axis",
@@ -118,7 +118,7 @@ public sealed partial class DesignSystemTests
         {
             (string Fg, string Bg, double Min)[] pairs =
             [
-                ("--ink", "--surface", 7), ("--ink", "--page", 7), ("--ink-muted", "--surface", 4.5), ("--ink-muted", "--page", 4.5), ("--ink-muted", "--surface-panel", 4.5),
+                ("--ink", "--surface", 7), ("--ink", "--page", 7), ("--ink-muted", "--surface", 4.5), ("--ink-muted", "--page", 4.5), ("--ink-muted", "--surface-panel", 4.5), ("--ink-muted", "--column-bg", 4.5), ("--ink", "--column-bg", 7),
                 ("--action", "--surface", 4.5), ("--action", "--page", 4.5), ("--action", "--tint", 4.5), ("--on-action", "--action", 4.5), ("--on-danger", "--danger", 4.5),
                 ("--danger", "--surface", 4.5), ("--border-input", "--surface", 3), ("--border-input", "--field-bg", 3),
                 ("--blue-fg", "--blue-bg", 4.5), ("--green-fg", "--green-bg", 4.5), ("--orange-fg", "--orange-bg", 4.5), ("--red-fg", "--red-bg", 4.5),
@@ -267,7 +267,7 @@ public sealed partial class DesignSystemTests
     {
         var css = Norm(Css());
         Assert.Contains(".panel { background: var(--surface); border: 1px solid var(--card-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-1);", css, StringComparison.Ordinal);
-        Assert.Contains(".board-col { flex: 1 0 272px; max-width: 320px; background: var(--surface-panel); border-radius: var(--radius-lg);", css, StringComparison.Ordinal);
+        Assert.Contains(".board-col { flex: 1 0 272px; max-width: 320px; background: var(--column-bg); border-radius: var(--radius-lg);", css, StringComparison.Ordinal);
         Assert.Contains("background: var(--surface); border: 1px solid var(--card-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-1); padding: var(--space-md) var(--space-lg);", css, StringComparison.Ordinal);
         Assert.Contains(".spark { display: block; width: 100%; height: 44px;", css, StringComparison.Ordinal);
     }
@@ -280,5 +280,30 @@ public sealed partial class DesignSystemTests
         Assert.Contains(".tiles-box { container-type: inline-size; }", css, StringComparison.Ordinal);
         Assert.Matches(@"@container \(min-width: 1[23]\d\dpx\) \{ \.tiles \{ grid-template-columns: repeat\(6,", css);
         Assert.DoesNotMatch(@"\.tile-value \{[^}]*\dvw", css);
+    }
+    /// <summary>Round 4 rollout: the column background token exists in both themes and the shared component patterns are in the CSS.</summary>
+    [Fact]
+    public void Rollout_components_use_tokens_and_the_column_token_exists_in_both_themes()
+    {
+        Assert.Equal("#edf1f7", Theme(dark: false)["--column-bg"]);
+        Assert.Equal("#242426", Theme(dark: true)["--column-bg"]);
+        var css = Norm(Css());
+        foreach (var rule in new[]
+        {
+            ".deal-card { position: relative;", ".col-stats {", ".seg-radio {", ".signin-card {", ".form-group { background: var(--surface); border: 1px solid var(--card-border); border-radius: var(--radius-lg);",
+            ".user-card + .user-card::before", ".filters .field:not(.search-field) {", ".stage-track { gap:", ".record-side .details dt, .record-side .details dd {", ".pagination .button { border-radius: var(--radius-full);",
+        })
+        {
+            Assert.Contains(rule, css, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>The page-level .record rule is a grid, so a table cell must not carry that class (it turned the name cell into a grid and misaligned the row).</summary>
+    [Fact]
+    public void Table_name_cells_do_not_use_the_record_page_grid_class()
+    {
+        var td = File.ReadAllText(Path.Combine(WebRoot, "Pages", "Shared", "_Td.cshtml"));
+        Assert.Contains("\"rec-link\"", td, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"record\"", td, StringComparison.Ordinal);
     }
 }

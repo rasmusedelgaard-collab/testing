@@ -28,7 +28,7 @@ else
 </table></div>
 <h2 id="add-rate">@(Model.EditId is null ? "Add rate" : "Edit rate")</h2>
 @if (Model.EditId is not null){<p class="muted">Changing a rate changes totals on the dashboard and in analytics for that month.</p>}
-<form method="post" action="@(Model.EditId is null ? "/settings/fx" : "/settings/fx/" + Model.EditId)" asp-antiforgery="true" class="form" novalidate>
+<form method="post" action="@(Model.EditId is null ? "/settings/fx" : "/settings/fx/" + Model.EditId)" asp-antiforgery="true" class="form panel" novalidate>
   <div class="field@(Model.Errors.ContainsKey("currency") ? " has-error" : "")"><label for="f-currency">Currency (required)</label>
     @if (Model.Errors.TryGetValue("currency", out var e1)){<span class="field-error" id="e-currency">@Ui.Icon("error")@e1</span>}
     <select id="f-currency" name="currency" aria-invalid="@(Model.Errors.ContainsKey("currency") ? "true" : null)" aria-describedby="@(Model.Errors.ContainsKey("currency") ? "e-currency" : null)"><option value="">— choose —</option>@foreach (var c in Model.Currencies){<option selected="@(c == (Model.CurrencyValue.Length > 0 ? Model.CurrencyValue : Model.WantCur))">@c</option>}</select></div>

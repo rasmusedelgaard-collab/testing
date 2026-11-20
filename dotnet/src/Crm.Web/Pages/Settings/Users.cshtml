@@ -19,7 +19,7 @@ else
 </table></div>
 }
 <h3>Add team</h3>
-<form method="post" action="/settings/teams" asp-antiforgery="true" class="form" novalidate>
+<form method="post" action="/settings/teams" asp-antiforgery="true" class="form panel" novalidate>
   <div class="field@(Model.Errors.ContainsKey("name") ? " has-error" : "")"><label for="f-name">Team name (required)</label>
     @if (Model.Errors.TryGetValue("name", out var en)){<span class="field-error" id="e-name">@Ui.Icon("error")@en</span>}
     <input id="f-name" name="name" type="text" maxlength="80" value="@Model.NameValue" aria-invalid="@(Model.Errors.ContainsKey("name") ? "true" : null)" aria-describedby="@(Model.Errors.ContainsKey("name") ? "e-name" : null)"></div>

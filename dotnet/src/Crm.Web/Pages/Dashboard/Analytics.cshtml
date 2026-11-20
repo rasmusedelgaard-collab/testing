@@ -3,18 +3,21 @@
 @model Crm.Web.Pages.Dashboard.AnalyticsModel
 <div class="page-header"><div class="titles"><h1>Analytics</h1></div></div>
 <partial name="_Flash" />
-<form method="get" action="/analytics" class="filters">
+<form method="get" action="/analytics" class="filters-form analytics-filters">
   <input type="hidden" name="shown" value="@Model.Period">
-  <div class="field"><label for="f-period">Period</label>
-    <select id="f-period" name="period">@foreach (var k in Periods.Keys){<option value="@k" selected="@(k == Model.Period)">@Periods.Label[k]</option>}</select></div>
-  <div class="field@(Model.Error.Length > 0 ? " has-error" : "")"><label for="f-from">From</label><input id="f-from" name="from" type="date" data-custom-for="f-period" value="@Model.From" aria-invalid="@(Model.Error.Length > 0 ? "true" : null)" aria-describedby="@(Model.Error.Length > 0 ? "e-range" : null)"></div>
-  <div class="field@(Model.Error.Length > 0 ? " has-error" : "")"><label for="f-to">To</label><input id="f-to" name="to" type="date" data-custom-for="f-period" value="@Model.To" aria-invalid="@(Model.Error.Length > 0 ? "true" : null)" aria-describedby="@(Model.Error.Length > 0 ? "e-range" : null)"></div>
+  <fieldset class="seg-radio"><legend class="visually-hidden">Period</legend>
+    @foreach (var k in Periods.Keys){<label><input type="radio" name="period" id="f-period-@k" value="@k" checked="@(k == Model.Period)"><span>@Periods.Label[k]</span></label>}
+  </fieldset>
+  <div class="filters">
+  <div class="field@(Model.Error.Length > 0 ? " has-error" : "")"><label for="f-from">From</label><input id="f-from" name="from" type="date" data-custom-for="f-period-custom" value="@Model.From" aria-invalid="@(Model.Error.Length > 0 ? "true" : null)" aria-describedby="@(Model.Error.Length > 0 ? "e-range" : null)"></div>
+  <div class="field@(Model.Error.Length > 0 ? " has-error" : "")"><label for="f-to">To</label><input id="f-to" name="to" type="date" data-custom-for="f-period-custom" value="@Model.To" aria-invalid="@(Model.Error.Length > 0 ? "true" : null)" aria-describedby="@(Model.Error.Length > 0 ? "e-range" : null)"></div>
   <div class="field"><label for="f-owner">Owner</label>
     <select id="f-owner" name="owner"><option value="">All I can see</option>@foreach (var t in Model.TeamOptions){<option value="@t.Value" selected="@(t.Value == Model.OwnerValue)">@t.Label</option>}@foreach (var o in Model.Owners){<option value="@o.Id" selected="@(o.Id == Model.OwnerValue)">@o.Label</option>}</select></div>
   <button type="submit" class="button secondary">Apply</button>
+  </div>
 </form>
 @if (Model.Error.Length > 0){<p class="field-error" id="e-range" role="alert">@Ui.Icon("error")@Model.Error Showing this quarter instead.</p>}
-<p class="muted" id="range-text">Close dates @Model.RangeText. Changing the dates switches the period to Custom. Amounts are in @Model.BaseCurrency at each opportunity's FX rate (see Settings &gt; FX rates).</p>
+<p class="muted range-text" id="range-text">Close dates @Model.RangeText. Changing the dates switches the period to Custom. Amounts are in @Model.BaseCurrency at each opportunity's FX rate (see Settings &gt; FX rates).</p>
 @if (Model.FxMissing)
 {
 <p class="flash-warn">@Ui.Ring("warning")Some opportunities are left out of the money charts because no FX rate exists. @if (Model.IsAdmin){<a href="/settings/fx">Add FX rates</a>}else{<text>Ask an administrator.</text>}</p>

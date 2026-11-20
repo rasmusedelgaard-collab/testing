@@ -9,7 +9,7 @@ else
 <h1>Visibility</h1>
 <partial name="_Flash" />
 <partial name="_ErrorSummary" model="Model.Summary" />
-<form method="post" action="/settings/visibility" asp-antiforgery="true" class="form">
+<form method="post" action="/settings/visibility" asp-antiforgery="true" class="form panel">
   <fieldset><legend>Who can see records</legend>
     <div class="radio-cards">
     <label class="radio-card"><input type="radio" name="mode" value="private" checked="@(Model.Mode == "private")"><span>Private: users see only the records they own.</span></label>

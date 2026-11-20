@@ -131,7 +131,7 @@ public sealed class VisualSnapshotTests : IDisposable
         for (var s = 0; s < 4; s++)
         {
             var opps = Data.Opportunities.Where(o => o.StageSlot == s).OrderBy(o => o.CloseDate).ToList();
-            var cards = opps.Take(5).Select(o => new DealCard(OppId(o), o.Name, AccountName(o.AccountKey), AccountId(o.AccountKey), F.Money(o.Amount, o.Currency), F.Date(Iso(o.CloseDate)), o.CloseDate < TodayDate, UserName(o.OwnerKey), "AAAAAAAAB9E=", false,
+            var cards = opps.Take(5).Select(o => new DealCard(OppId(o), o.Name, AccountName(o.AccountKey), AccountId(o.AccountKey), F.Money(o.Amount, o.Currency), NumberFormats.CompactMoney(o.Amount, o.Currency, "da-DK"), F.Date(Iso(o.CloseDate)), o.CloseDate < TodayDate, UserName(o.OwnerKey), "AAAAAAAAB9E=", false,
                 options.Select(x => x with { Current = x.StageId == Stages[s].Id }).ToList())).ToList();
             var total = opps.Sum(Dkk);
             columns.Add(new BoardColumn(Stages[s].Id, Stages[s].Name, Stages[s].Probability + " %", opps.Count, Short(total), Full(total), Short(total * Stages[s].Probability / 100m), Math.Round(total / maxTotal * 100m), [], cards, $"/opportunities?status=open&stage={Stages[s].Id}", opps.Count > 5));
@@ -199,6 +199,169 @@ public sealed class VisualSnapshotTests : IDisposable
     public async Task Sign_in_page()
     {
         var doc = await PageRenderHarness.RenderAsync(_f, "/Signin", PageRenderHarness.Model<SigninModel>(("ReturnTo", "/")), dumpSuffix: "v2-signin");
-        Assert.NotNull(doc.QuerySelector(".signin-brand img.logo-negative"));
+        Assert.NotNull(doc.QuerySelector(".signin-card img.logo-light"));
+    }
+
+    private static Crm.Web.Pages.Entity.IndexModel ListOf(string entity, IReadOnlyList<Row> rows, int total, string sortCol, string searchHint, List<FilterField> filters, string stageFilterLabel = "")
+    {
+        var def = EntityDefinitions.All[entity];
+        var q = new ListQuery("", 1, 25, def.DefaultSort, def.DefaultDir, new Dictionary<string, string>(), Today);
+        var columns = EntityViews.ColumnsFor(entity);
+        return PageRenderHarness.Model<Crm.Web.Pages.Entity.IndexModel>(("Def", def), ("Total", total), ("Q", q), ("IsFiltered", false), ("Columns", columns),
+            ("Heads", columns.Select(c => new Head(c.Label, c.Sort is null ? null : $"{def.Path}?sort=" + c.Sort, c.Sort == def.DefaultSort ? "ascending" : "none", c.Label is "Amount" or "Open pipeline")).ToList()),
+            ("RowActions", rows.Select(r => new RowAction(EntityViews.RecordName(entity, r), $"{def.Path}/{r.Int("Id")}/edit")).ToList()),
+            ("Rows", rows.Select(r => EntityViews.CellsFor(entity, r, F, Today, def.Path, Stages)).ToList()),
+            ("Filters", filters), ("ActiveFilters", new List<(string, string)>()), ("PageNo", 1), ("PageCount", (total + 24) / 25), ("NextHref", def.Path + "?page=2"), ("From", 1), ("To", rows.Count));
+    }
+
+    private static List<FilterField> Filters(params (string Name, string Label, string[] Options)[] f) =>
+        f.Select(x => new FilterField(x.Name, x.Label, x.Options.Select((o, i) => new SelectOption(i == 0 ? "" : o, o)).ToList(), "")).ToList();
+
+    [Fact]
+    public async Task Opportunities_list_with_a_full_page_of_rows()
+    {
+        var rows = Data.Opportunities.Where(o => o.IsOpen).OrderBy(o => o.CloseDate).Take(14).Select(OppRow).ToList();
+        var model = ListOf("opportunities", rows, 66, "close", "Search name, account...", Filters(("status", "Status", ["Open", "Won", "Lost"]), ("stage", "Stage", ["All", "Qualification", "Needs analysis"]), ("owner", "Owner", ["All", "Lars Eriksen"])));
+        var doc = await PageRenderHarness.RenderAsync(_f, "/Entity/Index", model, PageRenderHarness.User(CrmRole.Manager, "Lars Eriksen"), new Dictionary<string, object?> { ["ActiveNav"] = "opportunities", ["Title"] = "Opportunities" }, dumpSuffix: "v2-opps");
+        Assert.Equal(14, doc.QuerySelectorAll("table.data tbody tr").Length);
+        Assert.NotNull(doc.QuerySelector(".filters-form .search-field svg.icon"));
+        Assert.Equal(4, doc.QuerySelectorAll(".filters .field:not(.search-field)").Length); // three filters and the page size
+        Assert.NotNull(doc.QuerySelector("nav.pagination .pager"));
+    }
+
+    [Fact]
+    public async Task Activities_list_with_a_full_page_of_rows()
+    {
+        var rows = Data.Activities.Where(a => !a.IsDone && a.Type != "note").Take(14).Select((a, i) => ActivityRow(a with { DueDate = TodayDate.AddDays(i - 3) }, 500 + i)).ToList();
+        var model = ListOf("activities", rows, 212, "due", "Search subject...", Filters(("status", "Status", ["All", "Open", "Done"]), ("type", "Type", ["All", "Call", "Meeting", "Task", "Note"]), ("owner", "Owner", ["All", "Lars Eriksen"])));
+        var doc = await PageRenderHarness.RenderAsync(_f, "/Entity/Index", model, PageRenderHarness.User(CrmRole.Manager, "Lars Eriksen"), new Dictionary<string, object?> { ["ActiveNav"] = "activities", ["Title"] = "Activities" }, dumpSuffix: "v2-acts");
+        Assert.Equal(14, doc.QuerySelectorAll("table.data tbody tr").Length);
+    }
+
+    [Fact]
+    public async Task Account_record_with_tabs_facts_and_a_related_table()
+    {
+        var acc = Data.Accounts.First(a => Data.Opportunities.Count(o => o.AccountKey == a.Key && o.IsOpen) >= 3);
+        var id = AccountId(acc.Key);
+        var opps = Data.Opportunities.Where(o => o.AccountKey == acc.Key).OrderBy(o => !o.IsOpen).Take(5).ToList();
+        var row = R(("Id", id), ("Name", acc.Name), ("IndustryLabel", acc.Industry ?? ""), ("IndustryCode", IndustryCode(acc.Industry)), ("Website", "https://example.test"), ("City", acc.City), ("CountryCode", "DK"), ("Street", "Industrivej 12"), ("PostalCode", "6700"), ("OwnerId", 7), ("OwnerName", UserName(acc.OwnerKey)), ("TeamId", 3));
+        var tab = new TabTable("Opportunities", ["Name", "Stage", "Amount", "Close date"],
+            opps.Select(o => (IReadOnlyList<Cell>)[new Cell(o.Name, $"/opportunities/{OppId(o)}", Role: "name"), new Cell(Stages[Math.Min(o.StageSlot, 5)].Name, Kind: "stage", Aux: Stages[Math.Min(o.StageSlot, 5)].Type, N: o.StageSlot + 1, Of: 4, Role: "k"), new Cell(F.Money(o.Amount, o.Currency), Right: true, Role: "k"), new Cell(F.Date(Iso(o.CloseDate)), Role: "k")]).ToList(), $"/opportunities/new?accountId={id}", "New opportunity");
+        var def = EntityDefinitions.All["accounts"];
+        var model = PageRenderHarness.Model<DetailModel>(("Def", def), ("Row", row), ("RecordName", acc.Name), ("Details", EntityViews.DetailRows("accounts", row, F)), ("CanDelete", true), ("CreatedAt", "02.10.2026 10:00"), ("CreatedBy", UserName(acc.OwnerKey)), ("Edited", false),
+            ("LogHref", $"/activities/new?accountId={id}"), ("SegmentCode", IndustryCode(acc.Industry)), ("Timeline", new List<TimelineGroup>()),
+            ("Tabs", new List<TabInfo> { new("activity", "Activity", 12, $"/accounts/{id}?tab=activity", false), new("contacts", "Contacts", 4, $"/accounts/{id}?tab=contacts", false), new("opportunities", "Opportunities", opps.Count, $"/accounts/{id}?tab=opportunities", true) }), ("TabTable", tab),
+            ("Facts", new List<Fact> { new("Open opportunities", opps.Count(o => o.IsOpen).ToString(CultureInfo.InvariantCulture)), new("Open pipeline", Short(opps.Where(o => o.IsOpen).Sum(Dkk)), Full(opps.Where(o => o.IsOpen).Sum(Dkk))), new("Contacts", "4"), new("Last activity", "5 days ago") }));
+        var doc = await PageRenderHarness.RenderAsync(_f, "/Entity/Detail", model, PageRenderHarness.User(CrmRole.Manager, "Lars Eriksen"), new Dictionary<string, object?> { ["ActiveNav"] = "accounts", ["Title"] = acc.Name }, dumpSuffix: "v2-account");
+        Assert.NotNull(doc.QuerySelector(".tabs a[aria-current=page]"));
+        Assert.NotNull(doc.QuerySelector("dl.details"));
+    }
+
+    [Fact]
+    public async Task Contact_record()
+    {
+        var c = Data.Contacts.First();
+        var row = R(("Id", 5), ("FirstName", c.FirstName ?? ""), ("LastName", c.LastName), ("AccountId", AccountId(c.AccountKey!)), ("AccountName", AccountName(c.AccountKey!)), ("JobTitle", c.JobTitle), ("Email", "contact@example.test"), ("Phone", "+45 12 34 56 78"), ("OwnerId", 7), ("OwnerName", UserName("lars")), ("TeamId", 3));
+        var def = EntityDefinitions.All["contacts"];
+        var model = PageRenderHarness.Model<DetailModel>(("Def", def), ("Row", row), ("RecordName", EntityViews.RecordName("contacts", row)), ("Details", EntityViews.DetailRows("contacts", row, F)), ("CanDelete", true), ("CreatedAt", "02.10.2026 10:00"), ("CreatedBy", "Lars Eriksen"), ("Edited", false),
+            ("LogHref", "/activities/new?contactId=5"), ("Timeline", new List<TimelineGroup>()), ("Tabs", new List<TabInfo> { new("activity", "Activity", 0, "/contacts/5?tab=activity", true) }), ("ShowActivityTab", true), ("Facts", new List<Fact> { new("Open opportunities", "2"), new("Last activity", "5 days ago") }));
+        var doc = await PageRenderHarness.RenderAsync(_f, "/Entity/Detail", model, PageRenderHarness.User(CrmRole.Manager, "Lars Eriksen"), new Dictionary<string, object?> { ["ActiveNav"] = "contacts" }, dumpSuffix: "v2-contact");
+        Assert.NotNull(doc.QuerySelector(".page-header .avatar"));
+    }
+
+    [Fact]
+    public async Task Opportunity_edit_form_with_an_inline_error()
+    {
+        var opp = Data.Opportunities.First(o => o.StageSlot == 2 && o.Amount > 200_000m);
+        var opt = (string v, string l, bool sel) => new SelectOption(v, l, sel);
+        var fields = new List<FormField>
+        {
+            new("Name", "Name (required)", "text", opp.Name, Required: true),
+            new("AccountId", "Account (required)", "select", "1", Required: true, Options: [opt("1", AccountName(opp.AccountKey), true), opt("2", "Another account A/S", false)]),
+            new("PrimaryContactId", "Primary contact", "select", "", Options: [opt("", "— none —", true), opt("5", "Katrine Bruun", false)]),
+            new("StageId", "Stage (required)", "select", "3", Required: true, Options: Stages.Take(4).Select(x => opt(x.Id.ToString(CultureInfo.InvariantCulture), x.Name, x.Id == 3)).ToList()),
+            new("Amount", "Amount (required)", "text", "1498000", Error: "Enter an amount, for example 12000.", Required: true, InputMode: "decimal"),
+            new("CurrencyCode", "Currency (required)", "select", "DKK", Required: true, Options: [opt("DKK", "DKK", true), opt("EUR", "EUR", false)]),
+            new("CloseDate", "Close date (required)", "date", "2027-03-29", Required: true),
+            new("LeadSourceValueId", "Lead source", "select", "1", Options: [opt("", "— none —", false), opt("1", "Trade show", true)]),
+            new("OwnerId", "Owner (required)", "select", "7", Required: true, Options: [opt("7", "Lars Eriksen", true)]),
+        };
+        var page = new FormPage($"Edit {opp.Name}", $"/opportunities/{OppId(opp)}", $"/opportunities/{OppId(opp)}", fields, [("Amount", "Enter an amount, for example 12000.")], "AAAAAAAAB9E=", "opportunities");
+        var model = PageRenderHarness.Model<DetailModel>(("Form", page));
+        var doc = await PageRenderHarness.RenderAsync(_f, "/Entity/Detail", model, PageRenderHarness.User(CrmRole.Manager, "Lars Eriksen"), new Dictionary<string, object?> { ["ActiveNav"] = "opportunities", ["Title"] = "Edit" }, dumpSuffix: "v2-form");
+        Assert.Equal(3, doc.QuerySelectorAll(".form-group").Length);
+        Assert.NotNull(doc.QuerySelector(".form-group .has-error .field-error"));
+    }
+
+    [Fact]
+    public async Task Analytics_with_five_chart_cards()
+    {
+        string Json(string kind, string vk, string[] labels, double[] data) => System.Text.Json.JsonSerializer.Serialize(new { kind, labels, data, valueKind = vk, seriesLabel = "Series", locale = "da-DK", currency = "DKK" });
+        ChartView Chart(string id, string title, string kind, string vk, string take, string[] labels, double[] data, string[] cols)
+        {
+            var rows = labels.Select((l, i) => new Crm.Web.Services.ChartTableRow([l, vk == "money" ? F.Money((decimal)data[i], "DKK") : vk == "percent" ? data[i] + " %" : data[i].ToString(CultureInfo.InvariantCulture)])).ToList();
+            return new ChartView(new Crm.Web.Services.ChartVm(id, title, kind, vk, "Series", take, [], labels, data.Select(x => (decimal)x).ToList(), cols, rows, title + ". " + take, false), Json(kind, vk, labels, data));
+        }
+        var perStage = Enumerable.Range(0, 4).Select(st => (double)Data.Opportunities.Where(o => o.IsOpen && o.StageSlot == st).Sum(Dkk)).ToArray();
+        var charts = new List<ChartView>
+        {
+            Chart("pipeline", "Open pipeline by stage", "bar", "money", "Qualification holds the most value.", ["Qualification", "Needs analysis", "Proposal", "Negotiation"], perStage, ["Stage", "Amount"]),
+            Chart("won", "Won revenue by month", "line", "money", "Highest in September 2026.", ["Jul 2026", "Aug 2026", "Sep 2026", "Oct 2026", "Nov 2026"], [2100000, 3400000, 5200000, 3900000, 4600000], ["Month", "Amount"]),
+            Chart("winrate", "Win rate by owner", "hbar", "percent", "Anna Kowalska wins 46 % of closed deals.", ["Anna Kowalska", "Lars Eriksen", "Jonas Weber", "Lise Bech"], [46, 38, 31, 27], ["Owner", "Win rate"]),
+            Chart("acts", "Activities by type", "bar", "count", "Calls are the most common activity.", ["Call", "Meeting", "Task", "Note"], [64, 31, 48, 22], ["Type", "Activities"]),
+            Chart("lead", "Opportunities by lead source", "hbar", "count", "Trade shows bring the most opportunities.", ["Trade show", "Referral", "Website", "Outbound"], [28, 19, 14, 9], ["Source", "Opportunities"]),
+        };
+        var model = PageRenderHarness.Model<Crm.Web.Pages.Dashboard.AnalyticsModel>(("Period", "this-quarter"), ("From", "2026-10-01"), ("To", "2026-12-31"), ("RangeText", "01.10.2026 – 31.12.2026"), ("OwnerValue", ""), ("TeamOptions", new List<(string, string)> { ("team:3", "Team: Wind") }),
+            ("Owners", new List<(string, string)> { ("7", "Lars Eriksen") }), ("Charts", charts), ("BaseCurrency", "DKK"), ("Error", ""));
+        var doc = await PageRenderHarness.RenderAsync(_f, "/Dashboard/Analytics", model, PageRenderHarness.User(CrmRole.Manager, "Lars Eriksen"), new Dictionary<string, object?> { ["ActiveNav"] = "analytics", ["Title"] = "Analytics", ["Scripts"] = new[] { "/vendor/chart.umd.js", "/js/charts.js" } }, dumpSuffix: "v2-analytics");
+        Assert.Equal(7, doc.QuerySelectorAll("fieldset.seg-radio input[type=radio]").Length);
+        Assert.Equal("this-quarter", doc.QuerySelector("fieldset.seg-radio input:checked")!.GetAttribute("value"));
+        Assert.Equal("f-period-custom", doc.QuerySelector("#f-from")!.GetAttribute("data-custom-for"));
+        Assert.Equal(5, doc.QuerySelectorAll("figure.chart").Length);
+    }
+
+    [Fact]
+    public async Task Settings_general_and_fx_pages()
+    {
+        var general = PageRenderHarness.Model<Crm.Web.Pages.Settings.GeneralModel>(("AppName", "CRM"), ("AccentColor", "#1A66CC"), ("SettingsNav", "general"));
+        var doc = await PageRenderHarness.RenderAsync(_f, "/Settings/General", general, PageRenderHarness.User(CrmRole.Admin, "Mette Holm"), new Dictionary<string, object?> { ["SettingsNav"] = "general", ["ActiveNav"] = "settings", ["Title"] = "General" }, dumpSuffix: "v2-general");
+        Assert.NotNull(doc.QuerySelector(".settings-content form.panel"));
+        var rates = new List<Crm.Web.Pages.Settings.FxRowVm>();
+        foreach (var (cur, rate) in new[] { ("EUR", 7.46m), ("SEK", 0.685m), ("USD", 6.85m) })
+        {
+            for (var m = 0; m < 3; m++) { rates.Add(new(new Crm.Web.Data.FxRateRec(rates.Count + 1, cur, $"2026-{11 - m:00}", rate - m * 0.01m, "Mette Holm", "2026-11-01T08:00:00.000Z"), $"{(m == 0 ? "Nov" : m == 1 ? "Oct" : "Sep")} 2026", (rate - m * 0.01m).ToString("0.0000", CultureInfo.GetCultureInfo("da-DK")), $"0{m + 1}.11.2026 08:00")); }
+        }
+        var fx = PageRenderHarness.Model<Crm.Web.Pages.Settings.FxModel>(("Base", "DKK"), ("Currencies", new List<string> { "EUR", "SEK", "USD" }), ("Years", new List<string> { "2026" }), ("CurMonth", "2026-11"), ("CurLabel", "Nov 2026"), ("Rows", rates), ("Missing", new List<string> { "PLN" }), ("Errors", new Dictionary<string, string>()), ("MonthValue", "2026-11"));
+        var fxDoc = await PageRenderHarness.RenderAsync(_f, "/Settings/Fx", fx, PageRenderHarness.User(CrmRole.Admin, "Mette Holm"), new Dictionary<string, object?> { ["SettingsNav"] = "fx", ["ActiveNav"] = "settings", ["Title"] = "FX rates" }, dumpSuffix: "v2-fx");
+        Assert.NotNull(fxDoc.QuerySelector("table.data"));
+    }
+
+    [Fact]
+    public async Task Test_user_picker_and_not_found_page()
+    {
+        var users = Data.Users.Take(5).Select((u, i) => new Crm.Web.Data.TestUserRow(i + 1, "00000000-0000-4000-8000-00000000a00" + i, u.Name, null, i == 0 ? CrmRole.Admin : i < 3 ? CrmRole.Manager : CrmRole.User, 3, i % 2 == 0 ? "Wind" : "Building materials")).ToList();
+        var picker = PageRenderHarness.Model<Crm.Web.Pages.Auth.TestLoginModel>(("ShowPicker", true), ("Users", users), ("ReturnTo", "/"));
+        var doc = await PageRenderHarness.RenderAsync(_f, "/Auth/TestLogin", picker, dumpSuffix: "v2-picker");
+        Assert.Equal(5, doc.QuerySelectorAll(".signin-card .user-cards .user-card").Length);
+        Assert.Equal(5, doc.QuerySelectorAll(".user-card .avatar").Length);
+        Assert.NotNull(doc.QuerySelector(".user-card input[type=radio][checked]"));
+        var notFound = PageRenderHarness.Model<ErrorModel>(("Heading", "We can't find that page or record."), ("Message", "It may have been deleted, or you may not have access."), ("Reference", "7K3F9Q"), ("Status", 404), ("PageTitle", "Not found"));
+        var nf = await PageRenderHarness.RenderAsync(_f, "/Errors/Error", notFound, PageRenderHarness.User(CrmRole.Manager, "Lars Eriksen"), dumpSuffix: "v2-404");
+        Assert.NotNull(nf.QuerySelector(".system-block h1"));
+    }
+
+    [Fact]
+    public async Task Search_results_page()
+    {
+        var accounts = Data.Accounts.Where(a => a.Name.Contains("Nord", StringComparison.OrdinalIgnoreCase)).Take(3).ToList();
+        var opps = Data.Opportunities.Where(o => o.IsOpen).Take(4).ToList();
+        var groups = new List<SearchGroup>
+        {
+            new("accounts", "Accounts", "account", accounts.Count, accounts.Select(a => new SearchHit(a.Name, $"/accounts/{AccountId(a.Key)}", a.City + ", " + (a.Industry ?? ""), UserName(a.OwnerKey), Icon: "accounts")).ToList(), "/accounts?q=nord"),
+            new("opportunities", "Opportunities", "opportunity", 9, opps.Select(o => new SearchHit(o.Name, $"/opportunities/{OppId(o)}", F.Money(o.Amount, o.Currency) + " · " + AccountName(o.AccountKey), UserName(o.OwnerKey), Stages[Math.Min(o.StageSlot, 5)].Name, "open", o.StageSlot + 1, 4, "opportunities")).ToList(), "/opportunities?q=nord"),
+        };
+        var doc = await PageRenderHarness.RenderAsync(_f, "/Search", PageRenderHarness.Model<SearchModel>(("Text", "nord"), ("Groups", groups), ("TotalResults", 12)), PageRenderHarness.User(CrmRole.Manager, "Lars Eriksen"), new Dictionary<string, object?> { ["ActiveNav"] = "" }, dumpSuffix: "v2-search");
+        Assert.Equal(2, doc.QuerySelectorAll(".result-group.panel").Length);
+        Assert.NotNull(doc.QuerySelector(".search-page .search-field svg.icon"));
     }
 }

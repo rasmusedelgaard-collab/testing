@@ -6,20 +6,22 @@
     var branding = await Branding.GetAsync(Context.RequestAborted);
 }
 <div class="signin">
-  <div class="signin-brand">
+  <div class="signin-card">
+    <div class="signin-logo">
 @if (branding.LogoSha is not null)
 {
-    <div class="logo-plate"><img class="logo" src="/branding/logo?v=@branding.LogoSha[..12]" alt="@branding.AppName"></div>
+      <img class="logo" src="/branding/logo?v=@branding.LogoSha[..12]" alt="@branding.AppName">
 }
 else
 {
-    <img class="logo-negative" src="/img/brand/dafa-logo-negative.svg" alt="DAFA" width="160" height="55">
-    <p class="tagline">Close to the markets – close to you</p>
-    <span class="ornament" aria-hidden="true"><img src="/img/brand/dafa-rings-white.svg" alt="" width="300" height="300"></span>
+      <img class="logo-full logo-light" src="/img/brand/dafa-logo-softblue.svg" alt="DAFA" width="160" height="55">
+      <img class="logo-full logo-dark" src="/img/brand/dafa-logo-negative.svg" alt="" width="160" height="55">
+      <p class="tagline">Close to the markets – close to you</p>
 }
-  </div>
-  <div class="signin-form">
+    </div>
+    <div class="signin-form">
 @RenderBody()
-    <p class="fine copyright">©@Clock.GetUtcNow().Year DAFA A/S</p>
+    </div>
   </div>
+  <p class="fine copyright">©@Clock.GetUtcNow().Year DAFA A/S</p>
 </div>

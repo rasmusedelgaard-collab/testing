@@ -3,7 +3,7 @@
 <h1>General</h1>
 <partial name="_Flash" />
 <partial name="_ErrorSummary" model="Model.Summary" />
-<form method="post" action="/settings/general" asp-antiforgery="true" class="form" novalidate>
+<form method="post" action="/settings/general" asp-antiforgery="true" class="form panel" novalidate>
   <div class="field@(Model.Errors.ContainsKey("appName") ? " has-error" : "")">
     <label for="f-appName">CRM name (required)</label>
     @if (Model.Errors.TryGetValue("appName", out var e1)){<span class="field-error" id="e-appName">@Ui.Icon("error")@e1</span>}
@@ -25,7 +25,8 @@
     <div class="preview-sample dark"><strong>Dark</strong><span class="sample-button">Primary button</span><span class="sample-link">A link</span></div>
   </div>
 </section>
-<h2>Logo</h2>
+<section class="panel" aria-labelledby="logo-h">
+<h2 id="logo-h">Logo</h2>
 @if (Model.LogoSha is not null){<p><img class="logo-preview" src="/branding/logo?v=@Model.LogoSha[..12]" alt="Current logo" height="48"></p>}else{<p class="muted">No logo uploaded.</p>}
 <form method="post" action="/settings/general/logo" enctype="multipart/form-data" asp-antiforgery="true" class="form">
   <div class="field@(Model.Errors.ContainsKey("logo") ? " has-error" : "")">
@@ -35,3 +36,4 @@
   </div>
   <div class="actions"><button type="submit" class="button secondary">Upload logo</button></div>
 </form>
+</section>

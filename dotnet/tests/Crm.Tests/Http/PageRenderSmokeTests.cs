@@ -105,6 +105,10 @@ public sealed class PageRenderSmokeTests : IDisposable
         Assert.Equal("Board", doc.QuerySelector(".view-switch a:nth-child(2)")!.TextContent);
         Assert.Equal("ascending", doc.QuerySelector("th[aria-sort=ascending]")!.GetAttribute("aria-sort"));
         Assert.Contains("Showing 1–25 of 128", doc.QuerySelector("nav.pagination")!.TextContent, StringComparison.Ordinal);
+        Assert.NotNull(doc.QuerySelector("form.filters-form .search-field svg.icon")); // round 4: search field with its icon, filters as labelled pills
+        Assert.True(doc.QuerySelector(".search-field label")!.ClassList.Contains("visually-hidden"));
+        Assert.NotNull(doc.QuerySelector("nav.pagination .pager"));
+        Assert.NotNull(doc.QuerySelector("td.c-name.rec-link a[title]"));
         Assert.Equal("page", doc.QuerySelector("a.nav-item[href='/opportunities']")!.GetAttribute("aria-current"));
         Assert.Contains("128 opportunities found", doc.QuerySelector("p[role=status]")!.TextContent, StringComparison.Ordinal);
     }
@@ -219,6 +223,7 @@ public sealed class PageRenderSmokeTests : IDisposable
         var confirm = PageRenderHarness.Model<DetailModel>(("Def", EntityDefinitions.All["opportunities"]), ("Confirm", new ConfirmPage("Mark as won", "Mark Deal as won? The stage changes to Closed won. The close date will be set to today.", "/opportunities/7/won", [("rowVer", "AAAAAAAAB9E="), ("confirm", "1")], "Mark as won", "/opportunities/7", "Deal")));
         var doc = await PageRenderHarness.RenderAsync(_f, "/Entity/Detail", confirm, PageRenderHarness.User());
         Assert.Contains("The close date will be set to today.", doc.QuerySelector("main p")!.TextContent, StringComparison.Ordinal);
+        Assert.NotNull(doc.QuerySelector("main > .breadcrumb + .confirm.panel h1")); // round 4: the confirm page is a card under its breadcrumb
         var del = PageRenderHarness.Model<DeleteModel>(("Def", EntityDefinitions.All["accounts"]), ("Id", 3), ("RecordName", "Nordvind"), ("Notice", "This also removes the link."));
         var dDoc = await PageRenderHarness.RenderAsync(_f, "/Entity/Delete", del, PageRenderHarness.User());
         Assert.Equal("Delete Nordvind?", dDoc.QuerySelector("h1")!.TextContent);
@@ -230,8 +235,8 @@ public sealed class PageRenderSmokeTests : IDisposable
     public async Task Pipeline_board_renders_columns_cards_move_forms_and_empty_states()
     {
         var options = new List<MoveOption> { new(1, "Qualification (current)", true), new(2, "Needs analysis", false) };
-        var card = new DealCard(7, "Blade root seals 2027", "Nordvind Rotor A/S", 3, "EUR 240.000,00", "15.12.2026", true, "Anna Holm", "AAAAAAAAB9E=", true, options);
-        var cols = new List<BoardColumn> { new(1, "Qualification", "10 %", 25, "6,0 mio. kr.", "DKK 6.000.000,00", "0,6 mio. kr.", 83, ["Uses latest rate for 1 currency"], [card], "/opportunities?status=open&stage=1", true), new(2, "Needs analysis", "25 %", 0, "0 kr.", "DKK 0,00", "0 kr.", 0, [], [], "/x", false) };
+        var card = new DealCard(7, "Blade root seals 2027", "Nordvind Rotor A/S", 3, "EUR 240.000,00", "EUR 240 t", "15.12.2026", true, "Anna Holm", "AAAAAAAAB9E=", true, options);
+        var cols = new List<BoardColumn> { new(1, "Qualification", "10 %", 25, "6,0 mio. kr.", "DKK 6.000.000,00", "0,6 mio. kr.", 83, ["Uses latest rate for 1 currency"], [card, card with { Id = 8, Moved = false, PastClose = false }], "/opportunities?status=open&stage=1", true), new(2, "Needs analysis", "25 %", 0, "0 kr.", "DKK 0,00", "0 kr.", 0, [], [], "/x", false) };
         var model = PageRenderHarness.Model<Crm.Web.Pages.Pipeline.IndexModel>(("Columns", cols), ("Filters", new List<FilterField> { new("owner", "Owner", [new SelectOption("", "All I can see"), new SelectOption("7", "Anna")], "") }),
             ("TotalShort", "24,1 mio. kr."), ("TotalFull", "DKK 24.100.000,00"), ("TotalCount", 25), ("Notes", new[] { "Uses latest rate for 1 currency" }));
         var doc = await PageRenderHarness.RenderAsync(_f, "/Pipeline/Index", model, PageRenderHarness.User(), new Dictionary<string, object?> { ["ActiveNav"] = "pipeline" }, dumpSuffix: "board");
@@ -240,11 +245,24 @@ public sealed class PageRenderSmokeTests : IDisposable
         Assert.Equal("0", doc.QuerySelector(".board")!.GetAttribute("tabindex"));
         Assert.Equal("1", doc.QuerySelector("section.board-col")!.GetAttribute("data-stage"));
         Assert.Equal("opp-7", doc.QuerySelector("li.deal-card")!.Id);
-        Assert.NotNull(doc.QuerySelector("a.deal-name[data-autofocus]"));
+        Assert.NotNull(doc.QuerySelector("#opp-7 a.deal-name[data-autofocus]"));
+        Assert.Null(doc.QuerySelector("#opp-8 a.deal-name[data-autofocus]")); // only the moved card takes focus, not every card on every load
         Assert.Equal("/opportunities/7/stage", doc.QuerySelector("form.move-form")!.GetAttribute("action"));
         Assert.Equal("Move to Blade root seals 2027", doc.QuerySelector("form.move-form label")!.TextContent);
         Assert.Equal("Move Blade root seals 2027", doc.QuerySelector("form.move-form button")!.TextContent);
         Assert.Equal("Qualification (current)", doc.QuerySelector("form.move-form option[selected]")!.TextContent);
+        // round 4 card: name, account (ellipsis with title), compact amount (full amount in the title), date chip (late), owner avatar; the move control is one row with a hidden label
+        Assert.Equal("Blade root seals 2027", doc.QuerySelector("#opp-7 a.deal-name")!.GetAttribute("title"));
+        Assert.Equal("Nordvind Rotor A/S", doc.QuerySelector("#opp-7 .deal-account a")!.GetAttribute("title"));
+        Assert.Equal("EUR 240 t", doc.QuerySelector("#opp-7 .deal-amount")!.TextContent);
+        Assert.Equal("EUR 240.000,00", doc.QuerySelector("#opp-7 .deal-amount")!.GetAttribute("title"));
+        Assert.Contains("Past close date", doc.QuerySelector("#opp-7 .deal-date.late")!.TextContent, StringComparison.Ordinal);
+        Assert.NotNull(doc.QuerySelector("#opp-7 .deal-owner .avatar"));
+        Assert.Null(doc.QuerySelector("#opp-8 .deal-date.late"));
+        Assert.True(doc.QuerySelector("form.move-form label")!.ClassList.Contains("visually-hidden"));
+        Assert.Equal(["col-total", "col-weighted", "col-count"], doc.QuerySelector("section.board-col .col-stats")!.Children.Select(c => c.ClassName!).ToList());
+        Assert.Equal(2, doc.QuerySelectorAll(".stage-jump li a").Length);
+        Assert.NotNull(doc.QuerySelector("form.board-filters .filters select#f-owner"));
         Assert.NotNull(doc.QuerySelector("input[name=rowVer]"));
         Assert.Equal("Show all 25 in Qualification", doc.QuerySelector("a.show-all")!.TextContent);
         Assert.Contains("No opportunities in this stage.", doc.QuerySelectorAll(".board-col")[1].TextContent, StringComparison.Ordinal);

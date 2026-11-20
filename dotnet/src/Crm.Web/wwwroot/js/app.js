@@ -192,11 +192,12 @@
     target.focus();
   }
 
-  // ---- Typing a date in a range filter switches the linked period select to "Custom" ----
+  // ---- Typing a date in a range filter switches the linked period control (select or radio) to "Custom" ----
   document.querySelectorAll('input[data-custom-for]').forEach(function (input) {
     input.addEventListener('change', function () {
-      var select = document.getElementById(input.getAttribute('data-custom-for'));
-      if (select) select.value = 'custom';
+      var target = document.getElementById(input.getAttribute('data-custom-for'));
+      if (!target) return;
+      if (target.type === 'radio') target.checked = true; else target.value = 'custom';
     });
   });
 

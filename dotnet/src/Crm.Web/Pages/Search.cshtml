@@ -3,7 +3,7 @@
 <div class="page-header"><div class="titles"><h1>Search</h1></div></div>
 <partial name="_Flash" />
 <form method="get" action="/search" class="search-page" role="search" aria-label="Search">
-  <div class="field"><label for="search-q">Search all records</label><input id="search-q" name="q" type="search" value="@Model.Text" maxlength="100" autocomplete="off"></div>
+  <div class="field search-field"><label class="visually-hidden" for="search-q">Search all records</label>@Ui.Icon("search")<input id="search-q" name="q" type="search" value="@Model.Text" maxlength="100" autocomplete="off"></div>
   <button type="submit" class="button primary">@Ui.Icon("search") Search</button>
 </form>
 @if (Model.Text.Length == 0)
@@ -20,14 +20,14 @@ else
 }
 @foreach (var g in Model.Groups)
 {
-<section class="result-group" aria-labelledby="rg-@g.Key">
-  <div class="panel-head"><h2 id="rg-@g.Key">@g.Plural (@g.Total)</h2>@if (g.Total > g.Hits.Count){<p><a href="@g.SeeAllHref">See all @g.Total @g.Plural.ToLowerInvariant()</a></p>}</div>
+<section class="result-group panel" aria-labelledby="rg-@g.Key">
+  <div class="panel-head"><h2 id="rg-@g.Key">@g.Plural (@g.Total)</h2>@if (g.Total > g.Hits.Count){<p><a class="more-link" href="@g.SeeAllHref">See all @g.Total @g.Plural.ToLowerInvariant()</a></p>}</div>
   <ul class="result-list">
   @foreach (var h in g.Hits)
   {
     <li>
       @if (h.Icon.Length > 0){@Ui.Ring(h.Icon, "r24")}
-      <a href="@h.Href"><strong>@h.Name</strong></a>
+      <a class="hit-name" href="@h.Href" title="@h.Name">@h.Name</a>
       @if (h.StageName.Length > 0){@Ui.StageChip(h.StageName, h.StageType, h.StageIndex, h.StageCount)}
       @if (h.Detail.Length > 0){<span class="muted">@h.Detail</span>}
       @if (h.Owner.Length > 0){@Ui.Owner(h.Owner)}

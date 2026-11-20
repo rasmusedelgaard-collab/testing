@@ -1,5 +1,5 @@
 @model Crm.Web.Pages.Settings.ConfirmVm
-<div class="confirm">
+<div class="confirm panel">
 <h1>@Model.Title</h1>
 <div class="alert @(Model.Danger ? "error" : "warn")">@Ui.Ring(Model.Danger ? "error" : "warning")<p>@Model.Message</p></div>
 <form method="post" action="@Model.Action" asp-antiforgery="true">

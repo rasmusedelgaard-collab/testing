@@ -9,7 +9,7 @@ namespace Crm.Web.Pages.Pipeline;
 
 public sealed record MoveOption(int StageId, string Label, bool Current);
 
-public sealed record DealCard(int Id, string Name, string Account, int AccountId, string Money, string CloseDate, bool PastClose, string Owner, string RowVer, bool Moved, IReadOnlyList<MoveOption> Options);
+public sealed record DealCard(int Id, string Name, string Account, int AccountId, string Money, string MoneyShort, string CloseDate, bool PastClose, string Owner, string RowVer, bool Moved, IReadOnlyList<MoveOption> Options);
 
 public sealed record BoardColumn(int StageId, string Name, string Probability, int Count, string TotalShort, string TotalFull, string WeightedShort, decimal Share, IReadOnlyList<string> Notes, IReadOnlyList<DealCard> Cards, string AllHref, bool ShowAll);
 
@@ -85,7 +85,7 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
         {
             var (rows, total) = data.lists[x.Stage.Id];
             var options = openStages.Select(o => new MoveOption(o.Id, o.Id == x.Stage.Id ? $"{o.Name} (current)" : o.Name, o.Id == x.Stage.Id)).ToList();
-            var cards = rows.Select(r => new DealCard(r.Int("Id"), r.S("Name"), r.S("AccountName"), r.Int("AccountId"), f.Money(r.Dec("Amount"), r.S("CurrencyCode")), f.Date(r.S("CloseDate")),
+            var cards = rows.Select(r => new DealCard(r.Int("Id"), r.S("Name"), r.S("AccountName"), r.Int("AccountId"), f.Money(r.Dec("Amount"), r.S("CurrencyCode")), NumberFormats.CompactMoney(r.Dec("Amount"), r.S("CurrencyCode"), set.LocaleCode), f.Date(r.S("CloseDate")),
                 string.CompareOrdinal(r.S("CloseDate"), data.today) < 0, r.S("OwnerName"), r.S("RowVer"), r.Int("Id") == movedId, options)).ToList();
             var notes = new[] { Converter.ExclusionNote(x.Total), Converter.FallbackNote(x.Total) }.Where(n => n.Length > 0).ToList();
             return new BoardColumn(x.Stage.Id, x.Stage.Name, NumberFormats.Percent(x.Stage.Probability / 100m, set.LocaleCode), x.Count,

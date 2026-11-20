@@ -79,13 +79,15 @@ public sealed class RedesignNoSqlTests : IDisposable
     }
 
     [Fact]
-    public async Task Signin_uses_the_split_brand_layout_without_the_app_shell()
+    public async Task Signin_is_a_centred_card_with_the_recoloured_logo_without_the_app_shell()
     {
         var doc = await HttpHelpers.ParseAsync(await HttpHelpers.NewClient(_f).GetAsync("/signin"));
         Assert.Null(doc.QuerySelector("nav.sidebar"));
         Assert.Null(doc.QuerySelector("header.topbar"));
-        Assert.Contains("Close to the markets – close to you", doc.QuerySelector(".signin-brand .tagline")!.TextContent, StringComparison.Ordinal);
-        Assert.Equal("/img/brand/dafa-logo-negative.svg", doc.QuerySelector(".signin-brand img.logo-negative")!.GetAttribute("src"));
+        Assert.Contains("Close to the markets – close to you", doc.QuerySelector(".signin > .signin-card .tagline")!.TextContent, StringComparison.Ordinal);
+        Assert.Equal("/img/brand/dafa-logo-softblue.svg", doc.QuerySelector(".signin-card img.logo-light")!.GetAttribute("src"));
+        Assert.Equal("/img/brand/dafa-logo-negative.svg", doc.QuerySelector(".signin-card img.logo-dark")!.GetAttribute("src"));
+        Assert.Null(doc.QuerySelector(".signin-brand"));
         Assert.Equal("Sign in", doc.QuerySelector("h1")!.TextContent);
         Assert.NotNull(doc.QuerySelector("main#main"));
         Assert.StartsWith("©", doc.QuerySelector(".copyright")!.TextContent, StringComparison.Ordinal);
