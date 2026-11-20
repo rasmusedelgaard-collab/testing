@@ -20,24 +20,20 @@
   var tileId = ti;
   <li class="tile@(t.Chips is not null ? " has-chips" : "")">
     <a href="@t.Href" class="tile-link" title="@(t.Full.Length > 0 ? t.Label + ": " + t.Full : t.Label)" aria-describedby="@(t.Notes.Count > 0 ? string.Join(' ', t.Notes.Select((_, ni) => $"tn-{tileId}-{ni}")) : null)">
-      <span class="tile-label">@t.Label</span>
-      <span class="tile-value@(t.Wrap ? " wrap" : "")@(t.Danger ? " danger-text" : "")">@if (t.Danger){@Ui.Icon("error")}@t.Short@if (t.Full.Length > 0){<span class="visually-hidden"> (@t.Full)</span>}</span>
+      <span class="tile-head"><span class="tile-label">@t.Label</span>@if (t.Trend is { } tr){<span class="tile-trend @tr.Direction" title="@tr.Range">@Ui.Ring(tr.Direction == "up" ? "trend-up" : tr.Direction == "down" ? "trend-down" : "trend-flat")@if (tr.Short.Length > 0){<span aria-hidden="true">@tr.Short</span><span class="visually-hidden">@tr.Text</span>}else{<span>@tr.Text</span>}<span class="visually-hidden"> (@tr.Range)</span></span>}</span>
+      <span class="tile-value@(t.Wrap ? " wrap" : "")@(t.Danger ? " danger-text" : "")">@if (t.Wrap && t.Short.IndexOf(' ') is var sp1 and > 0){@t.Short[..sp1]<span class="tile-unit">@t.Short[(sp1 + 1)..]</span>}else{@t.Short}@if (t.Full.Length > 0){<span class="visually-hidden"> (@t.Full)</span>}</span>
       <span class="tile-context">@t.Context</span>
-      @if (t.Trend is { } tr)
-      {
-      <span class="tile-trend @tr.Direction" title="@tr.Range">@Ui.Ring(tr.Direction == "up" ? "trend-up" : tr.Direction == "down" ? "trend-down" : "trend-flat")@if (tr.Short.Length > 0){<span aria-hidden="true">@tr.Short</span><span class="visually-hidden">@tr.Text</span>}else{<span>@tr.Text</span>}<span class="visually-hidden"> (@tr.Range)</span></span>
-      }
       @if (t.Spark is { } sp)
       {
-      <svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true" focusable="false"><defs><linearGradient id="sg-@ti" x1="0" y1="0" x2="0" y2="1"><stop class="spark-top" offset="0"/><stop class="spark-bottom" offset="1"/></linearGradient></defs><polygon points="@sp.Points @sp.LastX,32 2,32" fill="url(#sg-@ti)"/><polyline points="@sp.Points"/></svg>
-      <span class="visually-hidden">@sp.Text</span>
+      <span class="tile-visual"><svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true" focusable="false"><defs><linearGradient id="sg-@ti" x1="0" y1="0" x2="0" y2="1"><stop class="spark-top" offset="0"/><stop class="spark-bottom" offset="1"/></linearGradient></defs><polygon points="@sp.Points @sp.LastX,32 2,32" fill="url(#sg-@ti)"/><polyline points="@sp.Points"/></svg>
+      <span class="visually-hidden">@sp.Text</span></span>
       }
       @if (t.Stack is { Count: > 0 } stack)
       {
       var x = 0m;
       <span class="tile-visual">
         <svg class="stack" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true" focusable="false">@foreach (var seg in stack){var w = Math.Max(seg.Share - 0.8m, 0.4m);<rect class="s@(seg.Tone)" x="@x.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)" width="@w.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)" height="8"/>x += seg.Share;}</svg>
-        <span class="stack-legend" aria-hidden="true">@foreach (var seg in stack){<span class="lg l@(seg.Tone)">@seg.Label</span>}</span>
+        <span class="stack-legend" aria-hidden="true">@foreach (var seg in stack){<span class="lg l@(seg.Tone)" title="@seg.Label">@seg.Label.Split(' ')[0]</span>}</span>
         <span class="visually-hidden">Share by stage: @string.Join(", ", stack.Select(g => $"{g.Label} {Math.Round(g.Share, 0)}%"))</span>
       </span>
       }
@@ -48,7 +44,7 @@
     </a>
     @if (t.Chips is { Count: > 0 } chips)
     {
-    <ul class="tile-chips">
+    <ul class="tile-chips tile-visual">
       @foreach (var ch in chips){<li><a class="count-chip" href="@ch.Href">@Ui.Ring(ch.Icon, "r24")<strong>@ch.Count</strong><span>@ch.Label</span></a></li>}
     </ul>
     }
@@ -75,11 +71,10 @@
   {
     <li class="tl-item">
       <div class="tl-body">
-        <p class="tl-title"><a href="@it.Href">@it.Title</a></p>
+        <div class="tl-line"><p class="tl-title"><a href="@it.Href">@it.Title</a></p>@if (it.Overdue){<span class="chip danger">@Ui.Icon("error")@it.Hint</span>}</div>
         <p class="tl-meta">
           @if (it.RelatedLabel is not null){<a href="@it.RelatedHref">@it.RelatedLabel</a>}
           <span>@it.When@if (!it.Overdue && it.Hint.Length > 0){<text> · @it.Hint</text>}</span>
-          @if (it.Overdue){<span class="chip danger">@Ui.Icon("error")@it.Hint</span>}
         </p>
       </div>
       @if (it.Action is not null)

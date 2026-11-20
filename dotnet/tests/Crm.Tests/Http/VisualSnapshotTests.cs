@@ -93,7 +93,7 @@ public sealed class VisualSnapshotTests : IDisposable
             new("Weighted pipeline", "/opportunities?status=open", Short(weighted), Full(weighted), "amount × stage probability", [], false, "", false, false, Meter: weighted / pipeline * 100, MeterText: $"{Math.Round(weighted / pipeline * 100)} % of the open pipeline"),
             new("Won this month", "/opportunities?status=won", Short(won), Full(won), $"{wonCount} deals", [], false, "", false, false, new TrendResult("up", "Up 12% vs same days last month", Range, "12%"), spark),
             new("Won this quarter", "/opportunities?status=won", Short(qWon), Full(qWon), "11 deals", [], false, "", false, false, new TrendResult("down", "Down 4% vs same days last quarter", Range, "4%"), SparkOf("Last 12 months: highest in Jun 2026, 3,1 mio. kr.", 1.4, 1.2, 1.9, 2.1, 1.7, 2.5, 3.0, 2.2, 2.8, 2.4, 2.9, 2.6)),
-            new("Win rate (last 90 d)", "/analytics", "38 %", "", "19 of 50", [], false, "", false, false, new TrendResult("up", "Up 3 pts vs previous 90 days", Range, "3 pts"), Meter: 38),
+            new("Win rate (last 90 d)", "/analytics", "38 %", "", "19 of 50 closed deals won", [], false, "", false, false, new TrendResult("up", "Up 3 pts vs previous 90 days", Range, "3 pts"), Meter: 38),
             new("My activities due", "/activities?status=open", "3 overdue", "", "6 due today", [], false, "", true, true,
                 Chips: [new("Overdue", 3, "/activities?due=overdue", "error"), new("Today", 6, "/activities?due=today", "clock"), new("Next 7 days", 11, "/activities?due=week", "calendar")]),
         };
@@ -101,6 +101,7 @@ public sealed class VisualSnapshotTests : IDisposable
         var todays = Data.Activities.Where(a => !a.IsDone && a.DueDate >= TodayDate && a.Type != "note").Take(3).ToList();
         var overdueItems = overdue.Select(x => TimelineBuilder.ActivityItem(ActivityRow(x.Item1, 100 + x.i), F, Today, "/")).ToList();
         var todayItems = todays.Select((a, i) => TimelineBuilder.ActivityItem(ActivityRow(a with { DueDate = TodayDate }, 200 + i), F, Today, "/")).ToList();
+        var weekItems = Data.Activities.Where(a => !a.IsDone && a.Type != "note").Skip(40).Take(3).Select((a, i) => TimelineBuilder.ActivityItem(ActivityRow(a with { DueDate = TodayDate.AddDays(2 + i * 2) }, 400 + i), F, Today, "/")).ToList();
         var funnel = Enumerable.Range(0, 4).Select(s => (Stage: Stages[s], Opps: open.Where(o => o.StageSlot == s).ToList())).ToList();
         var maxAmount = funnel.Max(f => f.Opps.Sum(Dkk));
         var funnelRows = funnel.Select(f => new FunnelRow(f.Stage.Name, $"/opportunities?status=open&stage={f.Stage.Id}", f.Opps.Count, Short(f.Opps.Sum(Dkk)), Full(f.Opps.Sum(Dkk)), Math.Round(f.Opps.Sum(Dkk) / maxAmount * 100m))).ToList();
@@ -108,7 +109,7 @@ public sealed class VisualSnapshotTests : IDisposable
         var oppCells = mine.Select(o => (IReadOnlyList<Cell>)EntityViews.CellsFor("opportunities", OppRow(o), F, Today, "/", Stages).Where((_, i) => i != 5).ToList()).ToList();
         var model = PageRenderHarness.Model<Crm.Web.Pages.Dashboard.IndexModel>(("Greeting", "Good morning, Lars"), ("AsOf", "19.11.2026 09:14"), ("LongDate", "Thursday 19 November"), ("FirstName", "Lars"), ("Tiles", tiles), ("UserId", 7), ("BaseCurrency", "DKK"),
             ("OppColumns", new[] { "Name", "Account", "Stage", "Amount", "Close date" }), ("Opps", oppCells), ("OppTotal", 21),
-            ("Upcoming", new List<UpcomingGroup> { new("Overdue", 3, overdueItems, "/activities?due=overdue", "View all overdue activities"), new("Today", 3, todayItems, "/activities?due=today", "View all activities due today") }),
+            ("Upcoming", new List<UpcomingGroup> { new("Overdue", 3, overdueItems, "/activities?due=overdue", "View all overdue activities"), new("Today", 3, todayItems, "/activities?due=today", "View all activities due today"), new("Next 7 days", 11, weekItems, "/activities?due=week", "View all activities in the next 7 days") }),
             ("Funnel", funnelRows), ("FunnelNotes", Array.Empty<string>()), ("Summary", "You have 3 overdue and 6 due today"), ("ViewAllDueHref", "/activities?due=due"));
         var doc = await PageRenderHarness.RenderAsync(_f, "/Dashboard/Index", model, PageRenderHarness.User(CrmRole.Manager, "Lars Eriksen"), new Dictionary<string, object?> { ["ActiveNav"] = "dashboard", ["Title"] = "Dashboard" }, dumpSuffix: "v2-dashboard");
         Assert.Equal(6, doc.QuerySelectorAll("li.tile").Length);
@@ -116,7 +117,7 @@ public sealed class VisualSnapshotTests : IDisposable
         Assert.Equal(4, doc.QuerySelectorAll("li.tile svg.stack rect").Length);
         Assert.Equal(3, doc.QuerySelectorAll("li.tile .count-chip").Length);
         Assert.Equal("You have 3 overdue and 6 due today", doc.QuerySelector(".summary-pill")!.TextContent);
-        Assert.Equal(6, doc.QuerySelectorAll("form.tl-action .check-btn").Length);
+        Assert.Equal(9, doc.QuerySelectorAll("form.tl-action .check-btn").Length);
         Assert.NotNull(doc.QuerySelector("button[role=switch][aria-checked=false]"));
     }
 

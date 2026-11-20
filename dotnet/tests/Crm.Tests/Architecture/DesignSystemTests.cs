@@ -266,9 +266,9 @@ public sealed partial class DesignSystemTests
     public void Cards_board_columns_and_tiles_use_the_surface_tokens()
     {
         var css = Norm(Css());
-        Assert.Contains(".panel { background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-1);", css, StringComparison.Ordinal);
+        Assert.Contains(".panel { background: var(--surface); border: 1px solid var(--card-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-1);", css, StringComparison.Ordinal);
         Assert.Contains(".board-col { flex: 1 0 272px; max-width: 320px; background: var(--surface-panel); border-radius: var(--radius-lg);", css, StringComparison.Ordinal);
-        Assert.Contains("background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-1); padding: var(--space-md) var(--space-lg) var(--space-sm);", css, StringComparison.Ordinal);
+        Assert.Contains("background: var(--surface); border: 1px solid var(--card-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-1); padding: var(--space-md) var(--space-lg);", css, StringComparison.Ordinal);
         Assert.Contains(".spark { display: block; width: 100%; height: 44px;", css, StringComparison.Ordinal);
     }
 

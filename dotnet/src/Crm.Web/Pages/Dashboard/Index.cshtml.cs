@@ -135,6 +135,10 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
         {
             var key = data.tiles[i].Key;
             vms[i] = vms[i] with { Trend = trends.GetValueOrDefault(key), Spark = key is "won-month" or "won-quarter" ? spark : null };
+            if (key == "win-rate" && data.tiles[i].Value is not null)
+            {
+                vms[i] = vms[i] with { Context = $"{vms[i].Context} closed deals won" };
+            }
         }
         // "Mine" everywhere on this page (D1): the tile, the My day headings and every View all link use the same numbers and the same owner filter,
         // so a click shows exactly the count that was on the dashboard. Overdue work leads when there is any; otherwise the tile shows what is due today.

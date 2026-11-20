@@ -38,6 +38,7 @@ const allShots = [
   { name: 'opportunity-light-1440', key: 'v2-opportunity', w: 1440, h: 900, scheme: 'light', full: true },
   { name: 'accounts-light-1440', key: 'v2-accounts', w: 1440, h: 900, scheme: 'light' },
   { name: 'signin-light-1440', key: 'v2-signin', w: 1440, h: 900, scheme: 'light' },
+  { name: 'dashboard-full-light-1440', key: 'v2-dashboard', w: 1440, h: 1800, scheme: 'light' },
   { name: 'dashboard-phone-390', key: 'v2-dashboard', w: 390, h: 844, scheme: 'light', mobile: true },
 ];
 const shots = allShots.filter(s => only === 'all' || s.name.startsWith(only));
