@@ -45,7 +45,8 @@
 else
 {
   var initials = Ui.Initials(user!.Name);
-  var items = new[] { ("dashboard", "/", "Dashboard"), ("pipeline", "/pipeline", "Pipeline"), ("accounts", "/accounts", "Accounts"), ("opportunities", "/opportunities", "Opportunities"), ("contacts", "/contacts", "Contacts"), ("activities", "/activities", "Activities"), ("analytics", "/analytics", "Analytics") };
+  var sales = new[] { ("dashboard", "/", "Dashboard"), ("pipeline", "/pipeline", "Pipeline"), ("accounts", "/accounts", "Accounts"), ("opportunities", "/opportunities", "Opportunities"), ("contacts", "/contacts", "Contacts"), ("activities", "/activities", "Activities") };
+  var insights = new[] { ("analytics", "/analytics", "Analytics") };
 <div class="app">
   <nav id="main-nav" class="sidebar" aria-label="Main">
     <div class="sidebar-head">
@@ -66,8 +67,16 @@ else
       <button type="button" class="button secondary small close-menu" id="close-menu">@Ui.Icon("close") Close menu</button>
     </div>
     <div class="sidebar-nav">
-      <ul>
-@foreach (var (key, href, label) in items)
+      <p class="nav-heading" id="nav-sales">Sales</p>
+      <ul aria-labelledby="nav-sales">
+@foreach (var (key, href, label) in sales)
+{
+        <li><a class="nav-item" href="@href" aria-current="@(activeNav == key ? "page" : null)">@Ui.Ring(key)<span class="nav-label">@label</span></a></li>
+}
+      </ul>
+      <p class="nav-heading" id="nav-insights">Insights</p>
+      <ul aria-labelledby="nav-insights">
+@foreach (var (key, href, label) in insights)
 {
         <li><a class="nav-item" href="@href" aria-current="@(activeNav == key ? "page" : null)">@Ui.Ring(key)<span class="nav-label">@label</span></a></li>
 }

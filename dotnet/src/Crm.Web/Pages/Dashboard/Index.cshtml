@@ -4,6 +4,7 @@
   <div class="greeting-body">
     <h1>@Model.Greeting</h1>
     <p class="sub">@Model.LongDate · Data as of @Model.AsOf</p>
+    @if (Model.Summary.Length > 0){<p class="summary"><a class="summary-pill" href="@Model.ViewAllDueHref">@Model.Summary<span class="chev" aria-hidden="true"></span></a></p>}
     <div class="actions">
       <a class="button secondary" href="/activities/new">Log activity</a>
       <a class="button primary" href="/opportunities/new">@Ui.Icon("plus") New opportunity</a>
@@ -17,21 +18,40 @@
   {
   var t = Model.Tiles[ti];
   var tileId = ti;
-  <li class="tile">
+  <li class="tile@(t.Chips is not null ? " has-chips" : "")">
     <a href="@t.Href" class="tile-link" title="@(t.Full.Length > 0 ? t.Label + ": " + t.Full : t.Label)" aria-describedby="@(t.Notes.Count > 0 ? string.Join(' ', t.Notes.Select((_, ni) => $"tn-{tileId}-{ni}")) : null)">
       <span class="tile-label">@t.Label</span>
       <span class="tile-value@(t.Wrap ? " wrap" : "")@(t.Danger ? " danger-text" : "")">@if (t.Danger){@Ui.Icon("error")}@t.Short@if (t.Full.Length > 0){<span class="visually-hidden"> (@t.Full)</span>}</span>
       <span class="tile-context">@t.Context</span>
       @if (t.Trend is { } tr)
       {
-      <span class="tile-trend @tr.Direction" title="@tr.Range">@Ui.Ring(tr.Direction == "up" ? "trend-up" : tr.Direction == "down" ? "trend-down" : "trend-flat")<span>@tr.Text</span><span class="visually-hidden"> (@tr.Range)</span></span>
+      <span class="tile-trend @tr.Direction" title="@tr.Range">@Ui.Ring(tr.Direction == "up" ? "trend-up" : tr.Direction == "down" ? "trend-down" : "trend-flat")@if (tr.Short.Length > 0){<span aria-hidden="true">@tr.Short</span><span class="visually-hidden">@tr.Text</span>}else{<span>@tr.Text</span>}<span class="visually-hidden"> (@tr.Range)</span></span>
       }
       @if (t.Spark is { } sp)
       {
       <svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true" focusable="false"><defs><linearGradient id="sg-@ti" x1="0" y1="0" x2="0" y2="1"><stop class="spark-top" offset="0"/><stop class="spark-bottom" offset="1"/></linearGradient></defs><polygon points="@sp.Points @sp.LastX,32 2,32" fill="url(#sg-@ti)"/><polyline points="@sp.Points"/></svg>
       <span class="visually-hidden">@sp.Text</span>
       }
+      @if (t.Stack is { Count: > 0 } stack)
+      {
+      var x = 0m;
+      <span class="tile-visual">
+        <svg class="stack" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true" focusable="false">@foreach (var seg in stack){var w = Math.Max(seg.Share - 0.8m, 0.4m);<rect class="s@(seg.Tone)" x="@x.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)" width="@w.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)" height="8"/>x += seg.Share;}</svg>
+        <span class="stack-legend" aria-hidden="true">@foreach (var seg in stack){<span class="lg l@(seg.Tone)">@seg.Label</span>}</span>
+        <span class="visually-hidden">Share by stage: @string.Join(", ", stack.Select(g => $"{g.Label} {Math.Round(g.Share, 0)}%"))</span>
+      </span>
+      }
+      @if (t.Meter is { } meter)
+      {
+      <span class="tile-visual">@Ui.Bar(meter)@if (t.MeterText is not null){<span class="meter-text">@t.MeterText</span>}</span>
+      }
     </a>
+    @if (t.Chips is { Count: > 0 } chips)
+    {
+    <ul class="tile-chips">
+      @foreach (var ch in chips){<li><a class="count-chip" href="@ch.Href">@Ui.Ring(ch.Icon, "r24")<strong>@ch.Count</strong><span>@ch.Label</span></a></li>}
+    </ul>
+    }
     @for (var ni = 0; ni < t.Notes.Count; ni++)
     {
     var n = t.Notes[ni];
@@ -43,7 +63,7 @@
 </section>
 <div class="dash-top">
 <section aria-labelledby="upcoming-h" class="panel">
-  <div class="panel-head"><h2 id="upcoming-h">My day</h2><p><a href="@Model.ViewAllDueHref">View all due</a></p></div>
+  <div class="panel-head"><h2 id="upcoming-h">My day</h2><p><a class="more-link" href="@Model.ViewAllDueHref">View all due</a></p></div>
   @if (Model.Upcoming.All(u => u.Items.Count == 0)){<div class="empty compact">@Ui.Ring("check")<p>Nothing due. You're all caught up.</p></div>}
   @foreach (var u in Model.Upcoming)
   {
@@ -54,13 +74,12 @@
   @foreach (var it in u.Items)
   {
     <li class="tl-item">
-      @Ui.Ring(it.Icon)
       <div class="tl-body">
         <p class="tl-title"><a href="@it.Href">@it.Title</a></p>
         <p class="tl-meta">
-          @if (it.Overdue){<span class="chip danger">@Ui.Icon("error")@it.Hint</span>}
-          <span>@it.When@if (!it.Overdue && it.Hint.Length > 0){<text> · @it.Hint</text>}</span>
           @if (it.RelatedLabel is not null){<a href="@it.RelatedHref">@it.RelatedLabel</a>}
+          <span>@it.When@if (!it.Overdue && it.Hint.Length > 0){<text> · @it.Hint</text>}</span>
+          @if (it.Overdue){<span class="chip danger">@Ui.Icon("error")@it.Hint</span>}
         </p>
       </div>
       @if (it.Action is not null)
@@ -70,24 +89,24 @@
     </li>
   }
   </ol>
-  <p class="view-all"><a href="@u.ViewAll">@u.ViewAllLabel</a></p>
+  <p class="view-all"><a class="more-link" href="@u.ViewAll">@u.ViewAllLabel</a></p>
   }
   }
 </section>
 <section aria-labelledby="funnel-h" class="panel">
-  <div class="panel-head"><h2 id="funnel-h">Open pipeline by stage</h2><p><a href="/pipeline">Open board</a></p></div>
+  <div class="panel-head"><h2 id="funnel-h">Open pipeline by stage</h2><p><a class="more-link" href="/pipeline">Open board</a></p></div>
   @if (Model.Funnel.Count == 0){<div class="empty compact">@Ui.Ring("pipeline")<p>No open stages. An administrator can add them in Settings &gt; Pipeline stages.</p></div>}
   else
   {
-  <div class="table-wrap"><table class="data funnel dense">
+  <div class="table-wrap"><table class="data funnel dense" role="table">
     <caption class="visually-hidden">Open pipeline by stage</caption>
-    <thead><tr><th scope="col">Stage</th><th scope="col" class="num">Opportunities</th><th scope="col" class="num">Amount (@Model.BaseCurrency)</th><th scope="col"><span class="visually-hidden">Share of the largest stage</span></th></tr></thead>
-    <tbody>
+    <thead role="rowgroup"><tr role="row"><th scope="col" role="columnheader">Stage</th><th scope="col" role="columnheader" class="num">Opportunities</th><th scope="col" role="columnheader" class="num">Amount (@Model.BaseCurrency)</th><th scope="col" role="columnheader"><span class="visually-hidden">Share of the largest stage</span></th></tr></thead>
+    <tbody role="rowgroup">
     @foreach (var fr in Model.Funnel)
     {
-    <tr><td data-label="Stage"><a href="@fr.Href">@fr.Stage</a></td><td data-label="Opportunities" class="num">@fr.Count</td>
-      <td data-label="Amount (@Model.BaseCurrency)" class="num" title="@fr.Full">@fr.Short<span class="visually-hidden"> (@fr.Full)</span></td>
-      <td class="bar-cell">@Ui.Bar(fr.Share)</td></tr>
+    <tr role="row"><td role="cell" data-label="Stage"><a href="@fr.Href">@fr.Stage</a></td><td role="cell" data-label="Opportunities" class="num">@fr.Count</td>
+      <td role="cell" data-label="Amount (@Model.BaseCurrency)" class="num" title="@fr.Full">@fr.Short<span class="visually-hidden"> (@fr.Full)</span></td>
+      <td role="cell" class="bar-cell">@Ui.Bar(fr.Share)</td></tr>
     }
     </tbody>
   </table></div>
@@ -97,7 +116,7 @@
 </section>
 </div>
 <section aria-labelledby="my-opps-h" class="panel">
-  <div class="panel-head"><h2 id="my-opps-h">My open opportunities</h2>@if (Model.Opps.Count > 0){<p><a href="/opportunities?status=open&amp;owner=@Model.UserId">View all my opportunities (@Model.OppTotal)</a></p>}</div>
+  <div class="panel-head"><h2 id="my-opps-h">My open opportunities</h2>@if (Model.Opps.Count > 0){<p><a class="more-link" href="/opportunities?status=open&amp;owner=@Model.UserId">View all my opportunities (@Model.OppTotal)</a></p>}</div>
   @if (Model.Opps.Count == 0){<div class="empty compact">@Ui.Ring("opportunities")<p>No open opportunities yet. <a href="/opportunities/new">New opportunity</a></p></div>}
   else
   {

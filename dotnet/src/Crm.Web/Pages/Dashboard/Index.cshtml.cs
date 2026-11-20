@@ -8,7 +8,18 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 
 namespace Crm.Web.Pages.Dashboard;
 
-public sealed record TileVm(string Label, string Href, string Short, string Full, string Context, IReadOnlyList<string> Notes, bool Excluded, string FxCurrencies, bool Danger, bool Wrap, TrendResult? Trend = null, SparkResult? Spark = null);
+/// <summary>One segment of a tile's stacked bar (Tone 1-4 picks the blue shade; Share is 0-100).</summary>
+public sealed record TileSeg(string Label, int Tone, decimal Share);
+
+/// <summary>A count chip in a tile (link to the filtered list, icon names from the sprite).</summary>
+public sealed record TileChip(string Label, int Count, string Href, string Icon);
+
+/// <summary>
+/// A KPI tile. Every tile ends in one small visual so the grid has an even weight: a sparkline (Spark), a stacked bar by stage (Stack),
+/// a single meter (Meter 0-100, optional caption) or count chips (Chips).
+/// </summary>
+public sealed record TileVm(string Label, string Href, string Short, string Full, string Context, IReadOnlyList<string> Notes, bool Excluded, string FxCurrencies, bool Danger, bool Wrap, TrendResult? Trend = null, SparkResult? Spark = null,
+    IReadOnlyList<TileSeg>? Stack = null, decimal? Meter = null, string? MeterText = null, IReadOnlyList<TileChip>? Chips = null);
 
 public sealed record UpcomingGroup(string Title, int Total, IReadOnlyList<TimelineItem> Items, string ViewAll, string ViewAllLabel);
 
@@ -50,6 +61,9 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
     public string LongDate { get; private set; } = "";
 
     public string FirstName { get; private set; } = "";
+
+    /// <summary>One line under the date, e.g. "You have 3 overdue and 6 due today"; empty when there is nothing due.</summary>
+    public string Summary { get; private set; } = "";
 
     private sealed record TrendRows(IReadOnlyList<AggRow> MonthNow, IReadOnlyList<AggRow> MonthPrev, IReadOnlyList<AggRow> QuarterNow, IReadOnlyList<AggRow> QuarterPrev, IReadOnlyList<AggRow> WinPrev, IReadOnlyList<AggRow> Spark);
 
@@ -126,7 +140,16 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
         // so a click shows exactly the count that was on the dashboard. Overdue work leads when there is any; otherwise the tile shows what is due today.
         var anyOverdue = data.overdue.Total > 0;
         vms.Add(new TileVm("My activities due", $"{ActivitiesLink}&due=due&owner={ctx.UserId.ToString(CultureInfo.InvariantCulture)}", anyOverdue ? $"{data.overdue.Total} overdue" : $"{data.dueToday.Total} due today", "",
-            anyOverdue ? $"{data.dueToday.Total} due today" : "Nothing overdue", [], false, "", anyOverdue, true));
+            anyOverdue ? $"{data.dueToday.Total} due today" : "Nothing overdue", [], false, "", anyOverdue, true,
+            Chips: [new("Overdue", data.overdue.Total, $"{ActivitiesLink}&due=overdue&owner={ctx.UserId.ToString(CultureInfo.InvariantCulture)}", "error"), new("Today", data.dueToday.Total, $"{ActivitiesLink}&due=today&owner={ctx.UserId.ToString(CultureInfo.InvariantCulture)}", "clock"),
+                new("Next 7 days", data.week.Total, $"{ActivitiesLink}&due=week&owner={ctx.UserId.ToString(CultureInfo.InvariantCulture)}", "calendar")]));
+        Summary = (data.overdue.Total, data.dueToday.Total) switch
+        {
+            (0, 0) => "",
+            (0, var t) => $"You have {t} due today",
+            (var o, 0) => $"You have {o} overdue",
+            var (o, t) => $"You have {o} overdue and {t} due today",
+        };
         Tiles = vms;
         // The dashboard lists are "mine", so the Owner column would only repeat the user's own name.
         int OwnerIdx(string e) => EntityViews.ColumnsFor(e).ToList().FindIndex(c => c.Label == "Owner");
@@ -158,6 +181,24 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
         Funnel = perStage.Select(x => new FunnelRow(x.Stage.Name, $"/opportunities?status=open&stage={x.Stage.Id}", x.Count,
             NumberFormats.CompactMoney(x.Conv.Total, set.BaseCurrency, set.LocaleCode), f.Money(x.Conv.Total, set.BaseCurrency), maxAmount == 0 ? 0 : x.Conv.Total / maxAmount * 100)).ToList();
         FunnelNotes = vms.Count > 0 ? vms[0].Notes : [];
+        // Visuals for the tiles that have no trend line: the open pipeline split by stage, the weighted share, the win rate as a meter.
+        var stackTotal = perStage.Sum(x => x.Conv.Total);
+        for (var i = 0; i < vms.Count && i < data.tiles.Count; i++)
+        {
+            var tile = data.tiles[i];
+            if (tile.Key == "open" && stackTotal > 0)
+            {
+                vms[i] = vms[i] with { Stack = perStage.Where(x => x.Conv.Total > 0).Select((x, n) => new TileSeg(x.Stage.Name, Math.Min(n + 1, 4), x.Conv.Total / stackTotal * 100)).ToList() };
+            }
+            else if (tile.Key == "weighted" && tile.Value is { } weighted && data.tiles.FirstOrDefault(t => t.Key == "open")?.Value is { } all and > 0)
+            {
+                vms[i] = vms[i] with { Meter = Math.Clamp(weighted / all * 100, 0, 100), MeterText = $"{NumberFormats.Percent(weighted / all, set.LocaleCode)} of the open pipeline" };
+            }
+            else if (tile.Key == "win-rate" && tile.Value is { } rate)
+            {
+                vms[i] = vms[i] with { Meter = Math.Clamp(rate, 0, 100) };
+            }
+        }
         return Page();
     }
 

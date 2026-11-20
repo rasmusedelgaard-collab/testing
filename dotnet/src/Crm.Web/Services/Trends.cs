@@ -5,7 +5,8 @@ using Crm.Web.Domain;
 namespace Crm.Web.Services;
 
 /// <summary>direction is "up", "down" or "flat" (icon); Text is the visible sentence; Range names the compared date ranges (title and hidden text).</summary>
-public sealed record TrendResult(string Direction, string Text, string Range);
+/// <summary>Text is the full sentence (screen readers, titles); Short is the pill text ("12%", "3 pts").</summary>
+public sealed record TrendResult(string Direction, string Text, string Range, string Short = "");
 
 /// <summary>Sparkline geometry for a 120 x 32 viewBox plus the sentence that carries the information as text.</summary>
 public sealed record SparkResult(string Points, string LastX, string LastY, string Text);
@@ -53,16 +54,16 @@ public static class Trends
         var range = RangeText(curRange, prevRange, date);
         if (previous == 0)
         {
-            return current == 0 ? new TrendResult("flat", $"No change vs {label}", range) : new TrendResult("up", $"None in the {label}", range);
+            return current == 0 ? new TrendResult("flat", $"No change vs {label}", range, "0%") : new TrendResult("up", $"None in the {label}", range, "New");
         }
         if (current == previous)
         {
-            return new TrendResult("flat", $"No change vs {label}", range);
+            return new TrendResult("flat", $"No change vs {label}", range, "0%");
         }
         var fraction = Math.Abs(current - previous) / previous;
         var digits = fraction * 100 < 1 ? 1 : 0;
         var pct = NumberFormats.Percent(fraction, locale, digits);
-        return current > previous ? new TrendResult("up", $"Up {pct} vs {label}", range) : new TrendResult("down", $"Down {pct} vs {label}", range);
+        return current > previous ? new TrendResult("up", $"Up {pct} vs {label}", range, pct) : new TrendResult("down", $"Down {pct} vs {label}", range, pct);
     }
 
     /// <summary>"Up 4 pts vs previous 90 days". Null when either window has no closed opportunities.</summary>
@@ -76,9 +77,9 @@ public static class Trends
         var pts = (int)Math.Round((currentRate.Value - previousRate.Value) * 100, MidpointRounding.AwayFromZero);
         if (pts == 0)
         {
-            return new TrendResult("flat", $"No change vs previous {Kpi.WinRateDays} days", range);
+            return new TrendResult("flat", $"No change vs previous {Kpi.WinRateDays} days", range, "0 pts");
         }
-        return new TrendResult(pts > 0 ? "up" : "down", $"{(pts > 0 ? "Up" : "Down")} {Math.Abs(pts).ToString(CultureInfo.InvariantCulture)} pts vs previous {Kpi.WinRateDays} days", range);
+        return new TrendResult(pts > 0 ? "up" : "down", $"{(pts > 0 ? "Up" : "Down")} {Math.Abs(pts).ToString(CultureInfo.InvariantCulture)} pts vs previous {Kpi.WinRateDays} days", range, $"{Math.Abs(pts).ToString(CultureInfo.InvariantCulture)} pts");
     }
 
     /// <summary>"June 2026" from yyyy-MM (English names, like the rest of the UI copy).</summary>
