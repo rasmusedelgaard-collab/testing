@@ -50,7 +50,7 @@ public sealed class PageRenderSmokeTests : IDisposable
         Assert.Contains("Ask an administrator.", doc.QuerySelector(".tile-note")!.TextContent, StringComparison.Ordinal);
         Assert.Contains("Up 12% vs same days last month", doc.QuerySelector(".tile-trend")!.TextContent, StringComparison.Ordinal);
         Assert.Contains("highest in Jun 2026", doc.QuerySelector("svg.spark + .visually-hidden")!.TextContent, StringComparison.Ordinal);
-        Assert.Equal("overdue", doc.QuerySelector(".tile-value.danger-text .tile-unit")!.TextContent);
+        Assert.Equal("overdue", doc.QuerySelector(".tile-value.danger-text .tile-unit")!.TextContent.Trim());
         Assert.Equal("My day", doc.QuerySelector("#upcoming-h")!.TextContent);
         Assert.Equal("Overdue (2)", doc.QuerySelector("section[aria-labelledby=upcoming-h] h3")!.TextContent);
         Assert.Contains("2 days overdue", doc.QuerySelector("section[aria-labelledby=upcoming-h] .chip.danger")!.TextContent, StringComparison.Ordinal);

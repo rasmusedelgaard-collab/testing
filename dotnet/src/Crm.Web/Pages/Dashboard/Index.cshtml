@@ -21,7 +21,7 @@
   <li class="tile@(t.Chips is not null ? " has-chips" : "")">
     <a href="@t.Href" class="tile-link" title="@(t.Full.Length > 0 ? t.Label + ": " + t.Full : t.Label)" aria-describedby="@(t.Notes.Count > 0 ? string.Join(' ', t.Notes.Select((_, ni) => $"tn-{tileId}-{ni}")) : null)">
       <span class="tile-head"><span class="tile-label">@t.Label</span>@if (t.Trend is { } tr){<span class="tile-trend @tr.Direction" title="@tr.Range">@Ui.Ring(tr.Direction == "up" ? "trend-up" : tr.Direction == "down" ? "trend-down" : "trend-flat")@if (tr.Short.Length > 0){<span aria-hidden="true">@tr.Short</span><span class="visually-hidden">@tr.Text</span>}else{<span>@tr.Text</span>}<span class="visually-hidden"> (@tr.Range)</span></span>}</span>
-      <span class="tile-value@(t.Wrap ? " wrap" : "")@(t.Danger ? " danger-text" : "")">@if (t.Wrap && t.Short.IndexOf(' ') is var sp1 and > 0){@t.Short[..sp1]<span class="tile-unit">@t.Short[(sp1 + 1)..]</span>}else{@t.Short}@if (t.Full.Length > 0){<span class="visually-hidden"> (@t.Full)</span>}</span>
+      <span class="tile-value@(t.Wrap ? " wrap" : "")@(t.Danger ? " danger-text" : "")">@if (t.Wrap && t.Short.IndexOf(' ') is var sp1 and > 0){@t.Short[..sp1]<span class="tile-unit"> @t.Short[(sp1 + 1)..]</span>}else{@t.Short}@if (t.Full.Length > 0){<span class="visually-hidden"> (@t.Full)</span>}</span>
       <span class="tile-context">@t.Context</span>
       @if (t.Spark is { } sp)
       {
