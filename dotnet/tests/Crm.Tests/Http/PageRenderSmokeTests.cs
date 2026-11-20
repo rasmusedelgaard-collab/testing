@@ -316,13 +316,13 @@ public sealed class PageRenderSmokeTests : IDisposable
     [Fact]
     public async Task Settings_pages_use_the_settings_layout_with_nav_brand_preview_and_radio_cards()
     {
-        var general = PageRenderHarness.Model<Crm.Web.Pages.Settings.GeneralModel>(("AppName", "CRM"), ("AccentColor", "#00456C"), ("Errors", new Dictionary<string, string> { ["accentColor"] = "This colour is too light for text and buttons. Choose a darker shade." }), ("SettingsNav", "general"));
+        var general = PageRenderHarness.Model<Crm.Web.Pages.Settings.GeneralModel>(("AppName", "CRM"), ("AccentColor", "#1A66CC"), ("Errors", new Dictionary<string, string> { ["accentColor"] = "This colour is too light for text and buttons. Choose a darker shade." }), ("SettingsNav", "general"));
         var doc = await PageRenderHarness.RenderAsync(_f, "/Settings/General", general, PageRenderHarness.User(CrmRole.Admin), new Dictionary<string, object?> { ["SettingsNav"] = "general", ["ActiveNav"] = "settings" }, dumpSuffix: "general");
         Assert.Equal("page", doc.QuerySelector("nav.subnav a[href='/settings/general']")!.GetAttribute("aria-current"));
         Assert.Equal(7, doc.QuerySelectorAll("nav.subnav a").Length);
         Assert.NotNull(doc.QuerySelector(".settings-layout .settings-content"));
-        Assert.Contains("The Dark theme always uses white.", doc.QuerySelector("#h-accentColor")!.TextContent, StringComparison.Ordinal);
-        Assert.Contains("#D6D7D7", doc.QuerySelector("#h-accentColor")!.TextContent, StringComparison.Ordinal);
+        Assert.Contains("The Dark theme always uses its own brighter soft blue.", doc.QuerySelector("#h-accentColor")!.TextContent, StringComparison.Ordinal);
+        Assert.Contains("#EAF2FD", doc.QuerySelector("#h-accentColor")!.TextContent, StringComparison.Ordinal);
         Assert.Equal(2, doc.QuerySelectorAll(".preview-sample").Length);
         Assert.NotNull(doc.QuerySelector(".swatch"));
         Assert.Contains("too light", doc.QuerySelector("#e-accentColor")!.TextContent, StringComparison.Ordinal);

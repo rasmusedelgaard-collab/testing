@@ -56,9 +56,9 @@ else
 }
 else
 {
-        <img class="logo-full logo-light" src="/img/brand/dafa-logo-primary-blue.svg" alt="" width="112" height="39">
+        <img class="logo-full logo-light" src="/img/brand/dafa-logo-softblue.svg" alt="" width="112" height="39">
         <img class="logo-full logo-dark" src="/img/brand/dafa-logo-negative.svg" alt="" width="112" height="39">
-        <img class="logo-mark logo-light" src="/img/brand/dafa-rings-gray.svg" alt="" width="32" height="32">
+        <img class="logo-mark logo-light" src="/img/brand/dafa-rings-softblue.svg" alt="" width="32" height="32">
         <img class="logo-mark logo-dark" src="/img/brand/dafa-rings-white.svg" alt="" width="32" height="32">
 }
         <span class="brand-name">@branding.AppName</span>
@@ -79,14 +79,19 @@ else
       </ul>
 }
     </div>
-    <div class="sidebar-foot" id="sidebar-foot"></div>
+    <div class="sidebar-foot" id="sidebar-foot">
+      <form method="post" action="/theme" asp-antiforgery="true" class="theme-switch">
+        <input type="hidden" name="returnTo" value="@returnTo">
+        <button type="submit" class="switch" role="switch" aria-checked="@(themeChoice == "dark" ? "true" : "false")" name="theme" value="@(themeChoice == "dark" ? "light" : "dark")"><span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span><span class="nav-label">Dark mode</span></button>
+      </form>
+    </div>
   </nav>
   <div class="column">
     <header class="topbar">
       <button type="button" class="button secondary menu-button" id="menu-button" aria-expanded="false" aria-controls="main-nav">@Ui.Icon("menu") Menu</button>
       <a class="topbar-mark" href="/" aria-label="@branding.AppName, go to dashboard">
 @if (branding.LogoSha is not null){<img src="/branding/logo?v=@branding.LogoSha[..12]" alt="" height="32">}
-else{<img class="logo-light" src="/img/brand/dafa-rings-gray.svg" alt="" width="32" height="32"><img class="logo-dark" src="/img/brand/dafa-rings-white.svg" alt="" width="32" height="32">}
+else{<img class="logo-light" src="/img/brand/dafa-rings-softblue.svg" alt="" width="32" height="32"><img class="logo-dark" src="/img/brand/dafa-rings-white.svg" alt="" width="32" height="32">}
       </a>
       <form class="search" action="/search" method="get" role="search" aria-label="Search all records">
         <label class="visually-hidden" for="q">Search all records</label>

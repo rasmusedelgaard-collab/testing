@@ -59,7 +59,7 @@ public sealed partial class CrmRepo(RlsTx tx, RlsContext ctx)
                     Get("app.name", "CRM"), Get("locale.code", "en-GB"), Get("locale.timezone", "UTC"), Get("currency.base", "DKK"),
                     Get("currency.enabled", "DKK").Split(',').Select(c => c.Trim()).Where(c => c.Length > 0).ToList(),
                     Get("visibility.mode", "private") == "team" ? "team" : "private",
-                    Get("branding.accentColor", "#00456C"), GetInt("locale.firstDayOfWeek"), GetInt("fiscal.startMonth"));
+                    Get("branding.accentColor", Crm.Web.Services.Color.DefaultAccent), GetInt("locale.firstDayOfWeek"), GetInt("fiscal.startMonth"));
                 var stages = (await g.ReadAsync()).Select(r => new Stage((int)r.StageId, (string)r.Name, (int)r.SortOrder, Convert.ToInt32(r.Probability, CultureInfo.InvariantCulture), (string)r.StageType)).ToList();
                 var picks = new Dictionary<string, List<PicklistValue>>(StringComparer.Ordinal);
                 foreach (var r in await g.ReadAsync())

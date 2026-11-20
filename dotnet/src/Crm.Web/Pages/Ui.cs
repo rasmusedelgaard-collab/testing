@@ -22,7 +22,7 @@ public static class Ui
 
     /// <summary>Icon in a circle. size is "", "r40", "r48" or "r56".</summary>
     public static IHtmlContent Ring(string name, string size = "") =>
-        new HtmlString($"<span class=\"icon-ring{(size.Length == 0 ? "" : " " + size)}\" aria-hidden=\"true\"><svg class=\"icon\" focusable=\"false\"><use href=\"{Sprite}#i-{SafeId(name)}\"/></svg></span>");
+        new HtmlString($"<span class=\"icon-ring{(size.Length == 0 ? "" : " " + size)} ic-{SafeId(name)}\" aria-hidden=\"true\"><svg class=\"icon\" focusable=\"false\"><use href=\"{Sprite}#i-{SafeId(name)}\"/></svg></span>");
 
     /// <summary>The data-theme attribute for the html element: only "light" or "dark" (the stored preference), nothing for "system".</summary>
     public static IHtmlContent ThemeAttr(string? theme) =>
@@ -50,9 +50,12 @@ public static class Ui
         return string.Concat(parts.Select(p => char.ConvertFromUtf32(char.ConvertToUtf32(p, 0)))).ToUpperInvariant();
     }
 
-    /// <summary>Initials in a line circle. Decorative: the owner's name is always written next to it.</summary>
+    /// <summary>Stable colour slot (1-6) for a name, so the same person always gets the same avatar colour.</summary>
+    public static int Tone(string name) => 1 + name.Aggregate(0, (h, c) => (h * 31 + c) & 0xFFFF) % 6;
+
+    /// <summary>Initials in a coloured circle. Decorative: the owner's name is always written next to it.</summary>
     public static IHtmlContent Avatar(string name, string size = "", bool inactive = false) =>
-        new HtmlString($"<span class=\"avatar{(size.Length == 0 ? "" : " " + size)}{(inactive ? " inactive" : "")}\" aria-hidden=\"true\">{HtmlEncoder.Default.Encode(Initials(name))}</span>");
+        new HtmlString($"<span class=\"avatar av-{Tone(name)}{(size.Length == 0 ? "" : " " + size)}{(inactive ? " inactive" : "")}\" aria-hidden=\"true\">{HtmlEncoder.Default.Encode(Initials(name))}</span>");
 
     /// <summary>Avatar + name, for table cells and meta lines.</summary>
     public static IHtmlContent Owner(string name, string size = "s24") =>
@@ -107,7 +110,7 @@ public static class Ui
 
     /// <summary>Rings ornament (D6): gray in Light, white in Dark; decorative.</summary>
     public static IHtmlContent Ornament() =>
-        new HtmlString("<span class=\"ornament\" aria-hidden=\"true\"><img class=\"logo-light\" src=\"/img/brand/dafa-rings-gray.svg\" alt=\"\" width=\"200\" height=\"200\"><img class=\"logo-dark\" src=\"/img/brand/dafa-rings-white.svg\" alt=\"\" width=\"200\" height=\"200\"></span>");
+        new HtmlString("<span class=\"ornament\" aria-hidden=\"true\"><img class=\"logo-light\" src=\"/img/brand/dafa-rings-softblue.svg\" alt=\"\" width=\"200\" height=\"200\"><img class=\"logo-dark\" src=\"/img/brand/dafa-rings-white.svg\" alt=\"\" width=\"200\" height=\"200\"></span>");
 
     public static string ToHtml(this IHtmlContent c)
     {

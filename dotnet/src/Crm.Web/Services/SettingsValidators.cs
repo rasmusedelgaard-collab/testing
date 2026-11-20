@@ -21,7 +21,7 @@ public static partial class SettingsValidators
         if (appName.Length == 0) { errors["appName"] = "Enter a CRM name."; }
         else if (appName.Length > 40) { errors["appName"] = "CRM name must be 40 characters or fewer."; }
         var accent = (accentRaw ?? "").Trim();
-        if (!Accent().IsMatch(accent)) { errors["accentColor"] = "Enter a colour like #00456C."; }
+        if (!Accent().IsMatch(accent)) { errors["accentColor"] = "Enter a colour like #1A66CC."; }
         else if (Color.AccentContrast(accent) < 4.5) { errors["accentColor"] = "This colour is too light for text and buttons. Choose a darker shade."; }
         return (appName, accent.ToUpperInvariant(), errors);
     }

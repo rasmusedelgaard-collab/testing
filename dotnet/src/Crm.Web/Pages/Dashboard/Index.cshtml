@@ -1,7 +1,6 @@
 @page "/"
 @model Crm.Web.Pages.Dashboard.IndexModel
 <div class="greeting">
-  @Ui.Ornament()
   <div class="greeting-body">
     <h1>@Model.Greeting</h1>
     <p class="sub">@Model.LongDate · Data as of @Model.AsOf</p>
@@ -25,11 +24,11 @@
       <span class="tile-context">@t.Context</span>
       @if (t.Trend is { } tr)
       {
-      <span class="tile-trend" title="@tr.Range">@Ui.Ring(tr.Direction == "up" ? "trend-up" : tr.Direction == "down" ? "trend-down" : "trend-flat")<span>@tr.Text</span><span class="visually-hidden"> (@tr.Range)</span></span>
+      <span class="tile-trend @tr.Direction" title="@tr.Range">@Ui.Ring(tr.Direction == "up" ? "trend-up" : tr.Direction == "down" ? "trend-down" : "trend-flat")<span>@tr.Text</span><span class="visually-hidden"> (@tr.Range)</span></span>
       }
       @if (t.Spark is { } sp)
       {
-      <svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true" focusable="false"><polyline points="@sp.Points"/></svg>
+      <svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true" focusable="false"><defs><linearGradient id="sg-@ti" x1="0" y1="0" x2="0" y2="1"><stop class="spark-top" offset="0"/><stop class="spark-bottom" offset="1"/></linearGradient></defs><polygon points="@sp.Points @sp.LastX,32 2,32" fill="url(#sg-@ti)"/><polyline points="@sp.Points"/></svg>
       <span class="visually-hidden">@sp.Text</span>
       }
     </a>
@@ -51,7 +50,7 @@
   @if (u.Items.Count > 0)
   {
   <h3>@u.Title (@u.Total)</h3>
-  <ol class="timeline-items">
+  <ol class="timeline-items my-day">
   @foreach (var it in u.Items)
   {
     <li class="tl-item">
@@ -66,7 +65,7 @@
       </div>
       @if (it.Action is not null)
       {
-      <form method="post" action="@it.Action.Action" asp-antiforgery="true" class="tl-action"><input type="hidden" name="returnTo" value="@it.Action.ReturnTo"><button type="submit" class="button secondary small">Mark done<span class="visually-hidden">: @it.Action.Context</span></button></form>
+      <form method="post" action="@it.Action.Action" asp-antiforgery="true" class="tl-action"><input type="hidden" name="returnTo" value="@it.Action.ReturnTo"><button type="submit" class="check-btn">@Ui.Icon("check")<span class="visually-hidden">Mark done: @it.Action.Context</span></button></form>
       }
     </li>
   }

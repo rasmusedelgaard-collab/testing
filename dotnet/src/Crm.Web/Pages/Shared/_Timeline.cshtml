@@ -24,7 +24,7 @@
       </div>
       @if (it.Action is not null)
       {
-      <form method="post" action="@it.Action.Action" asp-antiforgery="true" class="tl-action"><input type="hidden" name="returnTo" value="@it.Action.ReturnTo"><button type="submit" class="button secondary small">@(it.Action.Checked ? "Mark as not done" : "Mark done")<span class="visually-hidden">: @it.Action.Context</span></button></form>
+      <form method="post" action="@it.Action.Action" asp-antiforgery="true" class="tl-action"><input type="hidden" name="returnTo" value="@it.Action.ReturnTo"><button type="submit" class="check-btn@(it.Action.Checked ? " on" : "")">@Ui.Icon("check")<span class="visually-hidden">@(it.Action.Checked ? "Mark as not done" : "Mark done"): @it.Action.Context</span></button></form>
       }
     </li>
   }

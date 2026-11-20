@@ -4,7 +4,7 @@ namespace Crm.Web.Data;
 
 public sealed record BrandingValues(string AppName, string AccentColor, string? LogoSha)
 {
-    public static readonly BrandingValues Default = new("CRM", "#00456C", null);
+    public static readonly BrandingValues Default = new("CRM", Crm.Web.Services.Color.DefaultAccent, null);
 }
 
 public sealed record LogoData(string ContentType, byte[] Content, string Sha256);

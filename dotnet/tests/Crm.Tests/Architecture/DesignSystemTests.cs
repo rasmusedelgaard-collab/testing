@@ -2,7 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace Crm.Tests.Architecture;
 
-/// <summary>Acceptance criteria 1-3 and 10 of docs/ux/ui-redesign.md as source checks on the shipped CSS and views.</summary>
+/// <summary>The v2 visual language (docs/ux/visual-v2.md) as source checks on the shipped CSS and views: token names and values, contrast, no stray colours, shape and motion rules.</summary>
 public sealed partial class DesignSystemTests
 {
     private static readonly string WebRoot = FindWebRoot();
@@ -30,24 +30,59 @@ public sealed partial class DesignSystemTests
     [GeneratedRegex(@":root\[data-theme=""dark""\] \{(?<body>[^}]*)\}", RegexOptions.CultureInvariant)]
     private static partial Regex ManualDark();
 
+    private static string Tokens() { var css = Css(); return css[..css.IndexOf("/* end of tokens */", StringComparison.Ordinal)]; }
+
+    private static string LightBlock() { var t = Tokens(); return t[..t.IndexOf("@media (prefers-color-scheme: dark)", StringComparison.Ordinal)]; }
+
+    private static Dictionary<string, string> Map(string block) =>
+        Regex.Matches(block, @"(--[a-z0-9-]+):\s*([^;]+);", RegexOptions.CultureInvariant).ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value.Trim());
+
+    /// <summary>Light tokens with the dark overrides on top: what the page really uses in that theme.</summary>
+    private static Dictionary<string, string> Theme(bool dark)
+    {
+        var map = Map(LightBlock());
+        if (dark)
+        {
+            foreach (var (k, v) in Map(ManualDark().Match(Css()).Groups["body"].Value)) { map[k] = v; }
+        }
+        return map;
+    }
+
     [Theory]
+    [InlineData("--page", "#f5f7fa")]
     [InlineData("--surface", "#ffffff")]
-    [InlineData("--surface-subtle", "#eeeeee")]
-    [InlineData("--surface-panel", "#d6d7d7")]
-    [InlineData("--ink", "#505152")]
-    [InlineData("--border-input", "#505152")]
-    [InlineData("--action", "#00456c")]
-    [InlineData("--action-hover", "#003b5c")]
+    [InlineData("--tint", "#eaf2fd")]
+    [InlineData("--ink", "#1d1d1f")]
+    [InlineData("--action", "#1a66cc")]
+    [InlineData("--action-hover", "#1450a3")]
     [InlineData("--on-action", "#ffffff")]
-    [InlineData("--danger", "#a4262c")]
-    [InlineData("--dafa-blue", "#00456c")]
-    [InlineData("--dafa-ochre", "#d2a225")]
-    [InlineData("--dafa-mint", "#54bbab")]
-    [InlineData("--dafa-wind-100", "#51657f")]
-    [InlineData("--dafa-building-100", "#8e5550")]
-    [InlineData("--dafa-industry-100", "#4c6c6f")]
+    [InlineData("--accent-soft", "#4a90e2")]
+    [InlineData("--accent-soft-top", "#5b9bf0")]
+    [InlineData("--danger", "#b3261e")]
+    [InlineData("--blue-500", "#4a90e2")]
     public void Light_tokens_have_the_exact_names_and_values(string name, string value) =>
-        Assert.Matches(new Regex($@"{Regex.Escape(name)}:\s*{Regex.Escape(value)};", RegexOptions.CultureInvariant), Css());
+        Assert.Matches(new Regex($@"{Regex.Escape(name)}:\s*{Regex.Escape(value)};", RegexOptions.CultureInvariant), LightBlock());
+
+    [Fact]
+    public void Every_token_family_is_present_in_the_light_block()
+    {
+        var map = Map(LightBlock());
+        string[] names =
+        [
+            "--page", "--surface", "--surface-subtle", "--surface-panel", "--field-bg", "--tint", "--tint-strong", "--ink", "--ink-muted", "--hairline", "--border-input", "--btn-border",
+            "--glass", "--action", "--action-hover", "--on-action", "--focus", "--accent-soft", "--danger", "--on-danger", "--shadow-1", "--shadow-2", "--hero-1", "--hero-2",
+            "--blue-bg", "--blue-fg", "--green-bg", "--green-fg", "--orange-bg", "--orange-fg", "--red-bg", "--red-fg", "--purple-bg", "--purple-fg", "--teal-bg", "--teal-fg", "--gray-bg", "--gray-fg",
+            "--chart-1", "--chart-2", "--chart-3", "--chart-4", "--chart-5", "--chart-6", "--chart-grid", "--chart-axis",
+            "--font-sans", "--weight-regular", "--weight-medium", "--weight-semibold", "--weight-bold", "--text-display", "--text-title", "--text-body", "--text-small", "--text-caption",
+            "--radius-xs", "--radius-sm", "--radius-md", "--radius-lg", "--radius-full", "--control-h", "--duration",
+        ];
+        foreach (var n in names) { Assert.True(map.ContainsKey(n), n); }
+        Assert.Equal("34px", map["--text-display"]);
+        Assert.Equal("16px", map["--radius-lg"]);
+        Assert.Equal("10px", map["--radius-sm"]);
+        Assert.Equal("9999px", map["--radius-full"]);
+        Assert.Equal("180ms", map["--duration"]);
+    }
 
     [Fact]
     public void The_two_dark_blocks_are_identical_and_carry_the_dark_values()
@@ -57,10 +92,12 @@ public sealed partial class DesignSystemTests
         var manual = ManualDark().Match(css);
         Assert.True(system.Success && manual.Success);
         Assert.Equal(Norm(system.Groups["body"].Value), Norm(manual.Groups["body"].Value));
-        foreach (var expected in new[] { "--surface:#505152", "--surface-subtle:#48494a", "--surface-panel:#434445", "--ink:#ffffff", "--action:#ffffff", "--on-action:#505152", "--danger:#ffc2bb" })
+        foreach (var expected in new[] { "--page:#1c1c1e", "--surface:#2c2c2e", "--ink:#f5f5f7", "--action:#6aa9ff", "--on-action:#0a1d38", "--danger:#ff8a80" })
         {
             Assert.Contains(expected, Norm(system.Groups["body"].Value).Replace(": ", ":", StringComparison.Ordinal), StringComparison.Ordinal);
         }
+        var light = Map(LightBlock());
+        foreach (var name in Map(manual.Groups["body"].Value).Keys.Where(k => k != "color-scheme")) { Assert.True(light.ContainsKey(name), $"{name} is overridden in Dark but not defined in Light"); }
     }
 
     [Fact]
@@ -70,23 +107,88 @@ public sealed partial class DesignSystemTests
         var end = css.IndexOf("/* end of tokens */", StringComparison.Ordinal);
         Assert.True(end > 0);
         Assert.DoesNotMatch(@"#[0-9a-fA-F]{3,8}\b", css[end..]);
-        Assert.DoesNotMatch(@"\brgba?\(", css[end..]);
+        Assert.DoesNotMatch(@"\brgba?\(|\bhsla?\(", css[end..]);
+        Assert.DoesNotMatch(@"--dafa-", css);
+    }
+
+    public static TheoryData<string, string, double> ContrastPairs()
+    {
+        var data = new TheoryData<string, string, double>();
+        foreach (var theme in new[] { "light", "dark" })
+        {
+            (string Fg, string Bg, double Min)[] pairs =
+            [
+                ("--ink", "--surface", 7), ("--ink", "--page", 7), ("--ink-muted", "--surface", 4.5), ("--ink-muted", "--page", 4.5), ("--ink-muted", "--surface-panel", 4.5),
+                ("--action", "--surface", 4.5), ("--action", "--page", 4.5), ("--action", "--tint", 4.5), ("--on-action", "--action", 4.5), ("--on-danger", "--danger", 4.5),
+                ("--danger", "--surface", 4.5), ("--border-input", "--surface", 3), ("--border-input", "--field-bg", 3),
+                ("--blue-fg", "--blue-bg", 4.5), ("--green-fg", "--green-bg", 4.5), ("--orange-fg", "--orange-bg", 4.5), ("--red-fg", "--red-bg", 4.5),
+                ("--purple-fg", "--purple-bg", 4.5), ("--teal-fg", "--teal-bg", 4.5), ("--gray-fg", "--gray-bg", 4.5),
+                ("--chart-1", "--surface", 3), ("--chart-2", "--surface", 3), ("--chart-3", "--surface", 3), ("--chart-4", "--surface", 3), ("--chart-5", "--surface", 3), ("--chart-6", "--surface", 3),
+                ("--chart-axis", "--surface", 4.5),
+            ];
+            foreach (var (fg, bg, min) in pairs) { data.Add(theme, fg + " on " + bg, min); }
+        }
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(ContrastPairs))]
+    public void Key_colour_pairs_meet_the_contrast_minimum_in_both_themes(string theme, string pair, double min)
+    {
+        var map = Theme(theme == "dark");
+        var parts = pair.Split(" on ");
+        var ratio = Crm.Web.Services.Color.ContrastAgainst(map[parts[0]], map[parts[1]]);
+        Assert.True(ratio >= min, $"{theme}: {pair} is {ratio:0.00}:1, needs {min}:1");
     }
 
     [Fact]
-    public void No_shadows_gradients_or_other_radii_and_only_two_font_weights()
+    public void The_default_accent_matches_the_token_and_passes_the_accent_rule()
+    {
+        Assert.Equal(Map(LightBlock())["--action"], Crm.Web.Services.Color.DefaultAccent.ToLowerInvariant());
+        Assert.True(Crm.Web.Services.Color.AccentContrast(Crm.Web.Services.Color.DefaultAccent) >= 4.5);
+        Assert.Equal(Map(LightBlock())["--tint"], Crm.Web.Services.Color.PanelBg.ToLowerInvariant());
+    }
+
+    [Fact]
+    public void Shape_depth_and_type_follow_the_tokens()
     {
         var css = Css();
-        Assert.DoesNotContain("box-shadow", css, StringComparison.Ordinal);
-        Assert.DoesNotContain("text-shadow", css, StringComparison.Ordinal);
-        Assert.DoesNotContain("gradient(", css, StringComparison.Ordinal);
-        foreach (Match m in Regex.Matches(css, @"border-radius:\s*([^;}]+)"))
+        var body = css[css.IndexOf("/* end of tokens */", StringComparison.Ordinal)..];
+        foreach (Match m in Regex.Matches(body, @"border-radius:\s*([^;}]+)"))
         {
-            Assert.Matches(@"^(0|var\(--radius-(?:sm|full|none)\))(?: (0|var\(--radius-(?:sm|full|none)\))){0,3}$", m.Groups[1].Value.Trim());
+            Assert.Matches(@"^(0|var\(--radius-(?:xs|sm|md|lg|full|none)\))(?: (0|var\(--radius-(?:xs|sm|md|lg|full|none)\))){0,3}$", m.Groups[1].Value.Trim());
         }
-        Assert.DoesNotMatch(@"font-weight:(?>\s*)(?!var\(--weight-(regular|bold)\)|inherit)", css);
+        foreach (Match m in Regex.Matches(body, @"box-shadow:\s*([^;}]+)"))
+        {
+            Assert.Matches(@"^(none|var\(--shadow-(?:1|2|btn)\)|0 1px 3px var\(--focus-ring\)|0 0 0 5px var\(--focus-ring\))$", m.Groups[1].Value.Trim());
+        }
+        Assert.DoesNotMatch(@"font-weight:(?>\s*)(?!var\(--weight-(regular|medium|semibold|bold)\)|inherit)", css);
         Assert.DoesNotMatch(@"font:\s*(?!var\(--weight)[0-9]", css);
-        Assert.Contains("--font-sans:\"Avenir Next\",\"Avenir Next LT Pro\",Arial,sans-serif;", css, StringComparison.Ordinal);
+        Assert.Contains("--font-sans:-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"Segoe UI\",Roboto,\"Helvetica Neue\",Arial,sans-serif;", css, StringComparison.Ordinal);
+        Assert.DoesNotContain("@font-face", css, StringComparison.Ordinal);
+        Assert.DoesNotContain("@import", css, StringComparison.Ordinal);
+        Assert.DoesNotMatch(@"url\((?!/img/|#|""?data:)", css);
+        Assert.DoesNotMatch(@"transition:[^;]*\d+m?s", body); // durations come from --duration
+    }
+
+    [Fact]
+    public void Frosted_bars_have_a_solid_fallback_and_motion_respects_the_user_setting()
+    {
+        var css = Norm(Css());
+        Assert.Matches(@"\.sidebar \{[^}]*background: var\(--surface\);", css); // solid first
+        Assert.Matches(@"@supports \(\(-webkit-backdrop-filter: blur\(1px\)\) or \(backdrop-filter: blur\(1px\)\)\) \{ \.sidebar, \.topbar \{ background: var\(--glass\);", css);
+        Assert.Contains("@media (prefers-reduced-motion: reduce) { :root { --duration:0ms; } }", css, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_dafa_logo_is_kept_and_its_soft_blue_copy_differs_only_in_fill_colours()
+    {
+        var dir = Path.Combine(WebRoot, "wwwroot", "img", "brand");
+        var original = File.ReadAllText(Path.Combine(dir, "dafa-logo-primary-blue.svg"));
+        var recoloured = File.ReadAllText(Path.Combine(dir, "dafa-logo-softblue.svg"));
+        Assert.Equal(original.Replace("#00456c", "#1a66cc", StringComparison.Ordinal).Replace("#abadae", "#8cb8f0", StringComparison.Ordinal), recoloured);
+        var rings = File.ReadAllText(Path.Combine(dir, "dafa-rings-gray.svg"));
+        Assert.Equal(rings.Replace("#505152", "#4a90e2", StringComparison.Ordinal), File.ReadAllText(Path.Combine(dir, "dafa-rings-softblue.svg")));
     }
 
     [Fact]
@@ -152,22 +254,22 @@ public sealed partial class DesignSystemTests
         foreach (var block in new[] { SystemDark().Match(css).Groups["body"].Value, ManualDark().Match(css).Groups["body"].Value })
         {
             var b = Norm(block).Replace(": ", ":", StringComparison.Ordinal);
-            Assert.Contains("--stage-passed:var(--dafa-gray-25)", b, StringComparison.Ordinal);
-            Assert.Contains("--stage-current:var(--chart-1)", b, StringComparison.Ordinal);
+            Assert.Contains("--stage-passed:#5b9bf0", b, StringComparison.Ordinal);
+            Assert.Contains("--stage-current:#ffffff", b, StringComparison.Ordinal);
         }
         Assert.Contains(".stage-track .passed .seg-bar { fill: var(--stage-passed); }", Norm(css), StringComparison.Ordinal);
         Assert.Contains(".stage-track .current .seg-bar { fill: var(--stage-current); }", Norm(css), StringComparison.Ordinal);
     }
 
-    /// <summary>UX review M5 (approved by the product owner): large panels and board columns are lighter, KPI cards keep the mid grey, sparklines are 40px.</summary>
+    /// <summary>Cards are white surfaces with the layered shadow; board columns are the inset panel colour; sparklines are 44px.</summary>
     [Fact]
-    public void Panels_and_board_columns_use_the_subtle_surface_and_kpi_cards_the_panel_surface()
+    public void Cards_board_columns_and_tiles_use_the_surface_tokens()
     {
         var css = Norm(Css());
-        Assert.Contains(".panel { background: var(--surface-subtle);", css, StringComparison.Ordinal);
-        Assert.Contains(".board-col { flex: 1 0 272px; max-width: 320px; background: var(--surface-subtle);", css, StringComparison.Ordinal);
-        Assert.Contains(".tile { min-width: 0; position: relative; background: var(--surface-panel);", css, StringComparison.Ordinal);
-        Assert.Contains(".spark { display: block; width: 100%; height: 40px;", css, StringComparison.Ordinal);
+        Assert.Contains(".panel { background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-1);", css, StringComparison.Ordinal);
+        Assert.Contains(".board-col { flex: 1 0 272px; max-width: 320px; background: var(--surface-panel); border-radius: var(--radius-lg);", css, StringComparison.Ordinal);
+        Assert.Contains("background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-1); padding: var(--space-md) var(--space-lg) var(--space-sm);", css, StringComparison.Ordinal);
+        Assert.Contains(".spark { display: block; width: 100%; height: 44px;", css, StringComparison.Ordinal);
     }
 
     /// <summary>UX review L1: six KPI columns follow the width of the content area, not the viewport.</summary>

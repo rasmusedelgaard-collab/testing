@@ -11,19 +11,21 @@ public sealed class RedesignUnitTests
     private static string Day(string d) => d;
 
     [Fact]
-    public void Accent_contrast_is_checked_against_white_and_the_panel_gray()
+    public void Accent_contrast_is_checked_against_white_and_the_light_blue_tint()
     {
+        Assert.True(Color.AccentContrast("#1A66CC") >= 4.5);
         Assert.True(Color.AccentContrast("#00456C") >= 4.5);
         Assert.True(Color.AccentContrast("#0B5D57") >= 4.5);
-        Assert.True(Color.AccentContrast("#0F766E") < 4.5); // passes on white, fails on #D6D7D7
-        Assert.True(Color.ContrastWithWhite("#0F766E") >= 4.5);
+        Assert.True(Color.AccentContrast("#1E6FD9") < 4.5); // passes on white (4.85), fails on the #EAF2FD tint (4.3)
+        Assert.True(Color.ContrastWithWhite("#1E6FD9") >= 4.5);
     }
 
     [Fact]
     public void Legacy_default_and_too_light_accents_count_as_not_set()
     {
         Assert.Null(Color.EffectiveAccent("#1D4ED8"));
-        Assert.Null(Color.EffectiveAccent("#00456C"));
+        Assert.Null(Color.EffectiveAccent("#1A66CC"));
+        Assert.Equal("#00456C", Color.EffectiveAccent("#00456c"));
         Assert.Null(Color.EffectiveAccent("#FFFF00"));
         Assert.Null(Color.EffectiveAccent("red"));
         Assert.Equal("#0B5D57", Color.EffectiveAccent("#0b5d57"));

@@ -11,7 +11,7 @@
   </div>
   <div class="field@(Model.Errors.ContainsKey("accentColor") ? " has-error" : "")">
     <label for="f-accentColor">Accent colour</label>
-    <span class="help" id="h-accentColor">Used for links and buttons in the Light theme. It must have a contrast of at least 4.5:1 against white and the light gray panels (#D6D7D7). The Dark theme always uses white.</span>
+    <span class="help" id="h-accentColor">Used for links and buttons in the Light theme. It must have a contrast of at least 4.5:1 against white and the light blue tint behind selected items (#EAF2FD). The Dark theme always uses its own brighter soft blue.</span>
     @if (Model.Errors.TryGetValue("accentColor", out var e2)){<span class="field-error" id="e-accentColor">@Ui.Icon("error")@e2</span>}
     <div class="actions"><input id="f-accentColor" name="accentColor" type="text" maxlength="7" pattern="#[0-9A-Fa-f]{6}" value="@Model.AccentColor" aria-describedby="h-accentColor@(Model.Errors.ContainsKey("accentColor") ? " e-accentColor" : "")" aria-invalid="@(Model.Errors.ContainsKey("accentColor") ? "true" : null)"><span class="swatch" aria-hidden="true"></span></div>
   </div>
@@ -19,7 +19,7 @@
 </form>
 <section aria-labelledby="preview-h" class="panel">
   <h2 id="preview-h">Brand preview</h2>
-  <p class="muted">The saved colour on both themes. The Dark theme keeps white.</p>
+  <p class="muted">The saved colour on both themes. The Dark theme keeps its soft blue.</p>
   <div class="preview-row">
     <div class="preview-sample light"><strong>Light</strong><span class="sample-button">Primary button</span><span class="sample-link">A link</span></div>
     <div class="preview-sample dark"><strong>Dark</strong><span class="sample-button">Primary button</span><span class="sample-link">A link</span></div>

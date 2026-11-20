@@ -88,8 +88,8 @@ public sealed class NoSqlHttpTests : IDisposable
         var theme = await c.GetAsync("/css/theme.css");
         Assert.Equal("text/css; charset=utf-8", theme.Content.Headers.ContentType!.ToString());
         var themeCss = await theme.Content.ReadAsStringAsync();
-        // B-12: the old default accent counts as "not set", so no --action override is emitted and the DAFA blue from app.css shows.
-        Assert.Contains("--accent-preview: #00456C", themeCss, StringComparison.Ordinal);
+        // B-12: the old default accent counts as "not set", so no --action override is emitted and the soft blue from app.css shows.
+        Assert.Contains("--accent-preview: #1A66CC", themeCss, StringComparison.Ordinal);
         Assert.DoesNotContain("--action:", themeCss, StringComparison.Ordinal);
         var etag = theme.Headers.ETag!.ToString();
         var req = new HttpRequestMessage(HttpMethod.Get, "/css/theme.css");

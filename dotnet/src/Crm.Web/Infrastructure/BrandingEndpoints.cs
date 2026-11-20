@@ -8,8 +8,8 @@ namespace Crm.Web.Infrastructure;
 public static class BrandingEndpoints
 {
     /// <summary>
-    /// The Admin accent applies to the Light theme only (Dark keeps white, because no accent that passes in Light can pass on the dark gray).
-    /// An unset (legacy default) or too-light accent emits no override, so the DAFA blue from app.css shows.
+    /// The Admin accent applies to the Light theme only (Dark keeps its own brighter soft blue, because no accent that passes in Light can pass on the dark surfaces).
+    /// An unset (legacy default) or too-light accent emits no override, so the soft blue from app.css shows.
     /// </summary>
     public static string ThemeCss(string storedAccent)
     {
@@ -20,7 +20,7 @@ public static class BrandingEndpoints
         {
             return css;
         }
-        var vars = $"--action: {accent}; --action-hover: {Color.Darken(accent)};";
+        var vars = $"--action: {accent}; --action-hover: {Color.Darken(accent)}; --focus: {accent}; --stage-current: {accent};";
         return css + $"@media (prefers-color-scheme: light) {{ :root:not([data-theme=\"dark\"]) {{ {vars} }} }}\n:root[data-theme=\"light\"] {{ {vars} }}\n";
     }
 
