@@ -58,22 +58,31 @@
 </ul>
 </section>
 <div class="dash-top">
+<div class="dash-col">
 <section aria-labelledby="upcoming-h" class="panel">
   <div class="panel-head"><h2 id="upcoming-h">My day</h2><p><a class="more-link" href="@Model.ViewAllDueHref">View all due</a></p></div>
-  @if (Model.Upcoming.All(u => u.Items.Count == 0)){<div class="empty compact">@Ui.Ring("check")<p>Nothing due. You're all caught up.</p></div>}
-  @foreach (var u in Model.Upcoming)
+  @{ var dayGroups = Model.Upcoming.Where(u => u.Items.Count > 0).ToList(); }
+  @if (dayGroups.Count == 0){<div class="empty compact">@Ui.Ring("check")<p>Nothing due. You're all caught up.</p></div>}
+  @if (dayGroups.Count > 1)
   {
-  @if (u.Items.Count > 0)
+  <div class="segmented js-only" role="group" aria-label="Show activities">
+    <button type="button" data-day-tab="all" aria-pressed="true">All</button>
+    @for (var gi = 0; gi < dayGroups.Count; gi++){<button type="button" data-day-tab="@gi" aria-pressed="false">@dayGroups[gi].Title<span class="seg-count">@dayGroups[gi].Total</span></button>}
+  </div>
+  }
+  @for (var gi = 0; gi < dayGroups.Count; gi++)
   {
+  var u = dayGroups[gi];
+  <div class="my-day-group" data-day-group="@gi">
   <h3>@u.Title (@u.Total)</h3>
   <ol class="timeline-items my-day">
-  @foreach (var it in u.Items)
+  @foreach (var it in u.Items.Take(3))
   {
     <li class="tl-item">
       <div class="tl-body">
-        <div class="tl-line"><p class="tl-title"><a href="@it.Href">@it.Title</a></p>@if (it.Overdue){<span class="chip danger">@Ui.Icon("error")@it.Hint</span>}</div>
+        <div class="tl-line"><p class="tl-title"><a href="@it.Href" title="@it.Title">@it.Title</a></p>@if (it.Overdue){<span class="chip danger">@Ui.Icon("error")@it.Hint</span>}</div>
         <p class="tl-meta">
-          @if (it.RelatedLabel is not null){<a href="@it.RelatedHref">@it.RelatedLabel</a>}
+          @if (it.RelatedLabel is not null){<a href="@it.RelatedHref" title="@it.RelatedLabel">@it.RelatedLabel</a>}
           <span>@it.When@if (!it.Overdue && it.Hint.Length > 0){<text> · @it.Hint</text>}</span>
         </p>
       </div>
@@ -85,9 +94,11 @@
   }
   </ol>
   <p class="view-all"><a class="more-link" href="@u.ViewAll">@u.ViewAllLabel</a></p>
-  }
+  </div>
   }
 </section>
+</div>
+<div class="dash-col">
 <section aria-labelledby="funnel-h" class="panel">
   <div class="panel-head"><h2 id="funnel-h">Open pipeline by stage</h2><p><a class="more-link" href="/pipeline">Open board</a></p></div>
   @if (Model.Funnel.Count == 0){<div class="empty compact">@Ui.Ring("pipeline")<p>No open stages. An administrator can add them in Settings &gt; Pipeline stages.</p></div>}
@@ -109,16 +120,22 @@
   @foreach (var n in Model.FunnelNotes){<p class="tile-note">@Ui.Icon("warning") @n</p>}
   }
 </section>
-</div>
 <section aria-labelledby="my-opps-h" class="panel">
-  <div class="panel-head"><h2 id="my-opps-h">My open opportunities</h2>@if (Model.Opps.Count > 0){<p><a class="more-link" href="/opportunities?status=open&amp;owner=@Model.UserId">View all my opportunities (@Model.OppTotal)</a></p>}</div>
-  @if (Model.Opps.Count == 0){<div class="empty compact">@Ui.Ring("opportunities")<p>No open opportunities yet. <a href="/opportunities/new">New opportunity</a></p></div>}
+  <div class="panel-head"><h2 id="my-opps-h">My open opportunities</h2>@if (Model.OppList.Count > 0){<p><a class="more-link" href="/opportunities?status=open&amp;owner=@Model.UserId">View all my opportunities (@Model.OppTotal)</a></p>}</div>
+  @if (Model.OppList.Count == 0){<div class="empty compact">@Ui.Ring("opportunities")<p>No open opportunities yet. <a href="/opportunities/new">New opportunity</a></p></div>}
   else
   {
-  <div class="table-wrap"><table class="data dense">
-    <caption class="visually-hidden">My open opportunities, earliest close date first</caption>
-    <thead><tr>@foreach (var c in Model.OppColumns){<th scope="col" class="@(c == "Amount" ? "num" : null)">@c</th>}</tr></thead>
-    <tbody>@foreach (var cells in Model.Opps){<tr>@for (var ci = 0; ci < cells.Count; ci++){<partial name="_Td" model="new TdModel(cells[ci], Model.OppColumns[ci])" />}</tr>}</tbody>
-  </table></div>
+  <ul class="opp-list" aria-label="My open opportunities, earliest close date first">
+    @foreach (var o in Model.OppList)
+    {
+    <li class="opp-row">
+      <div class="opp-main"><a class="opp-name" href="/opportunities/@o.Id" title="@o.Name">@o.Name</a><a class="opp-sub" href="/accounts/@o.AccountId" title="@o.Account">@o.Account</a></div>
+      <span class="opp-stage">@Ui.StageChip(o.StageName, o.StageType, o.StageIndex, o.StageCount)</span>
+      <div class="opp-side"><span class="opp-amount" title="@o.AmountFull">@o.Amount<span class="visually-hidden"> (@o.AmountFull)</span></span><span class="opp-close@(o.PastClose ? " late" : "")">@o.CloseDate@if (o.PastClose){<span class="visually-hidden"> (past close date)</span>}</span></div>
+    </li>
+    }
+  </ul>
   }
 </section>
+</div>
+</div>

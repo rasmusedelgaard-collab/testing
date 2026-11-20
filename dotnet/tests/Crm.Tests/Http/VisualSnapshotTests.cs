@@ -81,7 +81,8 @@ public sealed class VisualSnapshotTests : IDisposable
         var won = Data.Opportunities.Where(o => o.StageSlot == DemoOpportunity.SlotWon && o.ClosedAt?.Month == 11 && o.ClosedAt?.Year == 2026).Sum(Dkk);
         var wonCount = Data.Opportunities.Count(o => o.StageSlot == DemoOpportunity.SlotWon && o.ClosedAt?.Month == 11 && o.ClosedAt?.Year == 2026);
         var avg = open.Sum(Dkk) / open.Count;
-        var spark = SparkOf("Last 12 months: highest in Jun 2026, 3,1 mio. kr.", 1.2, 1.5, 1.1, 1.9, 2.2, 1.8, 2.6, 3.1, 2.4, 2.9, 2.7, 3.0);
+        var monthly = Enumerable.Range(0, 12).Select(i => TodayDate.AddMonths(i - 11)).Select(m => (double)Data.Opportunities.Where(o => o.StageSlot == DemoOpportunity.SlotWon && o.ClosedAt is { } c && c.Year == m.Year && c.Month == m.Month).Sum(Dkk)).ToArray();
+        var spark = SparkOf("Last 12 months: highest in " + TodayDate.AddMonths(Array.IndexOf(monthly, monthly.Max()) - 11).ToString("MMM yyyy", CultureInfo.InvariantCulture), monthly);
         var perStage = Enumerable.Range(0, 4).Select(st => (Stage: Stages[st], Total: open.Where(o => o.StageSlot == st).Sum(Dkk))).ToList();
         var stack = perStage.Select((x, n) => new TileSeg(x.Stage.Name, n + 1, x.Total / pipeline * 100)).ToList();
         var weighted = perStage.Sum(x => x.Total * x.Stage.Probability / 100m);
@@ -92,9 +93,9 @@ public sealed class VisualSnapshotTests : IDisposable
             new("Open pipeline", "/opportunities?status=open", Short(pipeline), Full(pipeline), $"{open.Count} opps", [], false, "", false, false, Stack: stack),
             new("Weighted pipeline", "/opportunities?status=open", Short(weighted), Full(weighted), "amount × stage probability", [], false, "", false, false, Meter: weighted / pipeline * 100, MeterText: $"{Math.Round(weighted / pipeline * 100)} % of the open pipeline"),
             new("Won this month", "/opportunities?status=won", Short(won), Full(won), $"{wonCount} deals", [], false, "", false, false, new TrendResult("up", "Up 12% vs same days last month", Range, "12%"), spark),
-            new("Won this quarter", "/opportunities?status=won", Short(qWon), Full(qWon), "11 deals", [], false, "", false, false, new TrendResult("down", "Down 4% vs same days last quarter", Range, "4%"), SparkOf("Last 12 months: highest in Jun 2026, 3,1 mio. kr.", 1.4, 1.2, 1.9, 2.1, 1.7, 2.5, 3.0, 2.2, 2.8, 2.4, 2.9, 2.6)),
+            new("Won this quarter", "/opportunities?status=won", Short(qWon), Full(qWon), "11 deals", [], false, "", false, false, new TrendResult("down", "Down 4% vs same days last quarter", Range, "4%"), spark),
             new("Win rate (last 90 d)", "/analytics", "38 %", "", "19 of 50 closed deals won", [], false, "", false, false, new TrendResult("up", "Up 3 pts vs previous 90 days", Range, "3 pts"), Meter: 38),
-            new("My activities due", "/activities?status=open", "3 overdue", "", "6 due today", [], false, "", true, true,
+            new("My activities due", "/activities?status=open", "3 overdue", "", "Next: Site visit at Nordvind Rotor ApS 10:00", [], false, "", true, true,
                 Chips: [new("Overdue", 3, "/activities?due=overdue", "error"), new("Today", 6, "/activities?due=today", "clock"), new("Next 7 days", 11, "/activities?due=week", "calendar")]),
         };
         var overdue = new[] { 0, 1, 2 }.Select(i => (Data.Activities.Where(a => !a.IsDone && a.DueDate < TodayDate && a.Type != "note").ElementAt(i * 5), i)).ToList();
@@ -105,10 +106,10 @@ public sealed class VisualSnapshotTests : IDisposable
         var funnel = Enumerable.Range(0, 4).Select(s => (Stage: Stages[s], Opps: open.Where(o => o.StageSlot == s).ToList())).ToList();
         var maxAmount = funnel.Max(f => f.Opps.Sum(Dkk));
         var funnelRows = funnel.Select(f => new FunnelRow(f.Stage.Name, $"/opportunities?status=open&stage={f.Stage.Id}", f.Opps.Count, Short(f.Opps.Sum(Dkk)), Full(f.Opps.Sum(Dkk)), Math.Round(f.Opps.Sum(Dkk) / maxAmount * 100m))).ToList();
-        var mine = open.Where(o => o.OwnerKey == "lars").Concat(open).Distinct().Take(8).OrderBy(o => o.CloseDate).ToList();
-        var oppCells = mine.Select(o => (IReadOnlyList<Cell>)EntityViews.CellsFor("opportunities", OppRow(o), F, Today, "/", Stages).Where((_, i) => i != 5).ToList()).ToList();
+        var mine = open.Where(o => o.OwnerKey == "lars").Concat(open).Distinct().Take(7).OrderBy(o => o.CloseDate).ToList();
+        var oppList = mine.Select(o => { var r = OppRow(o); var (idx, cnt) = (o.StageSlot + 1, 4); return new OppRowVm(r.Int("Id"), o.Name, r.Int("AccountId"), r.S("AccountName"), r.S("StageName"), r.S("StageType"), idx, cnt, NumberFormats.CompactMoney(o.Amount, o.Currency, "da-DK"), F.Money(o.Amount, o.Currency), F.Date(Iso(o.CloseDate)), o.CloseDate < TodayDate); }).ToList();
         var model = PageRenderHarness.Model<Crm.Web.Pages.Dashboard.IndexModel>(("Greeting", "Good morning, Lars"), ("AsOf", "19.11.2026 09:14"), ("LongDate", "Thursday 19 November"), ("FirstName", "Lars"), ("Tiles", tiles), ("UserId", 7), ("BaseCurrency", "DKK"),
-            ("OppColumns", new[] { "Name", "Account", "Stage", "Amount", "Close date" }), ("Opps", oppCells), ("OppTotal", 21),
+            ("OppList", oppList), ("OppTotal", 21),
             ("Upcoming", new List<UpcomingGroup> { new("Overdue", 3, overdueItems, "/activities?due=overdue", "View all overdue activities"), new("Today", 3, todayItems, "/activities?due=today", "View all activities due today"), new("Next 7 days", 11, weekItems, "/activities?due=week", "View all activities in the next 7 days") }),
             ("Funnel", funnelRows), ("FunnelNotes", Array.Empty<string>()), ("Summary", "You have 3 overdue and 6 due today"), ("ViewAllDueHref", "/activities?due=due"));
         var doc = await PageRenderHarness.RenderAsync(_f, "/Dashboard/Index", model, PageRenderHarness.User(CrmRole.Manager, "Lars Eriksen"), new Dictionary<string, object?> { ["ActiveNav"] = "dashboard", ["Title"] = "Dashboard" }, dumpSuffix: "v2-dashboard");

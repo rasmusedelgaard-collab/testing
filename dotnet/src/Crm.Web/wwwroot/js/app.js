@@ -80,6 +80,19 @@
     });
   }
 
+  // ---- My day: the segmented control filters the groups (All, or one group). Without JS every group is listed. ----
+  document.querySelectorAll('.segmented').forEach(function (seg) {
+    var panel = seg.closest('.panel');
+    var tabs = seg.querySelectorAll('[data-day-tab]');
+    var groups = panel ? panel.querySelectorAll('[data-day-group]') : [];
+    var show = function (n) {
+      tabs.forEach(function (t) { t.setAttribute('aria-pressed', t.getAttribute('data-day-tab') === n ? 'true' : 'false'); });
+      groups.forEach(function (g) { g.hidden = n !== 'all' && g.getAttribute('data-day-group') !== n; });
+      panel.setAttribute('data-day-mode', n === 'all' ? 'all' : 'one');
+    };
+    tabs.forEach(function (t) { t.addEventListener('click', function () { show(t.getAttribute('data-day-tab')); }); });
+  });
+
   // ---- Menus (<details>): one open at a time; outside click and Esc close ----
   var menus = document.querySelectorAll('details.menu');
   menus.forEach(function (m) {

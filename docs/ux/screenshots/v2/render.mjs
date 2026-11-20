@@ -40,6 +40,7 @@ const allShots = [
   { name: 'signin-light-1440', key: 'v2-signin', w: 1440, h: 900, scheme: 'light' },
   { name: 'dashboard-full-light-1440', key: 'v2-dashboard', w: 1440, h: 1800, scheme: 'light' },
   { name: 'dashboard-phone-390', key: 'v2-dashboard', w: 390, h: 844, scheme: 'light', mobile: true },
+  { name: 'dashboard-phone-full-390', key: 'v2-dashboard', w: 390, h: 844, scheme: 'light', mobile: true, full: true },
 ];
 const shots = allShots.filter(s => only === 'all' || s.name.startsWith(only));
 fs.mkdirSync(out, { recursive: true });

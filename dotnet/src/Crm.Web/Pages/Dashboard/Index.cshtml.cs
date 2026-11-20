@@ -21,6 +21,9 @@ public sealed record TileChip(string Label, int Count, string Href, string Icon)
 public sealed record TileVm(string Label, string Href, string Short, string Full, string Context, IReadOnlyList<string> Notes, bool Excluded, string FxCurrencies, bool Danger, bool Wrap, TrendResult? Trend = null, SparkResult? Spark = null,
     IReadOnlyList<TileSeg>? Stack = null, decimal? Meter = null, string? MeterText = null, IReadOnlyList<TileChip>? Chips = null);
 
+/// <summary>One line of "My open opportunities": compact money (like the tiles), the full amount for the title.</summary>
+public sealed record OppRowVm(int Id, string Name, int AccountId, string Account, string StageName, string StageType, int StageIndex, int StageCount, string Amount, string AmountFull, string CloseDate, bool PastClose);
+
 public sealed record UpcomingGroup(string Title, int Total, IReadOnlyList<TimelineItem> Items, string ViewAll, string ViewAllLabel);
 
 /// <summary>One open stage of the funnel: count, amount in the base currency (compact, full value for title/hidden text) and the bar share.</summary>
@@ -39,9 +42,7 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
 
     public int UserId { get; private set; }
 
-    public IReadOnlyList<string> OppColumns { get; private set; } = [];
-
-    public IReadOnlyList<IReadOnlyList<Cell>> Opps { get; private set; } = [];
+    public IReadOnlyList<OppRowVm> OppList { get; private set; } = [];
 
     public int OppTotal { get; private set; }
 
@@ -144,7 +145,7 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
         // so a click shows exactly the count that was on the dashboard. Overdue work leads when there is any; otherwise the tile shows what is due today.
         var anyOverdue = data.overdue.Total > 0;
         vms.Add(new TileVm("My activities due", $"{ActivitiesLink}&due=due&owner={ctx.UserId.ToString(CultureInfo.InvariantCulture)}", anyOverdue ? $"{data.overdue.Total} overdue" : $"{data.dueToday.Total} due today", "",
-            anyOverdue ? $"{data.dueToday.Total} due today" : "Nothing overdue", [], false, "", anyOverdue, true,
+            NextCaption(data.dueToday.Rows, data.week.Rows), [], false, "", anyOverdue, true,
             Chips: [new("Overdue", data.overdue.Total, $"{ActivitiesLink}&due=overdue&owner={ctx.UserId.ToString(CultureInfo.InvariantCulture)}", "error"), new("Today", data.dueToday.Total, $"{ActivitiesLink}&due=today&owner={ctx.UserId.ToString(CultureInfo.InvariantCulture)}", "clock"),
                 new("Next 7 days", data.week.Total, $"{ActivitiesLink}&due=week&owner={ctx.UserId.ToString(CultureInfo.InvariantCulture)}", "calendar")]));
         Summary = (data.overdue.Total, data.dueToday.Total) switch
@@ -155,9 +156,6 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
             var (o, t) => $"You have {o} overdue and {t} due today",
         };
         Tiles = vms;
-        // The dashboard lists are "mine", so the Owner column would only repeat the user's own name.
-        int OwnerIdx(string e) => EntityViews.ColumnsFor(e).ToList().FindIndex(c => c.Label == "Owner");
-        IReadOnlyList<IReadOnlyList<Cell>> Rows(IReadOnlyList<Row> rs, string e) => rs.Select(r => (IReadOnlyList<Cell>)EntityViews.CellsFor(e, r, f, data.today, "/", data.lk.Stages).Where((_, i) => i != OwnerIdx(e)).ToList()).ToList();
         IReadOnlyList<TimelineItem> Items(IReadOnlyList<Row> rs) => rs.Select(r => TimelineBuilder.ActivityItem(r, f, data.today, "/")).ToList();
         var user = CrmPrincipal_Name();
         FirstName = user.Split(' ')[0] is { Length: > 0 } first ? first : "there";
@@ -167,8 +165,13 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
         BaseCurrency = set.BaseCurrency;
         IsAdmin = ctx.Role == CrmRole.Admin;
         UserId = ctx.UserId;
-        OppColumns = EntityViews.ColumnsFor("opportunities").Select(c => c.Label).Where(l => l != "Owner").ToList();
-        Opps = Rows(data.mine.Rows, "opportunities");
+        OppList = data.mine.Rows.Take(7).Select(r =>
+        {
+            var (idx, cnt) = EntityViews.OpenPosition(data.lk.Stages, r.Int("StageId"));
+            return new OppRowVm(r.Int("Id"), r.S("Name"), r.Int("AccountId"), r.S("AccountName"), r.S("StageName"), r.S("StageType"), idx, cnt,
+                NumberFormats.CompactMoney(r.Dec("Amount"), r.S("CurrencyCode"), set.LocaleCode), f.Money(r.Dec("Amount"), r.S("CurrencyCode")), f.Date(r.S("CloseDate")),
+                r.S("StageType") == "open" && string.CompareOrdinal(r.S("CloseDate"), data.today) < 0);
+        }).ToList();
         OppTotal = data.mine.Total;
         var mineLink = $"{ActivitiesLink}&owner={ctx.UserId.ToString(CultureInfo.InvariantCulture)}";
         Upcoming =
@@ -204,6 +207,18 @@ public sealed class IndexModel(IRlsDb rls, IRlsContextAccessor identity, TimePro
             }
         }
         return Page();
+    }
+
+    /// <summary>"Next: Site visit 10:00": the earliest open activity due today, else the earliest in the next 7 days.</summary>
+    private static string NextCaption(IReadOnlyList<Row> today, IReadOnlyList<Row> week)
+    {
+        var next = today.Count > 0 ? today[0] : week.Count > 0 ? week[0] : null;
+        if (next is null)
+        {
+            return "Nothing due soon";
+        }
+        var time = next.S("DueTime");
+        return $"Next: {next.S("Subject")}{(time.Length > 0 ? " " + time : "")}";
     }
 
     private string CrmPrincipal_Name() => User.FindFirst("name")?.Value ?? "";

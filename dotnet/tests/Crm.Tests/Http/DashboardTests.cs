@@ -59,7 +59,7 @@ public sealed class DashboardTests(SqlServerFixture fx)
         Assert.Equal("/opportunities?status=open", open.QuerySelector("a.tile-link")!.GetAttribute("href"));
         Assert.Contains("No closed deals yet", tiles[4].QuerySelector(".tile-value")!.TextContent, StringComparison.Ordinal);
         Assert.Contains("My open opportunities", doc.QuerySelector("#my-opps-h")!.TextContent, StringComparison.Ordinal);
-        Assert.Contains("D-DKK", doc.QuerySelector("section[aria-labelledby=my-opps-h] table")!.TextContent, StringComparison.Ordinal);
+        Assert.Contains("D-DKK", doc.QuerySelector("section[aria-labelledby=my-opps-h] .opp-list")!.TextContent, StringComparison.Ordinal);
         Assert.Matches("^Good (morning|afternoon|evening), Test$", doc.QuerySelector("h1")!.TextContent);
         foreach (var href in tiles.Select(t => t.QuerySelector("a.tile-link")!.GetAttribute("href")!))
         {

@@ -37,9 +37,8 @@ public sealed class PageRenderSmokeTests : IDisposable
             new("Activities due", "/activities?status=open", "2 overdue", "", "3 due today", [], false, "", true, true),
         };
         var item = TimelineBuilder.ActivityItem(R(("Id", 4), ("ActivityType", "call"), ("Subject", "Follow up"), ("DueDate", "2026-11-17"), ("IsDone", false), ("OwnerName", "Anna Holm"), ("OpportunityId", 7), ("OpportunityName", "Blade root seals 2027"), ("CreatedAt", "2026-11-01T08:00:00.000Z")), F, "2026-11-19", "/");
-        var oppCells = EntityViews.CellsFor("opportunities", Opp(), F, "2026-11-19", "/", Stages).Where((_, i) => i != 5).ToList();
         var model = PageRenderHarness.Model<Crm.Web.Pages.Dashboard.IndexModel>(("Greeting", "Good morning, Mette"), ("AsOf", "19.11.2026 09:14"), ("LongDate", "Thursday 19 November"), ("FirstName", "Mette"), ("Tiles", tiles), ("UserId", 7), ("BaseCurrency", "DKK"),
-            ("OppColumns", new[] { "Name", "Account", "Stage", "Amount", "Close date" }), ("Opps", new List<IReadOnlyList<Cell>> { oppCells }), ("OppTotal", 12),
+            ("OppList", new List<OppRowVm> { new(7, "Blade root seals 2027", 3, "Nordvind Rotor A/S", "Proposal", "open", 3, 4, "240 t EUR", "EUR 240.000,00", "01.10.2026", true) }), ("OppTotal", 12),
             ("Upcoming", new List<UpcomingGroup> { new("Overdue", 2, [item], "/activities?due=overdue", "View all overdue activities"), new("Today", 0, [], "/x", "View all activities due today") }),
             ("Funnel", new List<FunnelRow> { new("Qualification", "/opportunities?status=open&stage=1", 25, "6,0 mio. kr.", "DKK 6.000.000,00", 83), new("Needs analysis", "/opportunities?status=open&stage=2", 18, "7,2 mio. kr.", "DKK 7.200.000,00", 100) }),
             ("FunnelNotes", new[] { "Uses latest rate for 1 currency" }));
@@ -55,6 +54,9 @@ public sealed class PageRenderSmokeTests : IDisposable
         Assert.Equal("Overdue (2)", doc.QuerySelector("section[aria-labelledby=upcoming-h] h3")!.TextContent);
         Assert.Contains("2 days overdue", doc.QuerySelector("section[aria-labelledby=upcoming-h] .chip.danger")!.TextContent, StringComparison.Ordinal);
         Assert.Equal("View all my opportunities (12)", doc.QuerySelector("section[aria-labelledby=my-opps-h] p a")!.TextContent);
+        Assert.Equal("Blade root seals 2027", doc.QuerySelector(".opp-row .opp-name")!.GetAttribute("title"));
+        Assert.NotNull(doc.QuerySelector(".opp-row .chip.stage .pip.on"));
+        Assert.NotNull(doc.QuerySelector(".opp-close.late"));
         Assert.Equal("Open board", doc.QuerySelector("section[aria-labelledby=funnel-h] .panel-head a")!.TextContent);
         Assert.Equal(2, doc.QuerySelectorAll("table.funnel tbody tr").Length);
         Assert.Equal("Amounts in DKK at this month's FX rates.", doc.QuerySelector(".funnel-foot")!.TextContent);
@@ -70,7 +72,7 @@ public sealed class PageRenderSmokeTests : IDisposable
     [Fact]
     public async Task Dashboard_empty_states_and_admin_settings_link()
     {
-        var model = PageRenderHarness.Model<Crm.Web.Pages.Dashboard.IndexModel>(("Greeting", "Good evening, Test"), ("Tiles", new List<TileVm>()), ("Upcoming", new List<UpcomingGroup>()), ("Funnel", new List<FunnelRow>()), ("Opps", new List<IReadOnlyList<Cell>>()), ("OppColumns", Array.Empty<string>()));
+        var model = PageRenderHarness.Model<Crm.Web.Pages.Dashboard.IndexModel>(("Greeting", "Good evening, Test"), ("Tiles", new List<TileVm>()), ("Upcoming", new List<UpcomingGroup>()), ("Funnel", new List<FunnelRow>()), ("OppList", new List<OppRowVm>()));
         var doc = await PageRenderHarness.RenderAsync(_f, "/Dashboard/Index", model, PageRenderHarness.User(CrmRole.Admin));
         Assert.Contains("Nothing due. You're all caught up.", doc.QuerySelector("section[aria-labelledby=upcoming-h]")!.TextContent, StringComparison.Ordinal);
         Assert.Contains("No open opportunities yet.", doc.QuerySelector("section[aria-labelledby=my-opps-h]")!.TextContent, StringComparison.Ordinal);
