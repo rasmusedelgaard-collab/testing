@@ -15,6 +15,13 @@ public static partial class Color
     /// <summary>The old default; treated as "not set" so the soft blue shows (UI redesign B-12).</summary>
     public const string LegacyAccent = "#1D4ED8";
 
+    /// <summary>The older DAFA default; also treated as "not set".</summary>
+    public const string LegacyDafaAccent = "#00456C";
+
+    /// <summary>True for a stored accent that means "not set" (a retired default or the current default).</summary>
+    public static bool IsUnsetAccent(string? stored) =>
+        stored is not null && (stored.Equals(LegacyAccent, StringComparison.OrdinalIgnoreCase) || stored.Equals(LegacyDafaAccent, StringComparison.OrdinalIgnoreCase) || stored.Equals(DefaultAccent, StringComparison.OrdinalIgnoreCase));
+
     [GeneratedRegex(@"^#([0-9a-fA-F]{6})\z", RegexOptions.CultureInvariant)]
     private static partial Regex HexPattern();
 
@@ -56,7 +63,7 @@ public static partial class Color
 
     /// <summary>The accent that theme.css applies: a valid colour that passes the contrast rule and is not the legacy default; otherwise null (soft blue).</summary>
     public static string? EffectiveAccent(string? stored) =>
-        stored is not null && IsHexColor(stored) && !stored.Equals(LegacyAccent, StringComparison.OrdinalIgnoreCase) && !stored.Equals(DefaultAccent, StringComparison.OrdinalIgnoreCase) && AccentContrast(stored) >= 4.5 ? stored.ToUpperInvariant() : null;
+        stored is not null && IsHexColor(stored) && !IsUnsetAccent(stored) && AccentContrast(stored) >= 4.5 ? stored.ToUpperInvariant() : null;
 
     public static string Darken(string hex, double amount = 0.15)
     {

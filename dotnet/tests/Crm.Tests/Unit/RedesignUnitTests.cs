@@ -25,7 +25,7 @@ public sealed class RedesignUnitTests
     {
         Assert.Null(Color.EffectiveAccent("#1D4ED8"));
         Assert.Null(Color.EffectiveAccent("#1A66CC"));
-        Assert.Equal("#00456C", Color.EffectiveAccent("#00456c"));
+        Assert.Null(Color.EffectiveAccent("#00456c"));
         Assert.Null(Color.EffectiveAccent("#FFFF00"));
         Assert.Null(Color.EffectiveAccent("red"));
         Assert.Equal("#0B5D57", Color.EffectiveAccent("#0b5d57"));

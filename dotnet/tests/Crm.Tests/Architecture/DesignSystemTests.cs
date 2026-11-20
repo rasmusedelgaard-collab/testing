@@ -306,4 +306,29 @@ public sealed partial class DesignSystemTests
         Assert.Contains("\"rec-link\"", td, StringComparison.Ordinal);
         Assert.DoesNotContain("\"record\"", td, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Absolutely_positioned_hidden_text_is_anchored_so_it_cannot_widen_the_page()
+    {
+        // D1: .visually-hidden is position:absolute; without a positioned ancestor it sits at the page edge and makes the whole page scroll sideways.
+        var css = Css();
+        Assert.Matches(@"\.board-col \{[^}]*position: relative;", css);
+        Assert.Matches(@"\.tile-trend \{ position: relative;", css);
+    }
+
+    [Fact]
+    public void Dashboard_trend_pill_is_capped_and_truncates_on_phones()
+    {
+        // D2
+        var css = Css();
+        Assert.Contains(".tile-trend { max-width: 50%; min-width: 0; }", css, StringComparison.Ordinal);
+        Assert.Contains(".tile-trend > span:not(.visually-hidden) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }", css, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Light_brand_preview_pins_the_light_tokens()
+    {
+        // D3: the Light sample must not inherit the Dark action colour (2.4:1 on white).
+        Assert.Contains("[data-preview=\"light\"] { --action:#1a66cc;", Tokens(), StringComparison.Ordinal);
+    }
 }

@@ -25,12 +25,12 @@ public sealed class GeneralModel(IRlsDb rls, IRlsContextAccessor identity, Brand
         LogoSha = sha;
         AppName = keepValues ? appName ?? "" : map.GetValueOrDefault("app.name") ?? "CRM";
         var stored = map.GetValueOrDefault("branding.accentColor");
-        if (!keepValues && stored is not null && Color.EffectiveAccent(stored) is null && !stored.Equals(Color.LegacyAccent, StringComparison.OrdinalIgnoreCase) && !stored.Equals(Color.DefaultAccent, StringComparison.OrdinalIgnoreCase))
+        if (!keepValues && stored is not null && Color.EffectiveAccent(stored) is null && !Color.IsUnsetAccent(stored))
         {
             AccentProblem = SettingsValidators.ValidateGeneral("x", stored).Errors.GetValueOrDefault("accentColor");
         }
         // The old default is "not set": show the DAFA blue that is actually in use (B-12).
-        AccentColor = keepValues ? accent ?? "" : stored is null || stored.Equals(Color.LegacyAccent, StringComparison.OrdinalIgnoreCase) ? Color.DefaultAccent : stored;
+        AccentColor = keepValues ? accent ?? "" : stored is null || Color.IsUnsetAccent(stored) ? Color.DefaultAccent : stored;
         Setup("general", "General settings");
     }
 

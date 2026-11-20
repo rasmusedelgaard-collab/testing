@@ -21,14 +21,18 @@ const server = http.createServer((req, res) => {
     return res.end(fs.readFileSync(path.join(dump, path.basename(url.pathname))));
   }
   if (url.pathname === '/css/theme.css') { res.setHeader('content-type', 'text/css'); return res.end(''); }
-  const file = path.join(wwwroot, path.normalize(url.pathname).replace(/^(\.\.[/\\])+/, ''));
-  if (file.startsWith(wwwroot) && fs.existsSync(file) && fs.statSync(file).isFile()) {
+  let decoded;
+  try { decoded = decodeURIComponent(url.pathname); } catch { res.statusCode = 400; return res.end('bad request'); }
+  const file = path.join(wwwroot, path.normalize(decoded));
+  const rel = path.relative(wwwroot, file);
+  const inside = rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+  if (inside && fs.existsSync(file) && fs.statSync(file).isFile()) {
     res.setHeader('content-type', types[path.extname(file)] ?? 'application/octet-stream');
     return res.end(fs.readFileSync(file));
   }
   res.statusCode = 404; res.end('not found');
 });
-await new Promise(r => server.listen(0, r));
+await new Promise(r => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
 
 const allShots = [
@@ -51,7 +55,12 @@ const allShots = [
     ['board-phone', 'v2-board', 'light', 390, 844], ['opportunity-phone', 'v2-opportunity', 'light', 390, 844], ['opportunities-phone', 'v2-opps', 'light', 390, 844],
   ].map(([n, key, scheme, w, h, full]) => ({ name: `rollout-${n}${scheme === 'dark' || w === 390 ? '' : '-light'}${w === 390 ? '-390' : w === 1440 && scheme === 'dark' ? '-1440' : '-1440'}`.replace('-light-1440-1440', '-light-1440'), raw: true, key, w, h, scheme, mobile: w === 390, full: !!full })),
 ];
-const shots = allShots.filter(s => only === 'all' || (s.raw ? only === 'rollout' : s.name.startsWith(only)));
+// Review-fix shots (run with filter "fix"): names are final file names.
+const fixShots = [
+  ['board-1024', 'v2-board', 'light', 1024, 800], ['dashboard-phone-390', 'v2-dashboard', 'light', 390, 844], ['settings-general-dark-1440', 'v2-general', 'dark', 1440, 900],
+  ['analytics-phone-390', 'v2-analytics', 'light', 390, 844, 'full'], ['form-phone-390', 'v2-form', 'light', 390, 844, 'full'],
+].map(([n, key, scheme, w, h, full]) => ({ name: `rollout-fix-${n}`, raw: true, key, w, h, scheme, mobile: w === 390, full: !!full }));
+const shots = only === 'fix' ? fixShots : allShots.filter(s => only === 'all' || (s.raw ? only === 'rollout' : s.name.startsWith(only)));
 fs.mkdirSync(out, { recursive: true });
 const browser = await chromium.launch();
 for (const s of shots) {
